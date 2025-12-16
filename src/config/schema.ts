@@ -19,7 +19,7 @@ export type VideoQuality = keyof typeof VIDEO_QUALITY;
 export const configSchema = z.object({
   outputDir: z.string().default("~/Downloads/course-grab"),
   videoQuality: z.enum(["highest", "lowest", "1080p", "720p", "480p"]).default("highest"),
-  concurrency: z.number().int().min(1).max(5).default(2),
+  concurrency: z.number().int().min(1).max(10).default(3),
   retryAttempts: z.number().int().min(0).max(10).default(3),
   headless: z.boolean().default(false),
 });

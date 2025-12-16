@@ -199,37 +199,79 @@ async function getSegmentUrls(playlistUrl: string): Promise<string[]> {
   }
 }
 
+// Default parallelism for segment downloads
+const SEGMENT_CONCURRENCY = 8;
+
 /**
- * Downloads segments and writes them to a file.
+ * Downloads a single segment and returns its data.
+ */
+async function downloadSegment(url: string, retries = 3): Promise<Buffer | null> {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const response = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+      });
+
+      if (!response.ok || !response.body) {
+        continue;
+      }
+
+      const chunks: Uint8Array[] = [];
+      const reader = response.body.getReader();
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+
+      return Buffer.concat(chunks.map(c => Buffer.from(c)));
+    } catch {
+      // Retry on failure
+      await new Promise(r => setTimeout(r, 100 * (attempt + 1)));
+    }
+  }
+  return null;
+}
+
+/**
+ * Downloads segments in parallel and writes them to a file in order.
  */
 async function downloadSegmentsToFile(
   segments: string[],
   outputPath: string,
-  onProgress?: (current: number, total: number) => void
+  onProgress?: (current: number, total: number) => void,
+  concurrency = SEGMENT_CONCURRENCY
 ): Promise<boolean> {
   const tempPath = `${outputPath}.tmp`;
-  const fileStream = createWriteStream(tempPath);
 
   try {
-    for (let i = 0; i < segments.length; i++) {
-      const segmentUrl = segments[i];
-      if (!segmentUrl) continue;
+    // Download segments in parallel batches, but preserve order
+    const segmentData: (Buffer | null)[] = new Array(segments.length).fill(null);
+    let completed = 0;
 
-      const response = await fetch(segmentUrl, {
-        headers: { "User-Agent": "Mozilla/5.0" },
+    // Process in batches for controlled parallelism
+    for (let i = 0; i < segments.length; i += concurrency) {
+      const batch = segments.slice(i, i + concurrency);
+      const batchPromises = batch.map(async (url, batchIndex) => {
+        const globalIndex = i + batchIndex;
+        const data = await downloadSegment(url);
+        segmentData[globalIndex] = data;
+        completed++;
+        if (onProgress) {
+          onProgress(completed, segments.length);
+        }
       });
 
-      if (!response.ok || !response.body) continue;
+      await Promise.all(batchPromises);
+    }
 
-      const reader = response.body.getReader();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        fileStream.write(Buffer.from(value));
-      }
-
-      if (onProgress) {
-        onProgress(i + 1, segments.length);
+    // Write all segments in order
+    const fileStream = createWriteStream(tempPath);
+    
+    for (const data of segmentData) {
+      if (data) {
+        fileStream.write(data);
       }
     }
 
@@ -239,7 +281,7 @@ async function downloadSegmentsToFile(
 
     renameSync(tempPath, outputPath);
     return true;
-  } catch (error) {
+  } catch {
     if (existsSync(tempPath)) unlinkSync(tempPath);
     return false;
   }

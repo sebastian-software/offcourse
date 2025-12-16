@@ -234,49 +234,76 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
       let completedDownloads = 0;
       let totalBytes = 0;
 
-      // Process videos sequentially with progress
-      for (const task of videoTasks) {
-        const shortName = task.lessonName.length > 50 
-          ? task.lessonName.substring(0, 47) + "..." 
-          : task.lessonName;
+      // Process videos with controlled parallelism
+      const videoConcurrency = config.concurrency;
+      console.log(chalk.gray(`   (${videoConcurrency} parallel downloads, 8 parallel segments per video)\n`));
 
-        // Create single progress bar for this video
-        const progressBar = new cliProgress.SingleBar({
-          format: chalk.cyan("   {bar}") + " | {percentage}% | {phase} | " + chalk.white(shortName),
-          barCompleteChar: "█",
-          barIncompleteChar: "░",
-          hideCursor: true,
-          clearOnComplete: true,
+      // Track progress for each active download
+      const activeDownloads = new Map<string, { bar: cliProgress.SingleBar; name: string }>();
+
+      const multibar = new cliProgress.MultiBar({
+        clearOnComplete: false,
+        hideCursor: true,
+        format: chalk.cyan("   {bar}") + " | {percentage}% | {phase} | {name}",
+        barCompleteChar: "█",
+        barIncompleteChar: "░",
+        linewrap: false,
+      }, cliProgress.Presets.shades_grey);
+
+      // Process in batches
+      for (let i = 0; i < videoTasks.length; i += videoConcurrency) {
+        const batch = videoTasks.slice(i, i + videoConcurrency);
+        
+        const batchPromises = batch.map(async (task) => {
+          const shortName = task.lessonName.length > 40 
+            ? task.lessonName.substring(0, 37) + "..." 
+            : task.lessonName;
+
+          const bar = multibar.create(100, 0, { name: shortName, phase: "start" });
+          activeDownloads.set(task.lessonName, { bar, name: shortName });
+
+          try {
+            const result: DownloadResult = await downloadVideo(task, (progress) => {
+              bar.update(Math.round(progress.percent), { 
+                phase: progress.phase ?? "dl" 
+              });
+            });
+
+            multibar.remove(bar);
+            activeDownloads.delete(task.lessonName);
+
+            if (result.success) {
+              completedDownloads++;
+              if (result.fileSize) {
+                totalBytes += result.fileSize;
+              }
+              return { success: true, name: shortName, size: result.fileSize };
+            } else {
+              downloadErrors.push({ name: task.lessonName, error: result.error ?? "Unknown error" });
+              return { success: false, name: shortName, error: result.error };
+            }
+          } catch (error) {
+            multibar.remove(bar);
+            activeDownloads.delete(task.lessonName);
+            const errMsg = error instanceof Error ? error.message : String(error);
+            downloadErrors.push({ name: task.lessonName, error: errMsg });
+            return { success: false, name: shortName, error: errMsg };
+          }
         });
 
-        progressBar.start(100, 0, { phase: "starting" });
+        const results = await Promise.all(batchPromises);
 
-        try {
-          const result: DownloadResult = await downloadVideo(task, (progress) => {
-            progressBar.update(Math.round(progress.percent), { 
-              phase: progress.phase ?? "downloading" 
-            });
-          });
-
-          progressBar.stop();
-
+        // Log batch results
+        for (const result of results) {
           if (result.success) {
-            completedDownloads++;
-            if (result.fileSize) {
-              totalBytes += result.fileSize;
-            }
-            console.log(chalk.green(`   ✓ ${shortName} (${result.fileSize ? formatBytes(result.fileSize) : "done"})`));
+            console.log(chalk.green(`   ✓ ${result.name} (${result.size ? formatBytes(result.size) : "done"})`));
           } else {
-            downloadErrors.push({ name: task.lessonName, error: result.error ?? "Unknown error" });
-            console.log(chalk.red(`   ✗ ${shortName}: ${result.error}`));
+            console.log(chalk.red(`   ✗ ${result.name}: ${result.error}`));
           }
-        } catch (error) {
-          progressBar.stop();
-          const errMsg = error instanceof Error ? error.message : String(error);
-          downloadErrors.push({ name: task.lessonName, error: errMsg });
-          console.log(chalk.red(`   ✗ ${shortName}: ${errMsg}`));
         }
       }
+
+      multibar.stop();
 
       // Summary
       console.log();
