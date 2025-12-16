@@ -2,6 +2,7 @@
 
 import { Command } from "commander";
 import { configGetCommand, configSetCommand, configShowCommand } from "./commands/config.js";
+import { enrichCommand } from "./commands/enrich.js";
 import { inspectCommand } from "./commands/inspect.js";
 import { loginCommand, logoutCommand } from "./commands/login.js";
 import { syncCommand } from "./commands/sync.js";
@@ -41,6 +42,16 @@ program
   .option("--full", "Save complete HTML as well")
   .option("--click", "Try to click video preview to trigger lazy loading")
   .action(inspectCommand);
+
+// Enrich command (transcription)
+program
+  .command("enrich <course-dir>")
+  .description("Transcribe videos in a synced course")
+  .option("-m, --model <model>", "Whisper model (tiny|base|small|medium|large)", "base")
+  .option("-l, --language <lang>", "Language code (de, en, etc.)", "de")
+  .option("-f, --force", "Re-transcribe even if transcript exists")
+  .option("--limit <n>", "Limit to first N videos (for testing)", parseInt)
+  .action(enrichCommand);
 
 // Config commands
 const configCmd = program.command("config").description("Manage configuration");

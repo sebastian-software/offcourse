@@ -421,7 +421,7 @@ export class ParakeetBackend {
 
   async initialize(model: keyof typeof MODELS = 'parakeet-tdt-0.6b-v3'): Promise<void> {
     const modelPath = await this.modelManager.ensureModel(model, MODELS[model].url);
-    
+
     // Use CoreML Execution Provider on macOS for GPU acceleration
     const sessionOptions: ort.InferenceSession.SessionOptions = {
       executionProviders: [
@@ -450,7 +450,7 @@ export class ParakeetBackend {
     };
 
     const results = await this.session.run(feeds);
-    
+
     // Decode output tokens to text
     const { text, segments, words } = this.processor.decodeOutput(results);
 
@@ -498,7 +498,7 @@ export class AudioProcessor {
   }> {
     // Convert to 16kHz mono WAV using ffmpeg
     const tempWav = join(tmpdir(), `transcribe-${Date.now()}.wav`);
-    
+
     execSync(
       `ffmpeg -i "${audioPath}" -ar 16000 -ac 1 -f wav "${tempWav}" -y`,
       { stdio: 'pipe' }
@@ -519,11 +519,11 @@ export class AudioProcessor {
     // Skip WAV header (44 bytes) and read PCM data
     const pcmData = buffer.subarray(44);
     const samples = new Float32Array(pcmData.length / 2);
-    
+
     for (let i = 0; i < samples.length; i++) {
       samples[i] = pcmData.readInt16LE(i * 2) / 32768;
     }
-    
+
     return samples;
   }
 
@@ -537,10 +537,10 @@ export class AudioProcessor {
     const hopLength = 160;
     const nMels = 80;
     const nFrames = Math.floor((samples.length - nFft) / hopLength) + 1;
-    
+
     const melSpec = new Float32Array(nMels * nFrames);
     // ... actual mel spectrogram computation ...
-    
+
     return {
       data: melSpec,
       shape: [1, nMels, nFrames],
@@ -568,9 +568,9 @@ export class AudioProcessor {
 ```typescript
 // src/index.ts
 import { platform } from 'os';
-import type { 
+import type {
   BackendType,
-  TranscribeOptions, 
+  TranscribeOptions,
   TranscriptionResult,
   BackendInfo,
 } from './types.js';
@@ -644,13 +644,13 @@ function selectBestBackend(language?: string): BackendType {
   if (platform() === 'darwin') {
     return 'apple';
   }
-  
+
   // Parakeet for EU languages (fastest ONNX)
   const euLanguages = ['de', 'en', 'fr', 'es', 'it', 'pt', 'nl', 'pl'];
   if (!language || euLanguages.includes(language.split('-')[0])) {
     return 'parakeet';
   }
-  
+
   // Whisper for everything else
   return 'whisper';
 }
@@ -662,7 +662,7 @@ export async function transcribe(
   audioPath: string,
   options: TranscribeOptions = {}
 ): Promise<TranscriptionResult> {
-  const backend = options.backend ?? 
+  const backend = options.backend ??
     (currentBackend === 'auto' ? selectBestBackend(options.language) : currentBackend);
 
   switch (backend) {
@@ -673,7 +673,7 @@ export async function transcribe(
       }
       return appleBackend.transcribe(audioPath, options);
     }
-    
+
     case 'parakeet':
     case 'canary': {
       if (!parakeetBackend) {
@@ -685,7 +685,7 @@ export async function transcribe(
       }
       return parakeetBackend.transcribe(audioPath);
     }
-    
+
     case 'whisper': {
       if (!whisperBackend) {
         const { WhisperBackend } = await import('./backends/whisper/index.js');
@@ -694,7 +694,7 @@ export async function transcribe(
       }
       return whisperBackend.transcribe(audioPath, options);
     }
-    
+
     default:
       throw new Error(`Unknown backend: ${backend}`);
   }
@@ -824,12 +824,12 @@ import { transcribe, getAvailableBackends } from 'local-transcribe';
 export async function transcribeLesson(videoPath: string): Promise<string> {
   // Extract audio from video
   const audioPath = await extractAudio(videoPath);
-  
+
   // Transcribe with best available backend
   const result = await transcribe(audioPath, {
     language: 'de',
   });
-  
+
   return result.text;
 }
 ```
@@ -854,7 +854,7 @@ export async function transcribeLesson(videoPath: string): Promise<string> {
 ## Future Enhancements
 
 - [ ] Streaming transcription with partial results
-- [ ] Speaker diarization 
+- [ ] Speaker diarization
 - [ ] Translation support (Canary: transcribe German → English text)
 - [ ] Custom vocabulary/context hints
 - [ ] Pre-built binaries via prebuild (avoid compile step)
@@ -906,8 +906,8 @@ Would require Python runtime, adds complexity for Node.js users.
 
 ---
 
-**Status:** Draft  
-**Author:** course-grab team  
+**Status:** Draft
+**Author:** course-grab team
 **Created:** 2025-12-16
 **Updated:** 2025-12-16 - Added multi-backend support (Parakeet v3, Canary, Whisper)
 
