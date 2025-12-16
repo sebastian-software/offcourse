@@ -28,3 +28,4 @@ coverage/
 # Session storage (contains auth tokens)
 .course-grab/
 
+.env

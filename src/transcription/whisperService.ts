@@ -69,7 +69,7 @@ function formatTranscript(rawText: string, pauseThreshold = 0.8): string {
       .split("\n")
       .filter((l) => l.trim())
       .join(" ");
-    
+
     return addParagraphBreaks(text);
   }
 
@@ -85,7 +85,7 @@ function formatTranscript(rawText: string, pauseThreshold = 0.8): string {
 
     // Check if there's a significant pause
     const hasPause = prevSegment && segment.start - prevSegment.end > pauseThreshold;
-    
+
     // Count sentences in this segment
     const sentenceEnders = (segment.text.match(/[.!?]/g) || []).length;
     sentenceCount += sentenceEnders;
@@ -116,15 +116,15 @@ function formatTranscript(rawText: string, pauseThreshold = 0.8): string {
 function addParagraphBreaks(text: string): string {
   // Split into sentences
   const sentences = text.split(/(?<=[.!?])\s+/);
-  
+
   const paragraphs: string[] = [];
   let current: string[] = [];
-  
+
   for (const sentence of sentences) {
     current.push(sentence);
-    
+
     // New paragraph every 4-5 sentences or on topic change indicators
-    if (current.length >= 4 || 
+    if (current.length >= 4 ||
         sentence.includes("Und zwar") ||
         sentence.includes("Das bedeutet") ||
         sentence.includes("Das Erste") ||
@@ -133,11 +133,11 @@ function addParagraphBreaks(text: string): string {
       current = [];
     }
   }
-  
+
   if (current.length > 0) {
     paragraphs.push(current.join(" "));
   }
-  
+
   return paragraphs.join("\n\n");
 }
 

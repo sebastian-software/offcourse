@@ -6,12 +6,15 @@ import {
   transcribeVideo,
   type WhisperModel,
 } from "../../transcription/whisperService.js";
+import { polishTranscript } from "../../ai/transcriptPolisher.js";
+import { isConfigured as isOpenRouterConfigured } from "../../ai/openRouter.js";
 
 interface EnrichOptions {
   model?: WhisperModel;
   language?: string;
   force?: boolean;
   limit?: number;
+  polish?: boolean;
 }
 
 interface LessonMeta {
@@ -20,6 +23,7 @@ interface LessonMeta {
   videoUrl: string | null;
   videoType: string | null;
   transcribedAt?: string;
+  polishedAt?: string;
 }
 
 /**
@@ -55,7 +59,18 @@ function findLessonsWithVideos(courseDir: string): string[] {
  * Check if a lesson already has a transcript.
  */
 function hasTranscript(lessonDir: string): boolean {
-  return existsSync(join(lessonDir, "transcript.txt"));
+  return (
+    existsSync(join(lessonDir, "transcript.md")) ||
+    existsSync(join(lessonDir, "transcript.txt"))
+  );
+}
+
+/**
+ * Check if a lesson has been polished.
+ */
+function isPolished(lessonDir: string): boolean {
+  const meta = loadMeta(lessonDir);
+  return !!meta?.polishedAt;
 }
 
 /**
@@ -107,16 +122,24 @@ export async function enrichCommand(
   }
 
   // Options with defaults
-  const model = options.model ?? "base";
+  const model = options.model ?? "small";
   const language = options.language ?? "de";
+  const shouldPolish = options.polish ?? false;
 
   console.log(chalk.gray(`   Model: ${model}`));
   console.log(chalk.gray(`   Language: ${language}`));
+  if (shouldPolish) {
+    if (isOpenRouterConfigured()) {
+      console.log(chalk.gray(`   Polish: enabled (OpenRouter)`));
+    } else {
+      console.log(chalk.yellow(`   Polish: disabled (OPENROUTER_API_KEY not set)`));
+    }
+  }
   console.log(chalk.gray(`   Directory: ${courseDir}\n`));
 
   // Find all lessons with videos
   const lessons = findLessonsWithVideos(courseDir);
-  console.log(chalk.gray(`\n   Found ${lessons.length} lessons with videos\n`));
+  console.log(chalk.gray(`   Found ${lessons.length} lessons with videos\n`));
 
   if (lessons.length === 0) {
     console.log(chalk.yellow("No videos found to transcribe."));
@@ -126,6 +149,10 @@ export async function enrichCommand(
   // Filter lessons that need transcription
   let lessonsToProcess = lessons.filter((lessonDir) => {
     if (options.force) return true;
+    // If polish requested, check if already polished
+    if (shouldPolish && hasTranscript(lessonDir) && !isPolished(lessonDir)) {
+      return true;
+    }
     return !hasTranscript(lessonDir);
   });
 
@@ -138,23 +165,71 @@ export async function enrichCommand(
     return;
   }
 
-  console.log(chalk.blue(`Transcribing ${lessonsToProcess.length} videos...\n`));
+  console.log(chalk.blue(`Processing ${lessonsToProcess.length} videos...\n`));
 
   let transcribed = 0;
+  let polished = 0;
   let failed = 0;
 
   for (const lessonDir of lessonsToProcess) {
     const lessonName = getLessonName(lessonDir);
     const videoPath = join(lessonDir, "video.mp4");
-    const transcriptPath = join(lessonDir, "transcript.txt");
+    const transcriptMdPath = join(lessonDir, "transcript.md");
+    const transcriptTxtPath = join(lessonDir, "transcript.txt");
 
     const spinner = ora(`   ${lessonName}`).start();
 
     try {
-      const result = await transcribeVideo(videoPath, { model, language });
+      let transcriptText: string;
 
-      // Save transcript
-      writeFileSync(transcriptPath, result.text, "utf-8");
+      // Check if we already have a transcript (just need to polish)
+      if (existsSync(transcriptTxtPath) && shouldPolish && !options.force) {
+        transcriptText = readFileSync(transcriptTxtPath, "utf-8");
+        spinner.text = `   ${lessonName} (polishing...)`;
+      } else {
+        // Transcribe video
+        const result = await transcribeVideo(videoPath, { model, language });
+        transcriptText = result.text;
+
+        // Save raw transcript
+        writeFileSync(transcriptTxtPath, transcriptText, "utf-8");
+
+        const speedFactor =
+          result.duration > 0
+            ? (result.duration / result.processingTime).toFixed(1)
+            : "?";
+
+        spinner.text = `   ${lessonName} (${Math.round(result.duration)}s → ${result.processingTime.toFixed(1)}s, ${speedFactor}x)`;
+        transcribed++;
+      }
+
+      // Polish with LLM if requested
+      let finalMarkdown = transcriptText;
+      if (shouldPolish && isOpenRouterConfigured()) {
+        spinner.text = `   ${lessonName} (polishing with AI...)`;
+        
+        try {
+          const polishedResult = await polishTranscript(transcriptText);
+          finalMarkdown = polishedResult.markdown;
+          polished++;
+
+          // Update metadata with polished timestamp
+          const meta = loadMeta(lessonDir) ?? {
+            syncedAt: new Date().toISOString(),
+            updatedAt: null,
+            videoUrl: null,
+            videoType: null,
+          };
+          meta.polishedAt = new Date().toISOString();
+          saveMeta(lessonDir, meta);
+        } catch (polishError) {
+          // Continue with unpolished version
+          console.log(chalk.yellow(`\n      Polish failed: ${polishError}`));
+        }
+      }
+
+      // Save as markdown
+      writeFileSync(transcriptMdPath, finalMarkdown, "utf-8");
 
       // Update metadata
       const meta = loadMeta(lessonDir) ?? {
@@ -166,14 +241,8 @@ export async function enrichCommand(
       meta.transcribedAt = new Date().toISOString();
       saveMeta(lessonDir, meta);
 
-      const speedFactor = result.duration > 0
-        ? (result.duration / result.processingTime).toFixed(1)
-        : "?";
-
-      spinner.succeed(
-        `   ${lessonName} (${Math.round(result.duration)}s → ${result.processingTime.toFixed(1)}s, ${speedFactor}x)`
-      );
-      transcribed++;
+      const statusSuffix = shouldPolish && isOpenRouterConfigured() ? " + polished" : "";
+      spinner.succeed(`   ${lessonName}${statusSuffix}`);
     } catch (error) {
       spinner.fail(`   ${lessonName}`);
       console.log(chalk.red(`      Error: ${error}`));
@@ -182,10 +251,12 @@ export async function enrichCommand(
   }
 
   // Summary
-  console.log(chalk.green(`\n✅ Transcription complete!`));
+  console.log(chalk.green(`\n✅ Enrichment complete!`));
   console.log(chalk.gray(`   Transcribed: ${transcribed}`));
+  if (polished > 0) {
+    console.log(chalk.gray(`   Polished: ${polished}`));
+  }
   if (failed > 0) {
     console.log(chalk.red(`   Failed: ${failed}`));
   }
 }
-

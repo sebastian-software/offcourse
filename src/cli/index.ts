@@ -49,6 +49,7 @@ program
   .description("Transcribe videos in a synced course")
   .option("-m, --model <model>", "Whisper model (tiny|base|small|medium|large)", "small")
   .option("-l, --language <lang>", "Language code (de, en, etc.)", "de")
+  .option("-p, --polish", "Polish transcript with AI (requires OPENROUTER_API_KEY)")
   .option("-f, --force", "Re-transcribe even if transcript exists")
   .option("--limit <n>", "Limit to first N videos (for testing)", parseInt)
   .action(enrichCommand);
