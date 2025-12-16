@@ -174,6 +174,25 @@ export async function extractModulesFromPage(page: Page): Promise<CourseModule[]
 }
 
 /**
+ * Checks if a URL points to a specific module (has 8-char hex slug).
+ */
+function isModuleUrl(url: string): { isModule: boolean; moduleSlug: string | null } {
+  const match = url.match(/\/classroom\/([a-f0-9]{8})(?:\?|$)/);
+  return {
+    isModule: !!match,
+    moduleSlug: match?.[1] ?? null,
+  };
+}
+
+/**
+ * Gets the classroom base URL (without module slug).
+ */
+function getClassroomBaseUrl(url: string): string {
+  // Remove module slug and query params
+  return url.replace(/\/classroom\/[a-f0-9]{8}.*$/, "/classroom");
+}
+
+/**
  * Builds the complete course structure by crawling all modules and lessons.
  */
 export async function buildCourseStructure(
@@ -182,7 +201,13 @@ export async function buildCourseStructure(
 ): Promise<CourseStructure> {
   console.log("📚 Scanning course structure...");
 
-  await page.goto(classroomUrl, { timeout: 30000 });
+  const { isModule, moduleSlug } = isModuleUrl(classroomUrl);
+
+  // If URL points to a specific module, get the base classroom URL first
+  const baseClassroomUrl = isModule ? getClassroomBaseUrl(classroomUrl) : classroomUrl;
+
+  // Navigate to the classroom overview to get all modules
+  await page.goto(baseClassroomUrl, { timeout: 30000 });
   await page.waitForLoadState("domcontentloaded");
   await page.waitForTimeout(2000);
 
@@ -195,6 +220,15 @@ export async function buildCourseStructure(
   if (modules.length === 0) {
     console.log("   (Using page scraping for modules)");
     modules = await extractModulesFromPage(page);
+  }
+
+  // If user specified a specific module, filter to just that one
+  if (isModule && moduleSlug) {
+    const targetModule = modules.find((m) => m.slug === moduleSlug);
+    if (targetModule) {
+      console.log(`   Filtering to module: ${targetModule.name}`);
+      modules = [targetModule];
+    }
   }
 
   console.log(`   Found ${modules.length} modules`);
@@ -221,7 +255,7 @@ export async function buildCourseStructure(
 
   return {
     name: courseName,
-    url: classroomUrl,
+    url: baseClassroomUrl,
     modules: modulesWithLessons,
   };
 }
