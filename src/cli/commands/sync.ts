@@ -11,6 +11,7 @@ import {
   createModuleDirectory,
   getVideoPath,
   isLessonSynced,
+  saveLessonMetadata,
   saveMarkdown,
 } from "../../storage/fileSystem.js";
 
@@ -176,9 +177,18 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
             content.title,
             content.markdownContent,
             content.videoUrl,
-            content.videoType
+            content.videoType,
+            content.updatedAt
           );
           saveMarkdown(task.lessonDir, "content.md", markdown);
+
+          // Save metadata for incremental sync
+          saveLessonMetadata(task.lessonDir, {
+            syncedAt: new Date().toISOString(),
+            updatedAt: content.updatedAt,
+            videoUrl: content.videoUrl,
+            videoType: content.videoType,
+          });
         }
 
         // Queue video for download if needed
