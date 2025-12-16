@@ -1,4 +1,4 @@
-import { createWriteStream, existsSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, renameSync, unlinkSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { finished } from "node:stream/promises";
@@ -17,6 +17,13 @@ export interface DownloadProgress {
   percent: number;
   downloaded: number;
   total: number;
+  phase?: string;  // e.g., "video", "audio", "merging"
+}
+
+export interface DownloadResult {
+  success: boolean;
+  error?: string;
+  fileSize?: number | undefined;  // bytes
 }
 
 /**
@@ -291,9 +298,10 @@ export async function downloadLoomVideo(
   urlOrId: string,
   outputPath: string,
   onProgress?: (progress: DownloadProgress) => void
-): Promise<{ success: boolean; error?: string }> {
+): Promise<DownloadResult> {
   if (existsSync(outputPath)) {
-    return { success: true };
+    const fileSize = statSync(outputPath).size;
+    return { success: true, fileSize };
   }
 
   const videoId = urlOrId.includes("loom.com") ? extractLoomId(urlOrId) : urlOrId;
@@ -340,7 +348,7 @@ export async function downloadLoomVideo(
       const videoSuccess = await downloadSegmentsToFile(videoSegments, tempVideoPath, (curr, _total) => {
         completed = curr;
         if (onProgress) {
-          onProgress({ percent: (completed / totalSegments) * 100, downloaded: completed, total: totalSegments });
+          onProgress({ percent: (completed / totalSegments) * 100, downloaded: completed, total: totalSegments, phase: "video" });
         }
       });
 
@@ -352,7 +360,7 @@ export async function downloadLoomVideo(
       const audioSuccess = await downloadSegmentsToFile(audioSegments, tempAudioPath, (curr, _total) => {
         completed = videoSegments.length + curr;
         if (onProgress) {
-          onProgress({ percent: (completed / totalSegments) * 100, downloaded: completed, total: totalSegments });
+          onProgress({ percent: (completed / totalSegments) * 100, downloaded: completed, total: totalSegments, phase: "audio" });
         }
       });
 
@@ -362,12 +370,17 @@ export async function downloadLoomVideo(
       }
 
       // Merge with ffmpeg
+      if (onProgress) {
+        onProgress({ percent: 99, downloaded: totalSegments, total: totalSegments, phase: "merging" });
+      }
+
       const mergeSuccess = await mergeWithFfmpeg(tempVideoPath, tempAudioPath, outputPath);
       if (!mergeSuccess) {
         return { success: false, error: "Failed to merge video and audio" };
       }
 
-      return { success: true };
+      const fileSize = existsSync(outputPath) ? statSync(outputPath).size : undefined;
+      return { success: true, fileSize };
     } else {
       // No ffmpeg - download video only with warning
       console.warn("⚠️  ffmpeg not found - downloading video without audio");
@@ -377,7 +390,7 @@ export async function downloadLoomVideo(
   // Download video only (no audio or no ffmpeg)
   const success = await downloadSegmentsToFile(videoSegments, outputPath, (curr, total) => {
     if (onProgress) {
-      onProgress({ percent: (curr / total) * 100, downloaded: curr, total });
+      onProgress({ percent: (curr / total) * 100, downloaded: curr, total, phase: "video" });
     }
   });
 
@@ -385,7 +398,8 @@ export async function downloadLoomVideo(
     return { success: false, error: "Failed to download video segments" };
   }
 
-  return { success: true };
+  const fileSize = existsSync(outputPath) ? statSync(outputPath).size : undefined;
+  return { success: true, fileSize };
 }
 
 /**
@@ -395,9 +409,10 @@ export async function downloadFile(
   url: string,
   outputPath: string,
   onProgress?: (progress: DownloadProgress) => void
-): Promise<{ success: boolean; error?: string }> {
+): Promise<DownloadResult> {
   if (existsSync(outputPath)) {
-    return { success: true };
+    const fileSize = statSync(outputPath).size;
+    return { success: true, fileSize };
   }
 
   const dir = dirname(outputPath);
@@ -448,7 +463,8 @@ export async function downloadFile(
     await finished(readable.pipe(fileStream));
     renameSync(tempPath, outputPath);
 
-    return { success: true };
+    const fileSize = statSync(outputPath).size;
+    return { success: true, fileSize };
   } catch (error) {
     if (existsSync(tempPath)) unlinkSync(tempPath);
     return { success: false, error: error instanceof Error ? error.message : String(error) };

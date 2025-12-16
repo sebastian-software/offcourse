@@ -1,7 +1,8 @@
 import chalk from "chalk";
 import ora from "ora";
+import cliProgress from "cli-progress";
 import { loadConfig } from "../../config/configManager.js";
-import { downloadVideo, AsyncQueue, type VideoDownloadTask } from "../../downloader/index.js";
+import { downloadVideo, type VideoDownloadTask, type DownloadResult } from "../../downloader/index.js";
 import { getAuthenticatedSession } from "../../scraper/auth.js";
 import { extractLessonContent, formatMarkdown } from "../../scraper/extractor.js";
 import { buildCourseStructure } from "../../scraper/navigator.js";
@@ -14,6 +15,17 @@ import {
   saveLessonMetadata,
   saveMarkdown,
 } from "../../storage/fileSystem.js";
+
+/**
+ * Format bytes to human readable string.
+ */
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+}
 
 const SKOOL_DOMAIN = "www.skool.com";
 const SKOOL_LOGIN_URL = "https://www.skool.com/login";
@@ -218,33 +230,63 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
     if (!options.skipVideos && videoTasks.length > 0) {
       console.log(chalk.blue(`\n🎬 Phase 2: Downloading ${videoTasks.length} videos...\n`));
 
-      const queue = new AsyncQueue<VideoDownloadTask>({
-        concurrency: config.concurrency,
-        maxRetries: config.retryAttempts,
-      });
+      const downloadErrors: Array<{ name: string; error: string }> = [];
+      let completedDownloads = 0;
+      let totalBytes = 0;
 
-      queue.addAll(videoTasks.map((task) => ({ id: task.lessonName, data: task })));
+      // Process videos sequentially with progress
+      for (const task of videoTasks) {
+        const shortName = task.lessonName.length > 50 
+          ? task.lessonName.substring(0, 47) + "..." 
+          : task.lessonName;
 
-      const videoSpinner = ora("Starting downloads...").start();
-
-      const result = await queue.process(async (task, id) => {
-        videoSpinner.text = `   Downloading: ${id}`;
-
-        const downloadResult = await downloadVideo(task, (progress) => {
-          videoSpinner.text = `   ${id} (${Math.round(progress.percent)}%)`;
+        // Create single progress bar for this video
+        const progressBar = new cliProgress.SingleBar({
+          format: chalk.cyan("   {bar}") + " | {percentage}% | {phase} | " + chalk.white(shortName),
+          barCompleteChar: "█",
+          barIncompleteChar: "░",
+          hideCursor: true,
+          clearOnComplete: true,
         });
 
-        if (!downloadResult.success) {
-          throw new Error(downloadResult.error ?? "Download failed");
+        progressBar.start(100, 0, { phase: "starting" });
+
+        try {
+          const result: DownloadResult = await downloadVideo(task, (progress) => {
+            progressBar.update(Math.round(progress.percent), { 
+              phase: progress.phase ?? "downloading" 
+            });
+          });
+
+          progressBar.stop();
+
+          if (result.success) {
+            completedDownloads++;
+            if (result.fileSize) {
+              totalBytes += result.fileSize;
+            }
+            console.log(chalk.green(`   ✓ ${shortName} (${result.fileSize ? formatBytes(result.fileSize) : "done"})`));
+          } else {
+            downloadErrors.push({ name: task.lessonName, error: result.error ?? "Unknown error" });
+            console.log(chalk.red(`   ✗ ${shortName}: ${result.error}`));
+          }
+        } catch (error) {
+          progressBar.stop();
+          const errMsg = error instanceof Error ? error.message : String(error);
+          downloadErrors.push({ name: task.lessonName, error: errMsg });
+          console.log(chalk.red(`   ✗ ${shortName}: ${errMsg}`));
         }
-      });
+      }
 
-      videoSpinner.succeed(`   Videos: ${result.completed} downloaded, ${result.failed} failed`);
-
-      if (result.errors.length > 0) {
-        console.log(chalk.yellow("\n   Failed downloads:"));
-        for (const error of result.errors) {
-          console.log(chalk.red(`   - ${error.id}: ${error.error}`));
+      // Summary
+      console.log();
+      if (completedDownloads > 0) {
+        console.log(chalk.green(`   ✓ ${completedDownloads} videos downloaded (${formatBytes(totalBytes)})`));
+      }
+      if (downloadErrors.length > 0) {
+        console.log(chalk.red(`   ✗ ${downloadErrors.length} failed:`));
+        for (const err of downloadErrors) {
+          console.log(chalk.red(`     - ${err.name}: ${err.error}`));
         }
       }
     }

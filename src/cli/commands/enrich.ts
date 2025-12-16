@@ -77,7 +77,7 @@ function findLessonsWithVideos(courseDir: string): LessonInfo[] {
 function hasTranscript(lessonDir: string): boolean {
   return (
     existsSync(join(lessonDir, "transcript.md")) ||
-    existsSync(join(lessonDir, "transcript.txt"))
+    existsSync(join(lessonDir, "transcript-raw.txt"))
   );
 }
 
@@ -199,7 +199,7 @@ export async function enrichCommand(
     const videoPath = join(lesson.path, "video.mp4");
     const transcriptMdPath = join(lesson.path, "transcript.md");
     const summaryPath = join(lesson.path, "summary.md");
-    const transcriptTxtPath = join(lesson.path, "transcript.txt");
+    const transcriptTxtPath = join(lesson.path, "transcript-raw.txt");
 
     const spinner = ora(`   ${lesson.name}`).start();
 
