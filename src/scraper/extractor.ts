@@ -48,9 +48,9 @@ turndown.addRule("links", {
 export async function extractVideoUrl(
   page: Page
 ): Promise<{ url: string | null; type: LessonContent["videoType"] }> {
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+   
   const videoInfo = await page.evaluate(() => {
-    /* eslint-disable @typescript-eslint/no-unnecessary-condition */
+     
     // Check for Loom iframe (most common on Skool)
     const loomIframe = document.querySelector('iframe[src*="loom.com"]');
     if (loomIframe) {
@@ -118,7 +118,7 @@ export async function extractVideoUrl(
  */
 export async function extractTextContent(page: Page): Promise<{ html: string; markdown: string }> {
   const html = await page.evaluate(() => {
-    /* eslint-disable @typescript-eslint/no-unnecessary-condition */
+     
     // Skool uses styled-components. The actual content is in EditorContentWrapper
     // Try specific Skool selectors first
     const skoolSelectors = [
@@ -196,7 +196,7 @@ export async function extractTextContent(page: Page): Promise<{ html: string; ma
  */
 async function checkIfLocked(page: Page): Promise<boolean> {
   return page.evaluate(() => {
-    /* eslint-disable @typescript-eslint/no-unnecessary-condition */
+     
     const pageText = document.body.textContent?.toLowerCase() ?? "";
 
     const lockPatterns = [
@@ -218,7 +218,7 @@ async function checkIfLocked(page: Page): Promise<boolean> {
  */
 async function extractUpdatedAt(page: Page): Promise<string | null> {
   return page.evaluate(() => {
-    /* eslint-disable @typescript-eslint/no-unnecessary-condition */
+     
     const scripts = Array.from(document.querySelectorAll("script"));
     for (const script of scripts) {
       const content = script.textContent ?? "";
