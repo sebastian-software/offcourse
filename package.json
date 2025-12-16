@@ -1,0 +1,50 @@
+{
+  "name": "course-grab",
+  "version": "0.1.0",
+  "description": "CLI tool to download and sync online courses for offline access",
+  "type": "module",
+  "bin": {
+    "course-grab": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/cli/index.js",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "course",
+    "downloader",
+    "skool",
+    "offline",
+    "cli"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "chalk": "^5.4.1",
+    "commander": "^13.0.0",
+    "ora": "^8.1.1",
+    "playwright": "^1.49.1",
+    "turndown": "^7.2.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/turndown": "^5.0.5",
+    "@typescript-eslint/eslint-plugin": "^8.18.1",
+    "@typescript-eslint/parser": "^8.18.1",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
