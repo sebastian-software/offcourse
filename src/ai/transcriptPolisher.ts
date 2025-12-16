@@ -1,9 +1,8 @@
 import { prompt, isConfigured } from "./openRouter.js";
 
 export interface PolishedTranscript {
-  tldr: string;
-  content: string;
-  markdown: string;
+  summary: string;      // TLDR summary
+  transcript: string;   // Formatted transcript with markdown
 }
 
 const SYSTEM_PROMPT = `Du bist ein Experte für die Aufbereitung von Video-Transkripten.
@@ -21,7 +20,7 @@ Regeln:
 - Behalte den Originaltext bei, ändere keine Wörter
 - Korrigiere nur offensichtliche Transkriptionsfehler
 - Füge Absätze an natürlichen Sprechpausen ein
-- Halte die TLDR auf Deutsch`;
+- Halte alles auf Deutsch`;
 
 const USER_PROMPT_TEMPLATE = `Hier ist ein Video-Transkript das aufbereitet werden soll:
 
@@ -40,14 +39,13 @@ Antworte in folgendem Format:
 
 /**
  * Polish a transcript using an LLM.
+ * Returns separate summary and transcript.
  */
 export async function polishTranscript(rawTranscript: string): Promise<PolishedTranscript> {
   if (!isConfigured()) {
-    // Return unpolished version if no API key
     return {
-      tldr: "",
-      content: rawTranscript,
-      markdown: rawTranscript,
+      summary: "",
+      transcript: rawTranscript,
     };
   }
 
@@ -62,35 +60,36 @@ export async function polishTranscript(rawTranscript: string): Promise<PolishedT
   const tldrMatch = result.match(/## TLDR\s*\n+([\s\S]*?)(?=\n## Transkript|$)/i);
   const transcriptMatch = result.match(/## Transkript\s*\n+([\s\S]*?)$/i);
 
-  const tldr = tldrMatch?.[1]?.trim() ?? "";
-  const content = transcriptMatch?.[1]?.trim() ?? result;
-
-  // Build the final markdown
-  const markdown = tldr
-    ? `## Zusammenfassung\n\n${tldr}\n\n---\n\n${content}`
-    : content;
+  const summary = tldrMatch?.[1]?.trim() ?? "";
+  const transcript = transcriptMatch?.[1]?.trim() ?? result;
 
   return {
-    tldr,
-    content,
-    markdown,
+    summary,
+    transcript,
   };
 }
 
 /**
- * Generate just a TLDR summary.
+ * Generate a module summary from multiple lesson summaries.
  */
-export async function generateTldr(transcript: string): Promise<string> {
-  if (!isConfigured()) {
+export async function generateModuleSummary(
+  moduleName: string,
+  lessonSummaries: Array<{ name: string; summary: string }>
+): Promise<string> {
+  if (!isConfigured() || lessonSummaries.length === 0) {
     return "";
   }
 
+  const summariesText = lessonSummaries
+    .map((l, i) => `### ${i + 1}. ${l.name}\n${l.summary}`)
+    .join("\n\n");
+
   const result = await prompt(
-    `Fasse dieses Video-Transkript in 2-3 prägnanten Sätzen zusammen:\n\n${transcript}`,
-    "Du bist ein Experte für prägnante Zusammenfassungen. Antworte auf Deutsch.",
-    { maxTokens: 256, temperature: 0.3 }
+    `Hier sind die Zusammenfassungen aller Lektionen des Moduls "${moduleName}":\n\n${summariesText}\n\nErstelle eine übergreifende Zusammenfassung des gesamten Moduls (5-8 Sätze). Fasse die wichtigsten Lernziele und Kernkonzepte zusammen.`,
+    "Du bist ein Experte für Kurszusammenfassungen. Antworte auf Deutsch in klarem, präzisem Stil.",
+    { maxTokens: 512, temperature: 0.3 }
   );
 
-  return result.trim();
+  return `# ${moduleName}\n\n${result.trim()}\n\n---\n\n## Lektionen\n\n${summariesText}`;
 }
 

@@ -1,13 +1,17 @@
 import chalk from "chalk";
 import ora from "ora";
 import { existsSync, readdirSync, writeFileSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname, basename } from "node:path";
 import {
   transcribeVideo,
   type WhisperModel,
 } from "../../transcription/whisperService.js";
-import { polishTranscript } from "../../ai/transcriptPolisher.js";
-import { isConfigured as isOpenRouterConfigured } from "../../ai/openRouter.js";
+import { polishTranscript, generateModuleSummary } from "../../ai/transcriptPolisher.js";
+import {
+  isConfigured as isOpenRouterConfigured,
+  getCumulativeUsage,
+  resetCumulativeUsage,
+} from "../../ai/openRouter.js";
 
 interface EnrichOptions {
   model?: WhisperModel;
@@ -26,11 +30,18 @@ interface LessonMeta {
   polishedAt?: string;
 }
 
+interface LessonInfo {
+  path: string;
+  name: string;
+  moduleDir: string;
+  moduleName: string;
+}
+
 /**
- * Find all lesson directories with videos.
+ * Find all lesson directories with videos, grouped by module.
  */
-function findLessonsWithVideos(courseDir: string): string[] {
-  const lessons: string[] = [];
+function findLessonsWithVideos(courseDir: string): LessonInfo[] {
+  const lessons: LessonInfo[] = [];
 
   function scanDir(dir: string): void {
     const entries = readdirSync(dir, { withFileTypes: true });
@@ -39,12 +50,17 @@ function findLessonsWithVideos(courseDir: string): string[] {
       const fullPath = join(dir, entry.name);
 
       if (entry.isDirectory()) {
-        // Check if this directory has a video.mp4
         const videoPath = join(fullPath, "video.mp4");
         if (existsSync(videoPath)) {
-          lessons.push(fullPath);
+          // This is a lesson directory
+          const moduleDir = dirname(fullPath);
+          lessons.push({
+            path: fullPath,
+            name: entry.name,
+            moduleDir,
+            moduleName: basename(moduleDir),
+          });
         } else {
-          // Recurse into subdirectories
           scanDir(fullPath);
         }
       }
@@ -99,11 +115,18 @@ function saveMeta(lessonDir: string, meta: LessonMeta): void {
 }
 
 /**
- * Get lesson name from directory path.
+ * Group lessons by module directory.
  */
-function getLessonName(lessonDir: string): string {
-  const parts = lessonDir.split("/");
-  return parts[parts.length - 1] ?? "Unknown";
+function groupByModule(lessons: LessonInfo[]): Map<string, LessonInfo[]> {
+  const modules = new Map<string, LessonInfo[]>();
+
+  for (const lesson of lessons) {
+    const existing = modules.get(lesson.moduleDir) ?? [];
+    existing.push(lesson);
+    modules.set(lesson.moduleDir, existing);
+  }
+
+  return modules;
 }
 
 /**
@@ -115,13 +138,11 @@ export async function enrichCommand(
 ): Promise<void> {
   console.log(chalk.blue("\n📝 Enrich: Video Transcription\n"));
 
-  // Validate course directory
   if (!existsSync(courseDir)) {
     console.log(chalk.red(`Course directory not found: ${courseDir}`));
     process.exit(1);
   }
 
-  // Options with defaults
   const model = options.model ?? "small";
   const language = options.language ?? "de";
   const shouldPolish = options.polish ?? false;
@@ -131,6 +152,7 @@ export async function enrichCommand(
   if (shouldPolish) {
     if (isOpenRouterConfigured()) {
       console.log(chalk.gray(`   Polish: enabled (OpenRouter)`));
+      resetCumulativeUsage(); // Reset usage tracking
     } else {
       console.log(chalk.yellow(`   Polish: disabled (OPENROUTER_API_KEY not set)`));
     }
@@ -138,22 +160,21 @@ export async function enrichCommand(
   console.log(chalk.gray(`   Directory: ${courseDir}\n`));
 
   // Find all lessons with videos
-  const lessons = findLessonsWithVideos(courseDir);
-  console.log(chalk.gray(`   Found ${lessons.length} lessons with videos\n`));
+  const allLessons = findLessonsWithVideos(courseDir);
+  console.log(chalk.gray(`   Found ${allLessons.length} lessons with videos\n`));
 
-  if (lessons.length === 0) {
+  if (allLessons.length === 0) {
     console.log(chalk.yellow("No videos found to transcribe."));
     return;
   }
 
-  // Filter lessons that need transcription
-  let lessonsToProcess = lessons.filter((lessonDir) => {
+  // Filter lessons that need processing
+  let lessonsToProcess = allLessons.filter((lesson) => {
     if (options.force) return true;
-    // If polish requested, check if already polished
-    if (shouldPolish && hasTranscript(lessonDir) && !isPolished(lessonDir)) {
+    if (shouldPolish && hasTranscript(lesson.path) && !isPolished(lesson.path)) {
       return true;
     }
-    return !hasTranscript(lessonDir);
+    return !hasTranscript(lesson.path);
   });
 
   if (options.limit) {
@@ -171,27 +192,29 @@ export async function enrichCommand(
   let polished = 0;
   let failed = 0;
 
-  for (const lessonDir of lessonsToProcess) {
-    const lessonName = getLessonName(lessonDir);
-    const videoPath = join(lessonDir, "video.mp4");
-    const transcriptMdPath = join(lessonDir, "transcript.md");
-    const transcriptTxtPath = join(lessonDir, "transcript.txt");
+  // Track polished lessons for module summaries
+  const polishedLessons: LessonInfo[] = [];
 
-    const spinner = ora(`   ${lessonName}`).start();
+  for (const lesson of lessonsToProcess) {
+    const videoPath = join(lesson.path, "video.mp4");
+    const transcriptMdPath = join(lesson.path, "transcript.md");
+    const summaryPath = join(lesson.path, "summary.md");
+    const transcriptTxtPath = join(lesson.path, "transcript.txt");
+
+    const spinner = ora(`   ${lesson.name}`).start();
 
     try {
       let transcriptText: string;
 
-      // Check if we already have a transcript (just need to polish)
+      // Check if we already have a raw transcript
       if (existsSync(transcriptTxtPath) && shouldPolish && !options.force) {
         transcriptText = readFileSync(transcriptTxtPath, "utf-8");
-        spinner.text = `   ${lessonName} (polishing...)`;
+        spinner.text = `   ${lesson.name} (polishing...)`;
       } else {
         // Transcribe video
         const result = await transcribeVideo(videoPath, { model, language });
         transcriptText = result.text;
 
-        // Save raw transcript
         writeFileSync(transcriptTxtPath, transcriptText, "utf-8");
 
         const speedFactor =
@@ -199,58 +222,104 @@ export async function enrichCommand(
             ? (result.duration / result.processingTime).toFixed(1)
             : "?";
 
-        spinner.text = `   ${lessonName} (${Math.round(result.duration)}s → ${result.processingTime.toFixed(1)}s, ${speedFactor}x)`;
+        spinner.text = `   ${lesson.name} (${Math.round(result.duration)}s → ${result.processingTime.toFixed(1)}s, ${speedFactor}x)`;
         transcribed++;
       }
 
       // Polish with LLM if requested
-      let finalMarkdown = transcriptText;
       if (shouldPolish && isOpenRouterConfigured()) {
-        spinner.text = `   ${lessonName} (polishing with AI...)`;
+        spinner.text = `   ${lesson.name} (polishing with AI...)`;
 
         try {
           const polishedResult = await polishTranscript(transcriptText);
-          finalMarkdown = polishedResult.markdown;
-          polished++;
 
-          // Update metadata with polished timestamp
-          const meta = loadMeta(lessonDir) ?? {
+          // Save summary separately
+          if (polishedResult.summary) {
+            writeFileSync(summaryPath, `# ${lesson.name}\n\n${polishedResult.summary}\n`, "utf-8");
+          }
+
+          // Save formatted transcript
+          writeFileSync(transcriptMdPath, polishedResult.transcript, "utf-8");
+          polished++;
+          polishedLessons.push(lesson);
+
+          const meta = loadMeta(lesson.path) ?? {
             syncedAt: new Date().toISOString(),
             updatedAt: null,
             videoUrl: null,
             videoType: null,
           };
           meta.polishedAt = new Date().toISOString();
-          saveMeta(lessonDir, meta);
+          saveMeta(lesson.path, meta);
         } catch (polishError) {
-          // Continue with unpolished version
+          // Save unpolished as fallback
+          writeFileSync(transcriptMdPath, transcriptText, "utf-8");
           console.log(chalk.yellow(`\n      Polish failed: ${polishError}`));
         }
+      } else {
+        // Save raw transcript as markdown
+        writeFileSync(transcriptMdPath, transcriptText, "utf-8");
       }
 
-      // Save as markdown
-      writeFileSync(transcriptMdPath, finalMarkdown, "utf-8");
-
       // Update metadata
-      const meta = loadMeta(lessonDir) ?? {
+      const meta = loadMeta(lesson.path) ?? {
         syncedAt: new Date().toISOString(),
         updatedAt: null,
         videoUrl: null,
         videoType: null,
       };
       meta.transcribedAt = new Date().toISOString();
-      saveMeta(lessonDir, meta);
+      saveMeta(lesson.path, meta);
 
       const statusSuffix = shouldPolish && isOpenRouterConfigured() ? " + polished" : "";
-      spinner.succeed(`   ${lessonName}${statusSuffix}`);
+      spinner.succeed(`   ${lesson.name}${statusSuffix}`);
     } catch (error) {
-      spinner.fail(`   ${lessonName}`);
+      spinner.fail(`   ${lesson.name}`);
       console.log(chalk.red(`      Error: ${error}`));
       failed++;
     }
   }
 
-  // Summary
+  // Generate module summaries if we polished any lessons
+  if (polished > 0 && isOpenRouterConfigured()) {
+    console.log(chalk.blue("\n📚 Generating module summaries...\n"));
+
+    const moduleGroups = groupByModule(polishedLessons);
+
+    for (const [moduleDir, moduleLessons] of moduleGroups) {
+      const moduleName = basename(moduleDir);
+      const spinner = ora(`   ${moduleName}`).start();
+
+      try {
+        // Collect all lesson summaries for this module
+        const lessonSummaries: Array<{ name: string; summary: string }> = [];
+
+        for (const lesson of moduleLessons) {
+          const summaryPath = join(lesson.path, "summary.md");
+          if (existsSync(summaryPath)) {
+            const content = readFileSync(summaryPath, "utf-8");
+            // Extract just the summary text (skip the heading)
+            const summaryText = content.replace(/^#[^\n]+\n+/, "").trim();
+            lessonSummaries.push({ name: lesson.name, summary: summaryText });
+          }
+        }
+
+        if (lessonSummaries.length > 0) {
+          const moduleSummary = await generateModuleSummary(moduleName, lessonSummaries);
+          const moduleSummaryPath = join(moduleDir, "summary.md");
+          writeFileSync(moduleSummaryPath, moduleSummary, "utf-8");
+          spinner.succeed(`   ${moduleName} (${lessonSummaries.length} lessons)`);
+        } else {
+          spinner.warn(`   ${moduleName} (no summaries found)`);
+        }
+      } catch (error) {
+        spinner.fail(`   ${moduleName}`);
+        console.log(chalk.red(`      Error: ${error}`));
+      }
+    }
+  }
+
+  // Final summary
   console.log(chalk.green(`\n✅ Enrichment complete!`));
   console.log(chalk.gray(`   Transcribed: ${transcribed}`));
   if (polished > 0) {
@@ -258,5 +327,15 @@ export async function enrichCommand(
   }
   if (failed > 0) {
     console.log(chalk.red(`   Failed: ${failed}`));
+  }
+
+  // Show API usage if polishing was done
+  if (polished > 0 && isOpenRouterConfigured()) {
+    const usage = getCumulativeUsage();
+    console.log(chalk.gray(`\n   API Usage:`));
+    console.log(chalk.gray(`     Tokens: ${usage.totalTokens.toLocaleString()} (${usage.promptTokens.toLocaleString()} in / ${usage.completionTokens.toLocaleString()} out)`));
+    if (usage.cost !== undefined && usage.cost > 0) {
+      console.log(chalk.gray(`     Cost: $${usage.cost.toFixed(4)}`));
+    }
   }
 }
