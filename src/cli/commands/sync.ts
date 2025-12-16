@@ -21,6 +21,7 @@ interface SyncOptions {
   skipVideos?: boolean;
   skipContent?: boolean;
   dryRun?: boolean;
+  limit?: number;
 }
 
 interface LessonTask {
@@ -115,6 +116,16 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
           lessonUrl: lesson.url,
           lessonDir,
         });
+
+        // Check limit
+        if (options.limit && lessonTasks.length >= options.limit) {
+          break;
+        }
+      }
+
+      // Check limit for outer loop too
+      if (options.limit && lessonTasks.length >= options.limit) {
+        break;
       }
     }
 
@@ -135,18 +146,12 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
 
       const syncStatus = isLessonSynced(task.lessonDir);
 
-      // Check if content already exists
-      if (syncStatus.content && !options.skipContent) {
-        if (!syncStatus.video && !options.skipVideos) {
-          // Need to re-extract to get video URL
-        } else {
-          console.log(chalk.gray(`   ✓ ${task.lessonName} (cached)`));
-          contentSkipped++;
-          continue;
-        }
-      }
+      // Check what needs to be done
+      const needsContent = !options.skipContent && !syncStatus.content;
+      const needsVideo = !options.skipVideos && !syncStatus.video;
 
-      if (options.skipContent && syncStatus.video) {
+      // Skip if everything is cached
+      if (!needsContent && !needsVideo) {
         console.log(chalk.gray(`   ✓ ${task.lessonName} (cached)`));
         contentSkipped++;
         continue;
@@ -155,10 +160,11 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
       const lessonSpinner = ora(`   ${task.lessonName}`).start();
 
       try {
+        // Always extract content to get video URL
         const content = await extractLessonContent(session.page, task.lessonUrl);
 
-        // Save markdown content
-        if (!options.skipContent && !syncStatus.content) {
+        // Save markdown content if needed
+        if (needsContent) {
           const markdown = formatMarkdown(
             content.title,
             content.markdownContent,
@@ -168,17 +174,19 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
           saveMarkdown(task.lessonDir, "content.md", markdown);
         }
 
-        // Queue video for download
-        if (!options.skipVideos && !syncStatus.video && content.videoUrl && content.videoType) {
+        // Queue video for download if needed
+        if (needsVideo && content.videoUrl && content.videoType) {
           videoTasks.push({
             lessonName: task.lessonName,
             videoUrl: content.videoUrl,
             videoType: content.videoType,
             outputPath: getVideoPath(task.lessonDir),
           });
+          lessonSpinner.succeed(`   ${task.lessonName} (video queued)`);
+        } else {
+          lessonSpinner.succeed(`   ${task.lessonName}`);
         }
 
-        lessonSpinner.succeed(`   ${task.lessonName}`);
         contentExtracted++;
       } catch (error) {
         lessonSpinner.fail(`   ${task.lessonName}`);

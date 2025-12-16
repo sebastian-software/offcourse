@@ -30,6 +30,7 @@ program
   .option("--skip-videos", "Skip video downloads (only save text content)")
   .option("--skip-content", "Skip text content (only download videos)")
   .option("--dry-run", "Show what would be downloaded without actually downloading")
+  .option("--limit <n>", "Limit to first N lessons (for testing)", parseInt)
   .action(syncCommand);
 
 // Inspect command (debugging)
