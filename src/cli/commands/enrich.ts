@@ -6,7 +6,7 @@ import {
   transcribeVideo,
   type WhisperModel,
 } from "../../transcription/whisperService.js";
-import { polishTranscript, generateModuleSummary } from "../../ai/transcriptPolisher.js";
+import { polishTranscript, generateModuleSummary, folderNameToTitle } from "../../ai/transcriptPolisher.js";
 import {
   isConfigured as isOpenRouterConfigured,
   getCumulativeUsage,
@@ -234,12 +234,14 @@ export async function enrichCommand(
           const polishedResult = await polishTranscript(transcriptText);
 
           // Save summary separately
+          const lessonTitle = folderNameToTitle(lesson.name);
           if (polishedResult.summary) {
-            writeFileSync(summaryPath, `# ${lesson.name}\n\n${polishedResult.summary}\n`, "utf-8");
+            writeFileSync(summaryPath, `# Zusammenfassung: ${lessonTitle}\n\n${polishedResult.summary}\n`, "utf-8");
           }
 
-          // Save formatted transcript
-          writeFileSync(transcriptMdPath, polishedResult.transcript, "utf-8");
+          // Save formatted transcript with title
+          const transcriptWithTitle = `# Transkript: ${lessonTitle}\n\n${polishedResult.transcript}`;
+          writeFileSync(transcriptMdPath, transcriptWithTitle, "utf-8");
           polished++;
           polishedLessons.push(lesson);
 
@@ -292,7 +294,7 @@ export async function enrichCommand(
 
       try {
         // Collect all lesson summaries for this module
-        const lessonSummaries: Array<{ name: string; summary: string }> = [];
+        const lessonSummaries: Array<{ name: string; title: string; summary: string }> = [];
 
         for (const lesson of moduleLessons) {
           const summaryPath = join(lesson.path, "summary.md");
@@ -300,7 +302,8 @@ export async function enrichCommand(
             const content = readFileSync(summaryPath, "utf-8");
             // Extract just the summary text (skip the heading)
             const summaryText = content.replace(/^#[^\n]+\n+/, "").trim();
-            lessonSummaries.push({ name: lesson.name, summary: summaryText });
+            const lessonTitle = folderNameToTitle(lesson.name);
+            lessonSummaries.push({ name: lesson.name, title: lessonTitle, summary: summaryText });
           }
         }
 

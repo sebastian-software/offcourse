@@ -5,6 +5,24 @@ export interface PolishedTranscript {
   transcript: string;   // Formatted transcript with markdown
 }
 
+/**
+ * Convert folder name to readable title.
+ * "01-1-herzlich-willkommen" → "Herzlich Willkommen"
+ * "02-onboarding-social-leads-academy" → "Onboarding Social Leads Academy"
+ */
+export function folderNameToTitle(folderName: string): string {
+  return folderName
+    // Remove leading numbers and separators (e.g., "01-1-", "02-")
+    .replace(/^[\d]+-[\d]*-?/, "")
+    // Replace remaining dashes with spaces
+    .replace(/-/g, " ")
+    // Capitalize each word
+    .split(" ")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ")
+    .trim();
+}
+
 const SYSTEM_PROMPT = `Du bist ein Experte für die Aufbereitung von Video-Transkripten.
 
 Deine Aufgabe:
@@ -74,22 +92,24 @@ export async function polishTranscript(rawTranscript: string): Promise<PolishedT
  */
 export async function generateModuleSummary(
   moduleName: string,
-  lessonSummaries: Array<{ name: string; summary: string }>
+  lessonSummaries: Array<{ name: string; title: string; summary: string }>
 ): Promise<string> {
   if (!isConfigured() || lessonSummaries.length === 0) {
     return "";
   }
 
+  const moduleTitle = folderNameToTitle(moduleName);
+
   const summariesText = lessonSummaries
-    .map((l, i) => `### ${i + 1}. ${l.name}\n${l.summary}`)
+    .map((l, i) => `### ${i + 1}. ${l.title}\n${l.summary}`)
     .join("\n\n");
 
   const result = await prompt(
-    `Hier sind die Zusammenfassungen aller Lektionen des Moduls "${moduleName}":\n\n${summariesText}\n\nErstelle eine übergreifende Zusammenfassung des gesamten Moduls (5-8 Sätze). Fasse die wichtigsten Lernziele und Kernkonzepte zusammen.`,
+    `Hier sind die Zusammenfassungen aller Lektionen des Moduls "${moduleTitle}":\n\n${summariesText}\n\nErstelle eine übergreifende Zusammenfassung des gesamten Moduls (5-8 Sätze). Fasse die wichtigsten Lernziele und Kernkonzepte zusammen.`,
     "Du bist ein Experte für Kurszusammenfassungen. Antworte auf Deutsch in klarem, präzisem Stil.",
     { maxTokens: 512, temperature: 0.3 }
   );
 
-  return `# ${moduleName}\n\n${result.trim()}\n\n---\n\n## Lektionen\n\n${summariesText}`;
+  return `# Zusammenfassung: ${moduleTitle}\n\n${result.trim()}\n\n---\n\n## Lektionen\n\n${summariesText}`;
 }
 
