@@ -47,7 +47,7 @@ program
 program
   .command("enrich <course-dir>")
   .description("Transcribe videos in a synced course")
-  .option("-m, --model <model>", "Whisper model (tiny|base|small|medium|large)", "base")
+  .option("-m, --model <model>", "Whisper model (tiny|base|small|medium|large)", "small")
   .option("-l, --language <lang>", "Language code (de, en, etc.)", "de")
   .option("-f, --force", "Re-transcribe even if transcript exists")
   .option("--limit <n>", "Limit to first N videos (for testing)", parseInt)

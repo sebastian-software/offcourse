@@ -166,8 +166,8 @@ export async function enrichCommand(
       meta.transcribedAt = new Date().toISOString();
       saveMeta(lessonDir, meta);
 
-      const speedFactor = result.duration > 0 
-        ? (result.duration / result.processingTime).toFixed(1) 
+      const speedFactor = result.duration > 0
+        ? (result.duration / result.processingTime).toFixed(1)
         : "?";
 
       spinner.succeed(
