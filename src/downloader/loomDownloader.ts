@@ -218,7 +218,7 @@ async function downloadSegment(url: string, retries = 3): Promise<Buffer | null>
 
       const chunks: Uint8Array[] = [];
       const reader = response.body.getReader();
-      
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -268,7 +268,7 @@ async function downloadSegmentsToFile(
 
     // Write all segments in order
     const fileStream = createWriteStream(tempPath);
-    
+
     for (const data of segmentData) {
       if (data) {
         fileStream.write(data);

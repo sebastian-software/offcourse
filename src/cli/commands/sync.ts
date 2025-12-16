@@ -76,6 +76,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
   try {
     const result = await getAuthenticatedSession(SKOOL_DOMAIN, SKOOL_LOGIN_URL, {
       headless: config.headless,
+      fastMode: true,  // Skip images, fonts, CSS for faster scraping
     });
     browser = result.browser;
     session = result.session;
@@ -253,10 +254,10 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
       // Process in batches
       for (let i = 0; i < videoTasks.length; i += videoConcurrency) {
         const batch = videoTasks.slice(i, i + videoConcurrency);
-        
+
         const batchPromises = batch.map(async (task) => {
-          const shortName = task.lessonName.length > 40 
-            ? task.lessonName.substring(0, 37) + "..." 
+          const shortName = task.lessonName.length > 40
+            ? task.lessonName.substring(0, 37) + "..."
             : task.lessonName;
 
           const bar = multibar.create(100, 0, { name: shortName, phase: "start" });
@@ -264,8 +265,8 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
 
           try {
             const result: DownloadResult = await downloadVideo(task, (progress) => {
-              bar.update(Math.round(progress.percent), { 
-                phase: progress.phase ?? "dl" 
+              bar.update(Math.round(progress.percent), {
+                phase: progress.phase ?? "dl"
               });
             });
 
