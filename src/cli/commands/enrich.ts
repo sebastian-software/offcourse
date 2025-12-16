@@ -207,7 +207,7 @@ export async function enrichCommand(
       let finalMarkdown = transcriptText;
       if (shouldPolish && isOpenRouterConfigured()) {
         spinner.text = `   ${lessonName} (polishing with AI...)`;
-        
+
         try {
           const polishedResult = await polishTranscript(transcriptText);
           finalMarkdown = polishedResult.markdown;
