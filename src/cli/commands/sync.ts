@@ -163,6 +163,13 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
         // Always extract content to get video URL
         const content = await extractLessonContent(session.page, task.lessonUrl);
 
+        // Check if locked
+        if (content.isLocked) {
+          lessonSpinner.warn(`   ${task.lessonName} (locked - no access)`);
+          contentSkipped++;
+          continue;
+        }
+
         // Save markdown content if needed
         if (needsContent) {
           const markdown = formatMarkdown(

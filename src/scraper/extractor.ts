@@ -7,6 +7,7 @@ export interface LessonContent {
   videoType: "loom" | "vimeo" | "youtube" | "wistia" | "native" | "unknown" | null;
   htmlContent: string;
   markdownContent: string;
+  isLocked: boolean;
 }
 
 // Initialize Turndown for HTML to Markdown conversion
@@ -170,6 +171,29 @@ export async function extractTextContent(page: Page): Promise<{ html: string; ma
 }
 
 /**
+ * Checks if the current page shows a "locked" or "no access" message.
+ */
+async function checkIfLocked(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const pageText = document.body.textContent?.toLowerCase() ?? "";
+
+    // Common lock/access denied patterns
+    const lockPatterns = [
+      "you don't have access",
+      "you do not have access",
+      "unlock this",
+      "locked",
+      "no access",
+      "nicht freigeschaltet",
+      "kein zugriff",
+      "zugang erforderlich",
+    ];
+
+    return lockPatterns.some((pattern) => pageText.includes(pattern));
+  });
+}
+
+/**
  * Extracts all content from a lesson page.
  */
 export async function extractLessonContent(page: Page, lessonUrl: string): Promise<LessonContent> {
@@ -179,6 +203,22 @@ export async function extractLessonContent(page: Page, lessonUrl: string): Promi
     await page.goto(lessonUrl, { timeout: 30000 });
     await page.waitForLoadState("domcontentloaded");
     await page.waitForTimeout(2000);
+  }
+
+  // Check if content is locked
+  const isLocked = await checkIfLocked(page);
+
+  if (isLocked) {
+    const title = await page.title();
+    const cleanTitle = title.split(" - ")[0]?.trim() ?? title;
+    return {
+      title: cleanTitle,
+      videoUrl: null,
+      videoType: null,
+      htmlContent: "",
+      markdownContent: "",
+      isLocked: true,
+    };
   }
 
   const title = await page.title();
@@ -194,6 +234,7 @@ export async function extractLessonContent(page: Page, lessonUrl: string): Promi
     videoType,
     htmlContent,
     markdownContent,
+    isLocked: false,
   };
 }
 
