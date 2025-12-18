@@ -17,7 +17,7 @@ export interface HlsValidationResult {
 /**
  * Validates that a Loom video has an accessible HLS stream.
  * This should be called during the scanning phase to catch issues early.
- * 
+ *
  * @param loomUrl - The Loom video URL
  * @param page - Optional Playwright page for network interception fallback
  */

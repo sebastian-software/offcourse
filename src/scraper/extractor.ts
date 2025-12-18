@@ -248,19 +248,32 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
 /**
  * Extracts the video URL from the current lesson page.
  * Supports Loom, Vimeo, YouTube, Wistia, and native video.
- * First tries to extract from __NEXT_DATA__ (most reliable for Skool),
- * then falls back to DOM inspection.
+ * 
+ * For Vimeo: Prefers iframe src (has auth params) over __NEXT_DATA__ URL.
+ * For others: Uses __NEXT_DATA__ first, then falls back to DOM inspection.
  */
 export async function extractVideoUrl(
   page: Page
 ): Promise<{ url: string | null; type: LessonContent["videoType"] }> {
-  // First: Try extracting from __NEXT_DATA__ (Skool embeds video URLs here)
+  // First: Check for iframe with full URL (includes auth params for Vimeo)
+  const iframeVideo = await extractVideoFromIframe(page);
+  
+  // If it's Vimeo, prefer iframe URL as it has the auth hash
+  if (iframeVideo.url && iframeVideo.type === "vimeo") {
+    return iframeVideo;
+  }
+
+  // Try extracting from __NEXT_DATA__ (Skool embeds video URLs here)
   const nextDataVideo = await extractVideoFromNextData(page);
   if (nextDataVideo.url) {
+    // For Vimeo, check if iframe has additional params we're missing
+    if (nextDataVideo.type === "vimeo" && iframeVideo.url) {
+      return iframeVideo; // iframe has the full URL with hash
+    }
     return nextDataVideo;
   }
 
-  // Second attempt: check for already loaded video in DOM
+  // Check for already loaded video in DOM
   let videoInfo = await findVideoInPage(page);
 
   // If no video found, try clicking preview to trigger lazy load
@@ -273,6 +286,45 @@ export async function extractVideoUrl(
   }
 
   return videoInfo;
+}
+
+/**
+ * Extracts video URL directly from iframe src attribute.
+ * This captures the full URL including auth parameters.
+ */
+async function extractVideoFromIframe(
+  page: Page
+): Promise<{ url: string | null; type: LessonContent["videoType"] }> {
+  return page.evaluate(() => {
+    // Check for Vimeo iframe (prioritize this for auth params)
+    const vimeoIframe = document.querySelector('iframe[src*="vimeo.com"]');
+    if (vimeoIframe) {
+      const src = (vimeoIframe as HTMLIFrameElement).src;
+      if (src) {
+        return { url: src, type: "vimeo" as const };
+      }
+    }
+
+    // Check for Loom iframe  
+    const loomIframe = document.querySelector('iframe[src*="loom.com"]');
+    if (loomIframe) {
+      const src = (loomIframe as HTMLIFrameElement).src;
+      if (src) {
+        return { url: src, type: "loom" as const };
+      }
+    }
+
+    // Check for YouTube iframe
+    const ytIframe = document.querySelector('iframe[src*="youtube.com"], iframe[src*="youtu.be"]');
+    if (ytIframe) {
+      const src = (ytIframe as HTMLIFrameElement).src;
+      if (src) {
+        return { url: src, type: "youtube" as const };
+      }
+    }
+
+    return { url: null, type: null };
+  });
 }
 
 /**

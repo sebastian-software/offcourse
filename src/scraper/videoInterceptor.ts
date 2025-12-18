@@ -4,6 +4,7 @@ export interface CapturedVideoUrl {
   hlsUrl: string | null;
   progressiveUrl: string | null;
   configUrl: string | null;
+  iframeSrc: string | null;
   type: "loom" | "vimeo" | "youtube" | "wistia" | "unknown";
 }
 
@@ -20,6 +21,7 @@ export async function captureVideoUrls(
     hlsUrl: null,
     progressiveUrl: null,
     configUrl: null,
+    iframeSrc: null,
     type: videoType,
   };
 
@@ -57,12 +59,12 @@ export async function captureVideoUrls(
     // Handler for intercepted requests
     const handleRoute = async (route: Route) => {
       const url = route.request().url();
-      
+
       // Check if URL matches any of our patterns
       for (const pattern of targetPatterns) {
         if (pattern.test(url)) {
           capturedUrls.push(url);
-          
+
           // Categorize the URL
           if (url.includes(".m3u8") || url.includes("playlist")) {
             if (!result.hlsUrl) {
@@ -77,7 +79,7 @@ export async function captureVideoUrls(
               result.configUrl = url;
             }
           }
-          
+
           break;
         }
       }
@@ -106,13 +108,13 @@ export async function captureVideoUrls(
     function cleanup() {
       if (resolved) return;
       resolved = true;
-      
+
       clearInterval(checkInterval);
       clearTimeout(timeout);
-      
+
       // Remove route handler
       page.unroute("**/*", handleRoute).catch(() => {});
-      
+
       resolve(result);
     }
   });
@@ -153,120 +155,143 @@ async function triggerVideoLoad(page: Page): Promise<void> {
 }
 
 /**
- * Extracts video config by intercepting the config request.
- * Returns the parsed config object if captured.
+ * Extracts video config by navigating to embed page and intercepting config request.
  */
 export async function captureVimeoConfig(
   page: Page,
   videoId: string,
-  timeoutMs = 5000
+  timeoutMs = 8000
 ): Promise<{ hlsUrl: string | null; progressiveUrl: string | null; error?: string }> {
-  return new Promise((resolve) => {
-    let resolved = false;
+  let hlsUrl: string | null = null;
+  let progressiveUrl: string | null = null;
 
-    const configPattern = new RegExp(`player\\.vimeo\\.com/video/${videoId}/config`);
+  const configPattern = /player\.vimeo\.com\/video\/\d+\/config/;
 
-    const handleRoute = async (route: Route) => {
-      const url = route.request().url();
-      
-      if (configPattern.test(url)) {
-        try {
-          // Fetch the response ourselves so we can read it
-          const response = await route.fetch();
-          const body = await response.json();
-          
-          // Extract URLs from config
-          let hlsUrl: string | null = null;
-          let progressiveUrl: string | null = null;
-
-          const hlsCdns = body?.request?.files?.hls?.cdns;
-          if (hlsCdns) {
-            const cdnKeys = Object.keys(hlsCdns);
-            for (const cdn of ["akfire_interconnect_quic", "akamai_live", "fastly_skyfire", ...cdnKeys]) {
-              if (hlsCdns[cdn]?.url) {
-                hlsUrl = hlsCdns[cdn].url;
-                break;
-              }
+  const handleRoute = async (route: Route) => {
+    const url = route.request().url();
+    
+    if (configPattern.test(url)) {
+      try {
+        // Fetch the response to read the config
+        const response = await route.fetch();
+        const body = await response.json();
+        
+        // Extract URLs from config
+        const hlsCdns = body?.request?.files?.hls?.cdns;
+        if (hlsCdns) {
+          const cdnKeys = Object.keys(hlsCdns);
+          for (const cdn of ["akfire_interconnect_quic", "akamai_live", "fastly_skyfire", ...cdnKeys]) {
+            if (hlsCdns[cdn]?.url) {
+              hlsUrl = hlsCdns[cdn].url;
+              break;
             }
           }
-
-          const progressive = body?.request?.files?.progressive;
-          if (progressive && Array.isArray(progressive) && progressive.length > 0) {
-            const sorted = [...progressive].sort((a: {height?: number}, b: {height?: number}) => 
-              (b.height ?? 0) - (a.height ?? 0)
-            );
-            progressiveUrl = sorted[0]?.url ?? null;
-          }
-
-          // Fulfill the original request
-          await route.fulfill({ response });
-
-          if (!resolved) {
-            resolved = true;
-            page.unroute("**/*", handleRoute).catch(() => {});
-            resolve({ hlsUrl, progressiveUrl });
-          }
-          return;
-        } catch (error) {
-          await route.continue();
         }
-      }
-      
-      await route.continue();
-    };
 
-    page.route("**/*", handleRoute).catch(() => {});
+        const progressive = body?.request?.files?.progressive;
+        if (progressive && Array.isArray(progressive) && progressive.length > 0) {
+          const sorted = [...progressive].sort((a: {height?: number}, b: {height?: number}) => 
+            (b.height ?? 0) - (a.height ?? 0)
+          );
+          progressiveUrl = sorted[0]?.url ?? null;
+        }
 
-    // Timeout
-    setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        page.unroute("**/*", handleRoute).catch(() => {});
-        resolve({ hlsUrl: null, progressiveUrl: null, error: "Config request not captured" });
+        // Fulfill the original request
+        await route.fulfill({ response });
+        return;
+      } catch {
+        await route.continue();
       }
-    }, timeoutMs);
-  });
+    }
+    
+    await route.continue();
+  };
+
+  // Set up interception
+  await page.route("**/*", handleRoute);
+
+  try {
+    // Navigate to Vimeo embed page
+    const embedUrl = `https://player.vimeo.com/video/${videoId}`;
+    await page.goto(embedUrl, { timeout: timeoutMs, waitUntil: "domcontentloaded" });
+    
+    // Wait for config to load
+    await page.waitForTimeout(2000);
+    
+    // Try clicking play
+    try {
+      await page.click('.play, [aria-label="Play"], button', { timeout: 1000 });
+      await page.waitForTimeout(1500);
+    } catch {
+      // No play button or already playing
+    }
+
+  } catch {
+    // Navigation might fail but we might have captured config
+  }
+
+  // Cleanup
+  await page.unroute("**/*", handleRoute).catch(() => {});
+  
+  if (hlsUrl || progressiveUrl) {
+    return { hlsUrl, progressiveUrl };
+  } else {
+    return { hlsUrl: null, progressiveUrl: null, error: "Config not captured from embed page" };
+  }
 }
 
 /**
- * Captures Loom HLS URL by intercepting embed page requests.
+ * Captures Loom HLS URL by navigating to embed page and intercepting requests.
  */
 export async function captureLoomHls(
   page: Page,
   videoId: string,
-  timeoutMs = 5000
+  timeoutMs = 8000
 ): Promise<{ hlsUrl: string | null; error?: string }> {
-  return new Promise((resolve) => {
-    let resolved = false;
+  let capturedUrl: string | null = null;
 
-    const hlsPattern = /luna\.loom\.com.*playlist\.m3u8/;
+  const hlsPattern = /luna\.loom\.com.*playlist\.m3u8/;
 
-    const handleRoute = async (route: Route) => {
-      const url = route.request().url();
-      
-      if (hlsPattern.test(url) && url.includes(videoId)) {
-        if (!resolved) {
-          resolved = true;
-          page.unroute("**/*", handleRoute).catch(() => {});
-          await route.continue();
-          resolve({ hlsUrl: url });
-          return;
-        }
-      }
-      
-      await route.continue();
-    };
+  const handleRoute = async (route: Route) => {
+    const url = route.request().url();
+    
+    if (hlsPattern.test(url)) {
+      capturedUrl = url;
+    }
+    
+    await route.continue();
+  };
 
-    page.route("**/*", handleRoute).catch(() => {});
+  // Set up interception
+  await page.route("**/*", handleRoute);
 
-    // Timeout
-    setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        page.unroute("**/*", handleRoute).catch(() => {});
-        resolve({ hlsUrl: null, error: "HLS URL not captured" });
-      }
-    }, timeoutMs);
-  });
+  try {
+    // Navigate to Loom embed page to trigger video load
+    const embedUrl = `https://www.loom.com/embed/${videoId}`;
+    await page.goto(embedUrl, { timeout: timeoutMs, waitUntil: "domcontentloaded" });
+    
+    // Wait a bit for HLS request
+    await page.waitForTimeout(2000);
+    
+    // Try clicking play if needed
+    try {
+      await page.click('[data-testid="play-button"], .PlayButton, [aria-label="Play"]', { timeout: 1000 });
+      await page.waitForTimeout(1500);
+    } catch {
+      // No play button or already playing
+    }
+
+  } catch {
+    // Navigation might timeout but we might have captured the URL
+  }
+
+  // Cleanup
+  await page.unroute("**/*", handleRoute).catch(() => {});
+  
+  if (capturedUrl) {
+    return { hlsUrl: capturedUrl };
+  } else {
+    return { hlsUrl: null, error: "HLS URL not captured from embed page" };
+  }
 }
 

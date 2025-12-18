@@ -370,7 +370,7 @@ async function validateVideos(
       if (videoType === "loom" || videoType === "vimeo") {
         // Pass page for network interception fallback
         const validation = await validateVideoHls(
-          videoUrl, 
+          videoUrl,
           videoType,
           page,
           lesson.url
