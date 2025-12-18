@@ -594,6 +594,55 @@ export class CourseDatabase {
     return result.changes;
   }
 
+  /**
+   * Get lessons by error code.
+   */
+  getLessonsByErrorCode(errorCode: string): LessonWithModule[] {
+    const stmt = this.db.prepare(`
+      SELECT
+        l.*,
+        m.name as module_name,
+        m.slug as module_slug,
+        m.position as module_position
+      FROM lessons l
+      JOIN modules m ON l.module_id = m.id
+      WHERE l.error_code = ?
+      ORDER BY m.position, l.position
+    `);
+    const rows = stmt.all(errorCode) as Array<RawLessonRow & {
+      module_name: string;
+      module_slug: string;
+      module_position: number;
+    }>;
+
+    return rows.map((row) => ({
+      ...this.mapLessonRow(row),
+      moduleName: row.module_name,
+      moduleSlug: row.module_slug,
+      modulePosition: row.module_position,
+    }));
+  }
+
+  /**
+   * Get count of lessons grouped by video type.
+   */
+  getVideoTypeSummary(): Record<string, number> {
+    const stmt = this.db.prepare(`
+      SELECT video_type, COUNT(*) as count 
+      FROM lessons 
+      WHERE video_type IS NOT NULL 
+      GROUP BY video_type
+    `);
+    const rows = stmt.all() as Array<{ video_type: string; count: number }>;
+
+    const summary: Record<string, number> = {};
+    for (const row of rows) {
+      summary[row.video_type] = row.count;
+    }
+
+    return summary;
+  }
+
   private mapLessonRow(row: RawLessonRow): LessonRecord {
     return {
       id: row.id,

@@ -345,11 +345,29 @@ async function validateVideos(
         continue;
       }
 
-      // Validate HLS for video types that need it
-      if (videoType === "loom") {
+      // Handle unsupported video types early
+      if (videoType === "youtube" || videoType === "wistia") {
+        db.updateLessonScan(
+          lesson.id,
+          videoType,
+          videoUrl,
+          null,
+          LessonStatus.ERROR,
+          `${videoType.charAt(0).toUpperCase() + videoType.slice(1)} videos are not yet supported`,
+          "UNSUPPORTED_PROVIDER"
+        );
+        lessonSpinner.warn(chalk.yellow(`   ${lesson.name}`));
+        console.log(chalk.yellow(`      ⚠ ${videoType.toUpperCase()} not supported (requires yt-dlp)`));
+        console.log(chalk.gray(`        URL: ${videoUrl}`));
+        errors++;
+        continue;
+      }
+
+      // Validate HLS for video types that support it
+      if (videoType === "loom" || videoType === "vimeo") {
         const validation = await validateVideoHls(videoUrl, videoType);
 
-        if (validation.isValid && validation.hlsUrl) {
+        if (validation.isValid) {
           db.updateLessonScan(
             lesson.id,
             videoType,
@@ -377,7 +395,7 @@ async function validateVideos(
           errors++;
         }
       } else {
-        // For other video types, mark as validated (will attempt download later)
+        // For native/unknown video types, mark as validated (will attempt direct download)
         db.updateLessonScan(lesson.id, videoType, videoUrl, null, LessonStatus.VALIDATED);
         lessonSpinner.succeed(`   ${lesson.name} (${videoType})`);
         validated++;
@@ -602,6 +620,7 @@ async function downloadVideos(
 function printStatusSummary(db: CourseDatabase): void {
   const meta = db.getCourseMetadata();
   const summary = db.getStatusSummary();
+  const videoTypes = db.getVideoTypeSummary();
 
   console.log(chalk.cyan("\n📊 Status Summary\n"));
   console.log(chalk.white(`   Course: ${meta.name}`));
@@ -615,5 +634,43 @@ function printStatusSummary(db: CourseDatabase): void {
 
   if (summary.error > 0) {
     console.log(chalk.red(`   ✗ Errors:     ${summary.error}`));
+
+    // Show unsupported providers if any
+    const unsupported = db.getLessonsByErrorCode("UNSUPPORTED_PROVIDER");
+    if (unsupported.length > 0) {
+      console.log(chalk.yellow(`\n   ⚠ Unsupported video providers:`));
+      
+      // Group by video type
+      const byType = new Map<string, typeof unsupported>();
+      for (const lesson of unsupported) {
+        const type = lesson.videoType ?? "unknown";
+        if (!byType.has(type)) {
+          byType.set(type, []);
+        }
+        byType.get(type)!.push(lesson);
+      }
+
+      for (const [type, lessons] of byType) {
+        console.log(chalk.yellow(`     ${type.toUpperCase()}: ${lessons.length} video(s)`));
+        for (const lesson of lessons.slice(0, 3)) {
+          console.log(chalk.gray(`       - ${lesson.moduleName} → ${lesson.name}`));
+        }
+        if (lessons.length > 3) {
+          console.log(chalk.gray(`       ... and ${lessons.length - 3} more`));
+        }
+      }
+      console.log(chalk.gray(`\n   💡 Tip: Install yt-dlp to download YouTube/Wistia videos`));
+    }
+  }
+
+  // Show video type breakdown
+  if (Object.keys(videoTypes).length > 0) {
+    console.log(chalk.gray(`\n   Video types found:`));
+    for (const [type, count] of Object.entries(videoTypes)) {
+      const supported = type === "loom" || type === "vimeo" || type === "native";
+      const icon = supported ? "✓" : "✗";
+      const color = supported ? chalk.green : chalk.yellow;
+      console.log(color(`     ${icon} ${type}: ${count}`));
+    }
   }
 }
