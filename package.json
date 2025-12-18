@@ -1,11 +1,19 @@
 {
-  "name": "course-grab",
+  "name": "offcourse",
   "version": "0.1.0",
-  "description": "CLI tool to download and sync online courses for offline access",
+  "description": "Download online courses for offline access – of course!",
   "type": "module",
   "bin": {
-    "course-grab": "./dist/cli/index.js"
+    "offcourse": "./dist/cli/index.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sebastian-software/offcourse.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sebastian-software/offcourse/issues"
+  },
+  "homepage": "https://offcourse.app",
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",

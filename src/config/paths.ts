@@ -4,7 +4,7 @@ import { join } from "node:path";
 /**
  * Application directory paths.
  */
-export const APP_DIR = join(homedir(), ".course-grab");
+export const APP_DIR = join(homedir(), ".offcourse");
 export const SESSIONS_DIR = join(APP_DIR, "sessions");
 export const CONFIG_FILE = join(APP_DIR, "config.json");
 

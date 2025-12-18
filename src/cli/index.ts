@@ -9,14 +9,14 @@ import { syncCommand } from "./commands/sync.js";
 const program = new Command();
 
 program
-  .name("course-grab")
-  .description("CLI tool to download online courses for offline access")
+  .name("offcourse")
+  .description("Download online courses for offline access – of course!")
   .version("0.1.0");
 
 // Login command
 program
   .command("login")
-  .description("Log in to Skool.com (opens browser)")
+  .description("Log in to a learning platform (opens browser)")
   .option("-f, --force", "Force re-login even if session exists")
   .action(loginCommand);
 
@@ -26,7 +26,7 @@ program.command("logout").description("Clear saved session").action(logoutComman
 // Sync command
 program
   .command("sync <url>")
-  .description("Download a course from Skool.com")
+  .description("Download a course for offline access")
   .option("--skip-videos", "Skip video downloads (only save text content)")
   .option("--skip-content", "Skip text content (only download videos)")
   .option("--dry-run", "Show what would be downloaded without actually downloading")

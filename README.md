@@ -1,6 +1,8 @@
-# course-grab
+# Offcourse
 
-CLI tool to download online courses for offline access. Saves video content and lesson text as Markdown files, organized by module structure.
+Download online courses for offline access – of course! 📚
+
+Saves video content and lesson text as Markdown files, organized by module structure.
 
 ## Features
 
@@ -22,8 +24,8 @@ CLI tool to download online courses for offline access. Saves video content and 
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/course-grab.git
-cd course-grab
+git clone https://github.com/sebastian-software/offcourse.git
+cd offcourse
 
 # Install dependencies
 npm install
@@ -43,67 +45,67 @@ Requires Node.js 22+.
 
 ```bash
 # Opens browser for interactive login
-course-grab login
+offcourse login
 
 # Force re-login
-course-grab login --force
+offcourse login --force
 ```
 
 ### Sync a Course
 
 ```bash
 # Download entire course
-course-grab sync https://www.skool.com/your-community/classroom
+offcourse sync https://www.skool.com/your-community/classroom
 
 # Skip video downloads
-course-grab sync <url> --skip-videos
+offcourse sync <url> --skip-videos
 
 # Skip text content
-course-grab sync <url> --skip-content
+offcourse sync <url> --skip-content
 
 # Preview without downloading
-course-grab sync <url> --dry-run
+offcourse sync <url> --dry-run
 
 # Limit to first N lessons (for testing)
-course-grab sync <url> --limit 5
+offcourse sync <url> --limit 5
 ```
 
 ### Configuration
 
 ```bash
 # Show current config
-course-grab config show
+offcourse config show
 
 # Set output directory
-course-grab config set outputDir ~/Courses
+offcourse config set outputDir ~/Courses
 
 # Set video quality (highest, lowest, 1080p, 720p, 480p)
-course-grab config set videoQuality 720p
+offcourse config set videoQuality 720p
 
 # Set download concurrency (1-5)
-course-grab config set concurrency 3
+offcourse config set concurrency 3
 
 # Run headless (no browser window)
-course-grab config set headless true
+offcourse config set headless true
 ```
 
 ### Inspect (Debugging)
 
 ```bash
 # Analyze page structure
-course-grab inspect <url>
+offcourse inspect <url>
 
 # Save analysis to files
-course-grab inspect <url> --output ./analysis
+offcourse inspect <url> --output ./analysis
 
 # Include full HTML dump
-course-grab inspect <url> --full
+offcourse inspect <url> --full
 ```
 
 ## Output Structure
 
 ```
-~/Downloads/course-grab/
+~/Downloads/offcourse/
 └── course-name/
     ├── 01-module-name/
     │   ├── 01-lesson-name/
@@ -141,4 +143,3 @@ npm test
 ## License
 
 MIT
-

@@ -2,7 +2,7 @@
 
 ## Overview
 
-course-grab is a modular CLI tool for downloading online courses. The architecture is designed to support multiple learning platforms through a plugin-like pattern.
+Offcourse is a modular CLI tool for downloading online courses. The architecture is designed to support multiple learning platforms through a plugin-like pattern.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -98,12 +98,12 @@ File system abstraction for saving content.
 Centralized configuration with Zod validation.
 
 - **schema.ts**: Type-safe schemas for all configuration
-- **configManager.ts**: Persists config to `~/.config/course-grab/`
+- **configManager.ts**: Persists config to `~/.offcourse/`
 
 ## Data Flow
 
 ```
-1. User runs: course-grab sync <url>
+1. User runs: offcourse sync <url>
                     │
 2. Load config      │
                     ▼
@@ -142,4 +142,3 @@ Centralized configuration with Zod validation.
 | Validation | Zod | Runtime validation with TypeScript inference |
 | HTML → Markdown | Turndown | Mature, configurable |
 | Styling | Chalk + Ora | Clean terminal output with spinners |
-
