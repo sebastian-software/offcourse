@@ -190,9 +190,8 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
       return;
     }
 
-    // Create output directory
-    const meta = db.getCourseMetadata();
-    const courseDir = createCourseDirectory(config.outputDir, meta.name);
+    // Create output directory (use URL slug for consistency)
+    const courseDir = createCourseDirectory(config.outputDir, communitySlug);
     console.log(chalk.gray(`\n📁 Output: ${courseDir}\n`));
 
     // Phase 2: Validate videos and get HLS URLs

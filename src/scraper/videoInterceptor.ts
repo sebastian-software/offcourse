@@ -169,13 +169,13 @@ export async function captureVimeoConfig(
 
   const handleRoute = async (route: Route) => {
     const url = route.request().url();
-    
+
     if (configPattern.test(url)) {
       try {
         // Fetch the response to read the config
         const response = await route.fetch();
         const body = await response.json();
-        
+
         // Extract URLs from config
         const hlsCdns = body?.request?.files?.hls?.cdns;
         if (hlsCdns) {
@@ -190,7 +190,7 @@ export async function captureVimeoConfig(
 
         const progressive = body?.request?.files?.progressive;
         if (progressive && Array.isArray(progressive) && progressive.length > 0) {
-          const sorted = [...progressive].sort((a: {height?: number}, b: {height?: number}) => 
+          const sorted = [...progressive].sort((a: {height?: number}, b: {height?: number}) =>
             (b.height ?? 0) - (a.height ?? 0)
           );
           progressiveUrl = sorted[0]?.url ?? null;
@@ -203,7 +203,7 @@ export async function captureVimeoConfig(
         await route.continue();
       }
     }
-    
+
     await route.continue();
   };
 
@@ -214,10 +214,10 @@ export async function captureVimeoConfig(
     // Navigate to Vimeo embed page
     const embedUrl = `https://player.vimeo.com/video/${videoId}`;
     await page.goto(embedUrl, { timeout: timeoutMs, waitUntil: "domcontentloaded" });
-    
+
     // Wait for config to load
     await page.waitForTimeout(2000);
-    
+
     // Try clicking play
     try {
       await page.click('.play, [aria-label="Play"], button', { timeout: 1000 });
@@ -232,7 +232,7 @@ export async function captureVimeoConfig(
 
   // Cleanup
   await page.unroute("**/*", handleRoute).catch(() => {});
-  
+
   if (hlsUrl || progressiveUrl) {
     return { hlsUrl, progressiveUrl };
   } else {
@@ -254,11 +254,11 @@ export async function captureLoomHls(
 
   const handleRoute = async (route: Route) => {
     const url = route.request().url();
-    
+
     if (hlsPattern.test(url)) {
       capturedUrl = url;
     }
-    
+
     await route.continue();
   };
 
@@ -269,10 +269,10 @@ export async function captureLoomHls(
     // Navigate to Loom embed page to trigger video load
     const embedUrl = `https://www.loom.com/embed/${videoId}`;
     await page.goto(embedUrl, { timeout: timeoutMs, waitUntil: "domcontentloaded" });
-    
+
     // Wait a bit for HLS request
     await page.waitForTimeout(2000);
-    
+
     // Try clicking play if needed
     try {
       await page.click('[data-testid="play-button"], .PlayButton, [aria-label="Play"]', { timeout: 1000 });
@@ -287,7 +287,7 @@ export async function captureLoomHls(
 
   // Cleanup
   await page.unroute("**/*", handleRoute).catch(() => {});
-  
+
   if (capturedUrl) {
     return { hlsUrl: capturedUrl };
   } else {

@@ -248,7 +248,7 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
 /**
  * Extracts the video URL from the current lesson page.
  * Supports Loom, Vimeo, YouTube, Wistia, and native video.
- * 
+ *
  * For Vimeo: Prefers iframe src (has auth params) over __NEXT_DATA__ URL.
  * For others: Uses __NEXT_DATA__ first, then falls back to DOM inspection.
  */
@@ -257,7 +257,7 @@ export async function extractVideoUrl(
 ): Promise<{ url: string | null; type: LessonContent["videoType"] }> {
   // First: Check for iframe with full URL (includes auth params for Vimeo)
   const iframeVideo = await extractVideoFromIframe(page);
-  
+
   // If it's Vimeo, prefer iframe URL as it has the auth hash
   if (iframeVideo.url && iframeVideo.type === "vimeo") {
     return iframeVideo;
@@ -305,7 +305,7 @@ async function extractVideoFromIframe(
       }
     }
 
-    // Check for Loom iframe  
+    // Check for Loom iframe
     const loomIframe = document.querySelector('iframe[src*="loom.com"]');
     if (loomIframe) {
       const src = (loomIframe as HTMLIFrameElement).src;
