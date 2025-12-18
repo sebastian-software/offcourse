@@ -345,6 +345,9 @@ async function validateVideos(
         continue;
       }
 
+      // Create a tag for the video type
+      const typeTag = videoType ? `[${videoType.toUpperCase()}]` : "[UNKNOWN]";
+
       // Handle unsupported video types early
       if (videoType === "youtube" || videoType === "wistia") {
         db.updateLessonScan(
@@ -356,9 +359,9 @@ async function validateVideos(
           `${videoType.charAt(0).toUpperCase() + videoType.slice(1)} videos are not yet supported`,
           "UNSUPPORTED_PROVIDER"
         );
-        lessonSpinner.warn(chalk.yellow(`   ${lesson.name}`));
-        console.log(chalk.yellow(`      ⚠ ${videoType.toUpperCase()} not supported (requires yt-dlp)`));
-        console.log(chalk.gray(`        URL: ${videoUrl}`));
+        lessonSpinner.warn(chalk.yellow(`   ${typeTag} ${lesson.name}`));
+        console.log(chalk.yellow(`      ⚠ Not supported (requires yt-dlp)`));
+        console.log(chalk.gray(`        ${videoUrl}`));
         errors++;
         continue;
       }
@@ -367,7 +370,7 @@ async function validateVideos(
       if (videoType === "loom" || videoType === "vimeo") {
         // Pass page for Vimeo domain-restricted videos
         const validation = await validateVideoHls(
-          videoUrl,
+          videoUrl, 
           videoType,
           videoType === "vimeo" ? page : undefined,
           videoType === "vimeo" ? lesson.url : undefined
@@ -381,7 +384,7 @@ async function validateVideos(
             validation.hlsUrl,
             LessonStatus.VALIDATED
           );
-          lessonSpinner.succeed(`   ${lesson.name} ✓`);
+          lessonSpinner.succeed(`   ${typeTag} ${lesson.name} ✓`);
           validated++;
         } else {
           db.updateLessonScan(
@@ -393,7 +396,7 @@ async function validateVideos(
             validation.error,
             validation.errorCode
           );
-          lessonSpinner.fail(chalk.red(`   ${lesson.name}`));
+          lessonSpinner.fail(chalk.red(`   ${typeTag} ${lesson.name}`));
           console.log(chalk.red(`      ⚠ ${validation.error}`));
           if (validation.details) {
             console.log(chalk.gray(`        ${validation.details}`));
@@ -403,7 +406,7 @@ async function validateVideos(
       } else {
         // For native/unknown video types, mark as validated (will attempt direct download)
         db.updateLessonScan(lesson.id, videoType, videoUrl, null, LessonStatus.VALIDATED);
-        lessonSpinner.succeed(`   ${lesson.name} (${videoType})`);
+        lessonSpinner.succeed(`   ${typeTag} ${lesson.name} ✓`);
         validated++;
       }
     } catch (error) {
@@ -544,10 +547,11 @@ async function downloadVideos(
   const downloadAttempts: DownloadAttempt[] = [];
 
   const result = await queue.process(async (task, id) => {
-    videoSpinner.text = `   Downloading: ${id}`;
+    const typeTag = task.videoType ? `[${task.videoType.toUpperCase()}]` : "";
+    videoSpinner.text = `   ${typeTag} Downloading: ${id}`;
 
     const downloadResult = await downloadVideo(task, (progress) => {
-      videoSpinner.text = `   ${id} (${Math.round(progress.percent)}%)`;
+      videoSpinner.text = `   ${typeTag} ${id} (${Math.round(progress.percent)}%)`;
     });
 
     // Record the attempt
@@ -598,7 +602,10 @@ async function downloadVideos(
   if (result.errors.length > 0) {
     console.log(chalk.yellow("\n   Failed downloads:"));
     for (const error of result.errors) {
-      console.log(chalk.red(`   - ${error.id}: ${error.error}`));
+      // Find the task to get video type
+      const task = videoTasks.find((t) => t.lessonName === error.id);
+      const typeTag = task?.videoType ? `[${task.videoType.toUpperCase()}]` : "";
+      console.log(chalk.red(`   - ${typeTag} ${error.id}: ${error.error}`));
     }
 
     // Save diagnostic log
