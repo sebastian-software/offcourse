@@ -49,7 +49,7 @@ export async function validateLoomHls(
 
   // If direct API failed and we have a page, try network interception
   if (page && result.errorCode === "HLS_NOT_FOUND") {
-    const captured = await captureLoomHls(page, videoId, 6000);
+    const captured = await captureLoomHls(page, videoId, 15000);
     if (captured.hlsUrl) {
       return {
         isValid: true,
@@ -111,7 +111,7 @@ export async function validateVimeoVideo(
 
   // If still failing and we have a page, try network interception
   if (!result.success && result.errorCode === "PRIVATE_VIDEO" && page) {
-    const captured = await captureVimeoConfig(page, videoId, 6000);
+    const captured = await captureVimeoConfig(page, videoId, 15000);
     if (captured.hlsUrl || captured.progressiveUrl) {
       return {
         isValid: true,
