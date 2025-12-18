@@ -368,12 +368,12 @@ async function validateVideos(
 
       // Validate HLS for video types that support it
       if (videoType === "loom" || videoType === "vimeo") {
-        // Pass page for Vimeo domain-restricted videos
+        // Pass page for network interception fallback
         const validation = await validateVideoHls(
           videoUrl, 
           videoType,
-          videoType === "vimeo" ? page : undefined,
-          videoType === "vimeo" ? lesson.url : undefined
+          page,
+          lesson.url
         );
 
         if (validation.isValid) {
