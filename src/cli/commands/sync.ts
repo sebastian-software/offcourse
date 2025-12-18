@@ -135,8 +135,8 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
   cleanupResources.db = db;
   console.log(chalk.gray(`   State: ~/.offcourse/cache/${communitySlug}.db`));
 
-  // Reset error lessons if requested
-  if (options.retryErrors) {
+  // Reset error lessons if requested (--retry-errors or --force)
+  if (options.retryErrors || options.force) {
     const resetCount = db.resetErrorLessons();
     if (resetCount > 0) {
       console.log(chalk.yellow(`   Reset ${resetCount} error lessons for retry`));
