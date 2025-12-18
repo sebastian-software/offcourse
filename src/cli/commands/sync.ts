@@ -365,7 +365,13 @@ async function validateVideos(
 
       // Validate HLS for video types that support it
       if (videoType === "loom" || videoType === "vimeo") {
-        const validation = await validateVideoHls(videoUrl, videoType);
+        // Pass page for Vimeo domain-restricted videos
+        const validation = await validateVideoHls(
+          videoUrl, 
+          videoType,
+          videoType === "vimeo" ? page : undefined,
+          videoType === "vimeo" ? lesson.url : undefined
+        );
 
         if (validation.isValid) {
           db.updateLessonScan(

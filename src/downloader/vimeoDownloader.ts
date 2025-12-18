@@ -80,22 +80,43 @@ function extractUnlistedHash(url: string): string | null {
 
 /**
  * Fetches video information from Vimeo's player config.
+ * @param referer - Optional referer URL (e.g., the Skool page URL) for domain-restricted videos
  */
-export async function getVimeoVideoInfo(videoId: string, unlistedHash?: string | null): Promise<VimeoFetchResult> {
+export async function getVimeoVideoInfo(
+  videoId: string, 
+  unlistedHash?: string | null,
+  referer?: string
+): Promise<VimeoFetchResult> {
   // Try the config endpoint first
   let configUrl = `https://player.vimeo.com/video/${videoId}/config`;
   if (unlistedHash) {
     configUrl += `?h=${unlistedHash}`;
   }
 
+  // Build headers - use provided referer for domain-restricted videos
+  const headers: Record<string, string> = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json",
+  };
+  
+  // Try with Skool referer first if provided, otherwise use Vimeo's player
+  if (referer) {
+    headers["Referer"] = referer;
+    headers["Origin"] = new URL(referer).origin;
+  } else {
+    headers["Referer"] = "https://player.vimeo.com/";
+  }
+
   try {
-    const response = await fetch(configUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json",
-        "Referer": "https://player.vimeo.com/",
-      },
-    });
+    let response = await fetch(configUrl, { headers });
+
+    // If we got 403 with a custom referer, the video might be strictly domain-locked
+    // Try with the embed page URL as referer
+    if (response.status === 403 && referer) {
+      headers["Referer"] = `https://player.vimeo.com/video/${videoId}`;
+      headers["Origin"] = "https://player.vimeo.com";
+      response = await fetch(configUrl, { headers });
+    }
 
     if (response.status === 404) {
       return {
@@ -218,6 +239,139 @@ export async function getVimeoVideoInfo(videoId: string, unlistedHash?: string |
     return {
       success: false,
       error: `Network error: ${errorMessage}`,
+      errorCode: "NETWORK_ERROR",
+    };
+  }
+}
+
+/**
+ * Fetches Vimeo config from within a Playwright browser context.
+ * This is useful for domain-restricted videos that only work when embedded.
+ * 
+ * @param page - Playwright page (should be on the Skool lesson page)
+ * @param videoId - Vimeo video ID
+ * @param unlistedHash - Optional hash for unlisted videos
+ */
+export async function getVimeoVideoInfoFromBrowser(
+  page: import("playwright").Page,
+  videoId: string,
+  unlistedHash?: string | null
+): Promise<VimeoFetchResult> {
+  let configUrl = `https://player.vimeo.com/video/${videoId}/config`;
+  if (unlistedHash) {
+    configUrl += `?h=${unlistedHash}`;
+  }
+
+  try {
+    // Use page.evaluate to fetch from browser context (includes cookies, referer)
+    const result = await page.evaluate(async (url: string) => {
+      try {
+        const response = await fetch(url, {
+          headers: {
+            "Accept": "application/json",
+          },
+          credentials: "include",
+        });
+
+        if (!response.ok) {
+          return { 
+            success: false, 
+            status: response.status,
+            error: `HTTP ${response.status}` 
+          };
+        }
+
+        const config = await response.json();
+        return { success: true, config };
+      } catch (err) {
+        return { 
+          success: false, 
+          error: err instanceof Error ? err.message : String(err) 
+        };
+      }
+    }, configUrl);
+
+    if (!result.success) {
+      if (result.status === 403) {
+        return {
+          success: false,
+          error: "Video is private or requires authentication",
+          errorCode: "PRIVATE_VIDEO",
+          details: `Video ID: ${videoId}. Domain-restricted even in browser context.`,
+        };
+      }
+      return {
+        success: false,
+        error: result.error ?? "Failed to fetch config",
+        errorCode: "NETWORK_ERROR",
+      };
+    }
+
+    const config = result.config as VimeoConfig;
+
+    // Extract HLS URL (same logic as getVimeoVideoInfo)
+    let hlsUrl: string | null = null;
+    const hlsCdns = config.request?.files?.hls?.cdns;
+    if (hlsCdns) {
+      const preferredCdns = ["akfire_interconnect_quic", "akamai_live", "fastly_skyfire", "fastly"];
+      for (const cdn of preferredCdns) {
+        if (hlsCdns[cdn]?.url) {
+          hlsUrl = hlsCdns[cdn].url;
+          break;
+        }
+      }
+      if (!hlsUrl) {
+        const cdnKeys = Object.keys(hlsCdns);
+        const firstCdn = cdnKeys[0];
+        if (firstCdn) {
+          const cdnUrl = hlsCdns[firstCdn]?.url;
+          if (cdnUrl) {
+            hlsUrl = cdnUrl;
+          }
+        }
+      }
+    }
+
+    // Extract progressive URL
+    let progressiveUrl: string | null = null;
+    const progressive = config.request?.files?.progressive;
+    if (progressive && Array.isArray(progressive) && progressive.length > 0) {
+      const sorted = [...progressive].sort((a, b) => (b.height ?? 0) - (a.height ?? 0));
+      progressiveUrl = sorted[0]?.url ?? null;
+    }
+
+    if (!hlsUrl && !progressiveUrl) {
+      if (config.request?.files?.dash) {
+        return {
+          success: false,
+          error: "Video only has DRM-protected DASH streams",
+          errorCode: "DRM_PROTECTED",
+          details: `Video "${config.video?.title ?? videoId}" uses DRM. Cannot download.`,
+        };
+      }
+      return {
+        success: false,
+        error: "No downloadable streams found",
+        errorCode: "PARSE_ERROR",
+      };
+    }
+
+    return {
+      success: true,
+      info: {
+        id: videoId,
+        title: config.video?.title ?? "Vimeo Video",
+        duration: config.video?.duration ?? 0,
+        width: config.video?.width ?? 1920,
+        height: config.video?.height ?? 1080,
+        hlsUrl,
+        progressiveUrl,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
       errorCode: "NETWORK_ERROR",
     };
   }

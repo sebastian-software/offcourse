@@ -58,7 +58,7 @@ export async function downloadVideo(
 }
 
 export { downloadFile, downloadLoomVideo, extractLoomId, getLoomVideoInfoDetailed, type DownloadProgress, type LoomFetchResult } from "./loomDownloader.js";
-export { downloadVimeoVideo, extractVimeoId, getVimeoVideoInfo, type VimeoDownloadResult, type VimeoFetchResult, type VimeoVideoInfo } from "./vimeoDownloader.js";
+export { downloadVimeoVideo, extractVimeoId, getVimeoVideoInfo, getVimeoVideoInfoFromBrowser, type VimeoDownloadResult, type VimeoFetchResult, type VimeoVideoInfo } from "./vimeoDownloader.js";
 export { AsyncQueue, type QueueItem, type QueueOptions } from "./queue.js";
 export { validateLoomHls, validateVideoHls, validateVimeoVideo, type HlsValidationResult } from "./hlsValidator.js";
 
