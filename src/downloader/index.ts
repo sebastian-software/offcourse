@@ -1,4 +1,4 @@
-import { downloadFile, downloadLoomVideo, extractLoomId, type DownloadProgress } from "./loomDownloader.js";
+import { downloadFile, downloadLoomVideo, type DownloadProgress } from "./loomDownloader.js";
 
 export interface VideoDownloadTask {
   lessonName: string;
@@ -9,7 +9,9 @@ export interface VideoDownloadTask {
 
 export interface DownloadResult {
   success: boolean;
-  error?: string;
+  error?: string | undefined;
+  errorCode?: string | undefined;
+  details?: string | undefined;
 }
 
 /**
@@ -52,6 +54,6 @@ export async function downloadVideo(
   }
 }
 
-export { downloadFile, downloadLoomVideo, extractLoomId, type DownloadProgress };
+export { downloadFile, downloadLoomVideo, extractLoomId, getLoomVideoInfoDetailed, type DownloadProgress, type LoomFetchResult } from "./loomDownloader.js";
 export { AsyncQueue, type QueueItem, type QueueOptions } from "./queue.js";
 

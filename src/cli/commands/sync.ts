@@ -1,5 +1,7 @@
 import chalk from "chalk";
 import ora from "ora";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { loadConfig } from "../../config/configManager.js";
 import { downloadVideo, AsyncQueue, type VideoDownloadTask } from "../../downloader/index.js";
 import { getAuthenticatedSession } from "../../scraper/auth.js";
@@ -13,6 +15,17 @@ import {
   isLessonSynced,
   saveMarkdown,
 } from "../../storage/fileSystem.js";
+
+interface DownloadAttempt {
+  lessonName: string;
+  videoUrl: string;
+  videoType: string | null;
+  success: boolean;
+  error?: string | undefined;
+  errorCode?: string | undefined;
+  details?: string | undefined;
+  timestamp: string;
+}
 
 const SKOOL_DOMAIN = "www.skool.com";
 const SKOOL_LOGIN_URL = "https://www.skool.com/login";
@@ -210,6 +223,9 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
 
       const videoSpinner = ora("Starting downloads...").start();
 
+      // Track all download attempts for diagnostic log
+      const downloadAttempts: DownloadAttempt[] = [];
+
       const result = await queue.process(async (task, id) => {
         videoSpinner.text = `   Downloading: ${id}`;
 
@@ -217,9 +233,30 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
           videoSpinner.text = `   ${id} (${Math.round(progress.percent)}%)`;
         });
 
+        // Record the attempt
+        const attempt: DownloadAttempt = {
+          lessonName: task.lessonName,
+          videoUrl: task.videoUrl,
+          videoType: task.videoType,
+          success: downloadResult.success,
+          timestamp: new Date().toISOString(),
+        };
+
         if (!downloadResult.success) {
-          throw new Error(downloadResult.error ?? "Download failed");
+          attempt.error = downloadResult.error;
+          attempt.errorCode = downloadResult.errorCode;
+          attempt.details = downloadResult.details;
+
+          // Build detailed error message
+          let errorMsg = downloadResult.error ?? "Download failed";
+          if (downloadResult.details) {
+            errorMsg += ` [${downloadResult.details}]`;
+          }
+          downloadAttempts.push(attempt);
+          throw new Error(errorMsg);
         }
+
+        downloadAttempts.push(attempt);
       });
 
       videoSpinner.succeed(`   Videos: ${result.completed} downloaded, ${result.failed} failed`);
@@ -228,6 +265,23 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
         console.log(chalk.yellow("\n   Failed downloads:"));
         for (const error of result.errors) {
           console.log(chalk.red(`   - ${error.id}: ${error.error}`));
+        }
+
+        // Save diagnostic log
+        const failedAttempts = downloadAttempts.filter(a => !a.success);
+        if (failedAttempts.length > 0) {
+          const logPath = join(courseDir, `download-errors-${Date.now()}.json`);
+          const logData = {
+            timestamp: new Date().toISOString(),
+            totalAttempts: videoTasks.length,
+            successful: result.completed,
+            failed: result.failed,
+            concurrency: config.concurrency,
+            retryAttempts: config.retryAttempts,
+            failures: failedAttempts,
+          };
+          writeFileSync(logPath, JSON.stringify(logData, null, 2));
+          console.log(chalk.gray(`\n   📋 Detailed error log saved: ${logPath}`));
         }
       }
     }

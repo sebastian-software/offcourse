@@ -13,6 +13,15 @@ export interface LoomVideoInfo {
   hlsUrl: string;
 }
 
+export interface LoomFetchResult {
+  success: boolean;
+  info?: LoomVideoInfo;
+  error?: string;
+  errorCode?: "EMBED_FETCH_FAILED" | "HLS_NOT_FOUND" | "RATE_LIMITED" | "NETWORK_ERROR" | "PARSE_ERROR";
+  statusCode?: number;
+  details?: string;
+}
+
 export interface DownloadProgress {
   percent: number;
   downloaded: number;
@@ -28,58 +37,200 @@ export function extractLoomId(url: string): string | null {
 }
 
 /**
+ * Fetches video information from Loom's embed page with detailed error reporting.
+ */
+export async function getLoomVideoInfoDetailed(
+  videoId: string,
+  retryCount = 3,
+  retryDelayMs = 1000
+): Promise<LoomFetchResult> {
+  const embedUrl = `https://www.loom.com/embed/${videoId}`;
+
+  for (let attempt = 1; attempt <= retryCount; attempt++) {
+    try {
+      const embedResponse = await fetch(embedUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.5",
+          "Cache-Control": "no-cache",
+        },
+      });
+
+      // Check for rate limiting
+      if (embedResponse.status === 429) {
+        const retryAfter = embedResponse.headers.get("Retry-After");
+        const waitTime = retryAfter ? parseInt(retryAfter, 10) * 1000 : retryDelayMs * attempt * 2;
+
+        if (attempt < retryCount) {
+          await sleep(waitTime);
+          continue;
+        }
+
+        return {
+          success: false,
+          error: `Rate limited by Loom (429)`,
+          errorCode: "RATE_LIMITED",
+          statusCode: 429,
+          details: `Retry-After: ${retryAfter ?? "not specified"}. Tried ${retryCount} times.`,
+        };
+      }
+
+      if (!embedResponse.ok) {
+        // For 4xx errors, don't retry
+        if (embedResponse.status >= 400 && embedResponse.status < 500 && embedResponse.status !== 429) {
+          return {
+            success: false,
+            error: `Loom returned HTTP ${embedResponse.status}`,
+            errorCode: "EMBED_FETCH_FAILED",
+            statusCode: embedResponse.status,
+            details: `URL: ${embedUrl}`,
+          };
+        }
+
+        // For 5xx errors, retry
+        if (attempt < retryCount) {
+          await sleep(retryDelayMs * attempt);
+          continue;
+        }
+
+        return {
+          success: false,
+          error: `Loom embed request failed with HTTP ${embedResponse.status}`,
+          errorCode: "EMBED_FETCH_FAILED",
+          statusCode: embedResponse.status,
+          details: `URL: ${embedUrl}. Tried ${retryCount} times.`,
+        };
+      }
+
+      const embedHtml = await embedResponse.text();
+
+      // Check for various error states in the HTML
+      if (embedHtml.includes("This video is private") || embedHtml.includes("video-not-found")) {
+        return {
+          success: false,
+          error: "Video is private or not found",
+          errorCode: "EMBED_FETCH_FAILED",
+          statusCode: 200,
+          details: "Loom returned a private/not-found page",
+        };
+      }
+
+      if (embedHtml.includes("rate limit") || embedHtml.includes("too many requests")) {
+        if (attempt < retryCount) {
+          await sleep(retryDelayMs * attempt * 2);
+          continue;
+        }
+
+        return {
+          success: false,
+          error: "Rate limited by Loom (detected in HTML)",
+          errorCode: "RATE_LIMITED",
+          statusCode: 200,
+          details: "Rate limit message found in page content",
+        };
+      }
+
+      // Extract HLS URL from the page - try multiple patterns
+      const hlsPatterns = [
+        /"url":"(https:\/\/luna\.loom\.com\/[^"]+playlist\.m3u8[^"]*)"/,
+        /"hlsUrl":"(https:\/\/[^"]+\.m3u8[^"]*)"/,
+        /https:\/\/luna\.loom\.com\/[^"'\s]+playlist\.m3u8[^"'\s]*/,
+      ];
+
+      let hlsUrl: string | null = null;
+      for (const pattern of hlsPatterns) {
+        const match = embedHtml.match(pattern);
+        if (match?.[1] || match?.[0]) {
+          hlsUrl = (match[1] ?? match[0]).replace(/\\u0026/g, "&").replace(/\\\//g, "/");
+          break;
+        }
+      }
+
+      if (!hlsUrl) {
+        // Try to extract useful debug info from the HTML
+        const hasVideoTag = embedHtml.includes("<video");
+        const hasLoomPlayer = embedHtml.includes("loom-player") || embedHtml.includes("LoomPlayer");
+        const hasEmbedData = embedHtml.includes("__NEXT_DATA__") || embedHtml.includes("window.__LOOM__");
+        const pageLength = embedHtml.length;
+
+        return {
+          success: false,
+          error: "Could not find HLS stream URL in embed page",
+          errorCode: "HLS_NOT_FOUND",
+          statusCode: 200,
+          details: `Page size: ${pageLength} bytes, Has video tag: ${hasVideoTag}, Has Loom player: ${hasLoomPlayer}, Has embed data: ${hasEmbedData}`,
+        };
+      }
+
+      // Get metadata from OEmbed (non-critical, don't fail if this doesn't work)
+      const oembedUrl = `https://www.loom.com/v1/oembed?url=https://www.loom.com/share/${videoId}`;
+      let title = "Loom Video";
+      let duration = 0;
+      let width = 1920;
+      let height = 1080;
+
+      try {
+        const oembedResponse = await fetch(oembedUrl, {
+          headers: { "User-Agent": "Mozilla/5.0" },
+        });
+
+        if (oembedResponse.ok) {
+          const data = (await oembedResponse.json()) as {
+            title?: string;
+            duration?: number;
+            width?: number;
+            height?: number;
+          };
+          title = data.title ?? title;
+          duration = data.duration ?? duration;
+          width = data.width ?? width;
+          height = data.height ?? height;
+        }
+      } catch {
+        // OEmbed failure is non-critical
+      }
+
+      return {
+        success: true,
+        info: { id: videoId, title, duration, width, height, hlsUrl },
+      };
+
+    } catch (error) {
+      if (attempt < retryCount) {
+        await sleep(retryDelayMs * attempt);
+        continue;
+      }
+
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: `Network error: ${errorMessage}`,
+        errorCode: "NETWORK_ERROR",
+        details: `Failed after ${retryCount} attempts`,
+      };
+    }
+  }
+
+  // Should never reach here, but TypeScript needs it
+  return {
+    success: false,
+    error: "Unexpected error in fetch loop",
+    errorCode: "NETWORK_ERROR",
+  };
+}
+
+/**
  * Fetches video information from Loom's embed page.
+ * @deprecated Use getLoomVideoInfoDetailed for better error reporting
  */
 export async function getLoomVideoInfo(videoId: string): Promise<LoomVideoInfo | null> {
-  try {
-    const embedUrl = `https://www.loom.com/embed/${videoId}`;
-    const embedResponse = await fetch(embedUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-      },
-    });
+  const result = await getLoomVideoInfoDetailed(videoId);
+  return result.success ? result.info ?? null : null;
+}
 
-    if (!embedResponse.ok) {
-      return null;
-    }
-
-    const embedHtml = await embedResponse.text();
-
-    // Extract HLS URL from the page
-    const hlsMatch = embedHtml.match(/"url":"(https:\/\/luna\.loom\.com\/[^"]+playlist\.m3u8[^"]*)"/);
-
-    if (!hlsMatch?.[1]) {
-      return null;
-    }
-
-    const hlsUrl = hlsMatch[1].replace(/\\u0026/g, "&").replace(/\\\//g, "/");
-
-    // Get metadata from OEmbed
-    const oembedUrl = `https://www.loom.com/v1/oembed?url=https://www.loom.com/share/${videoId}`;
-    const oembedResponse = await fetch(oembedUrl);
-    let title = "Loom Video";
-    let duration = 0;
-    let width = 1920;
-    let height = 1080;
-
-    if (oembedResponse.ok) {
-      const data = (await oembedResponse.json()) as {
-        title?: string;
-        duration?: number;
-        width?: number;
-        height?: number;
-      };
-      title = data.title ?? title;
-      duration = data.duration ?? duration;
-      width = data.width ?? width;
-      height = data.height ?? height;
-    }
-
-    return { id: videoId, title, duration, width, height, hlsUrl };
-  } catch (error) {
-    console.error("Failed to fetch Loom video info:", error);
-    return null;
-  }
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -232,7 +383,7 @@ async function downloadSegmentsToFile(
 
     renameSync(tempPath, outputPath);
     return true;
-  } catch (error) {
+  } catch {
     if (existsSync(tempPath)) unlinkSync(tempPath);
     return false;
   }
@@ -284,6 +435,13 @@ async function mergeWithFfmpeg(
   });
 }
 
+export interface LoomDownloadResult {
+  success: boolean;
+  error?: string;
+  errorCode?: LoomFetchResult["errorCode"] | "INVALID_URL" | "NO_VIDEO_STREAM" | "NO_SEGMENTS" | "DOWNLOAD_FAILED" | "MERGE_FAILED";
+  details?: string;
+}
+
 /**
  * Downloads a Loom video using HLS.
  */
@@ -291,32 +449,57 @@ export async function downloadLoomVideo(
   urlOrId: string,
   outputPath: string,
   onProgress?: (progress: DownloadProgress) => void
-): Promise<{ success: boolean; error?: string }> {
+): Promise<LoomDownloadResult> {
   if (existsSync(outputPath)) {
     return { success: true };
   }
 
   const videoId = urlOrId.includes("loom.com") ? extractLoomId(urlOrId) : urlOrId;
   if (!videoId) {
-    return { success: false, error: "Invalid Loom URL or ID" };
+    return { success: false, error: "Invalid Loom URL or ID", errorCode: "INVALID_URL" };
   }
 
-  const info = await getLoomVideoInfo(videoId);
-  if (!info) {
-    return { success: false, error: "Could not fetch video info from Loom" };
+  // Add random delay to avoid concurrent rate limiting (200-800ms)
+  await sleep(200 + Math.random() * 600);
+
+  const fetchResult = await getLoomVideoInfoDetailed(videoId);
+  if (!fetchResult.success || !fetchResult.info) {
+    const result: LoomDownloadResult = {
+      success: false,
+      error: fetchResult.error ?? "Could not fetch video info from Loom",
+    };
+    if (fetchResult.errorCode) {
+      result.errorCode = fetchResult.errorCode;
+    }
+    if (fetchResult.details) {
+      result.details = fetchResult.details;
+    }
+    return result;
   }
+
+  const info = fetchResult.info;
 
   // Parse master playlist
   const { videoUrl, audioUrl } = await parseHlsMasterPlaylist(info.hlsUrl);
 
   if (!videoUrl) {
-    return { success: false, error: "Could not find video stream" };
+    return {
+      success: false,
+      error: "Could not find video stream in HLS playlist",
+      errorCode: "NO_VIDEO_STREAM",
+      details: `HLS URL: ${info.hlsUrl.substring(0, 80)}...`,
+    };
   }
 
   // Get segments
   const videoSegments = await getSegmentUrls(videoUrl);
   if (videoSegments.length === 0) {
-    return { success: false, error: "No video segments found" };
+    return {
+      success: false,
+      error: "No video segments found in playlist",
+      errorCode: "NO_SEGMENTS",
+      details: `Video playlist URL: ${videoUrl.substring(0, 80)}...`,
+    };
   }
 
   const dir = dirname(outputPath);
@@ -345,7 +528,12 @@ export async function downloadLoomVideo(
       });
 
       if (!videoSuccess) {
-        return { success: false, error: "Failed to download video segments" };
+        return {
+          success: false,
+          error: "Failed to download video segments",
+          errorCode: "DOWNLOAD_FAILED",
+          details: `Video had ${videoSegments.length} segments`,
+        };
       }
 
       // Download audio segments
@@ -358,13 +546,22 @@ export async function downloadLoomVideo(
 
       if (!audioSuccess) {
         if (existsSync(tempVideoPath)) unlinkSync(tempVideoPath);
-        return { success: false, error: "Failed to download audio segments" };
+        return {
+          success: false,
+          error: "Failed to download audio segments",
+          errorCode: "DOWNLOAD_FAILED",
+          details: `Audio had ${audioSegments.length} segments`,
+        };
       }
 
       // Merge with ffmpeg
       const mergeSuccess = await mergeWithFfmpeg(tempVideoPath, tempAudioPath, outputPath);
       if (!mergeSuccess) {
-        return { success: false, error: "Failed to merge video and audio" };
+        return {
+          success: false,
+          error: "Failed to merge video and audio with ffmpeg",
+          errorCode: "MERGE_FAILED",
+        };
       }
 
       return { success: true };
@@ -382,7 +579,12 @@ export async function downloadLoomVideo(
   });
 
   if (!success) {
-    return { success: false, error: "Failed to download video segments" };
+    return {
+      success: false,
+      error: "Failed to download video segments",
+      errorCode: "DOWNLOAD_FAILED",
+      details: `Video had ${videoSegments.length} segments`,
+    };
   }
 
   return { success: true };
@@ -431,7 +633,7 @@ export async function downloadFile(
     let downloaded = 0;
 
     const readable = new Readable({
-      async read() {
+      async read(): Promise<void> {
         const { done, value } = await reader.read();
         if (done) {
           this.push(null);
