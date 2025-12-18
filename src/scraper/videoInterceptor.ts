@@ -211,19 +211,21 @@ export async function captureVimeoConfig(
   await page.route("**/*", handleRoute);
 
   try {
-    // Navigate to Vimeo embed page
-    const embedUrl = `https://player.vimeo.com/video/${videoId}`;
+    // Navigate to Vimeo embed page with autoplay
+    const embedUrl = `https://player.vimeo.com/video/${videoId}?autoplay=1`;
     await page.goto(embedUrl, { timeout: timeoutMs, waitUntil: "domcontentloaded" });
-
-    // Wait for config to load
-    await page.waitForTimeout(2000);
-
-    // Try clicking play
-    try {
-      await page.click('.play, [aria-label="Play"], button', { timeout: 1000 });
-      await page.waitForTimeout(1500);
-    } catch {
-      // No play button or already playing
+    
+    // Wait for config to load (Vimeo fetches config before playing)
+    await page.waitForTimeout(3000);
+    
+    // If no config captured, try clicking play
+    if (!hlsUrl && !progressiveUrl) {
+      try {
+        await page.click('.play, [aria-label="Play"], button', { timeout: 1000 });
+        await page.waitForTimeout(2000);
+      } catch {
+        // No play button or already playing
+      }
     }
 
   } catch {
@@ -266,19 +268,37 @@ export async function captureLoomHls(
   await page.route("**/*", handleRoute);
 
   try {
-    // Navigate to Loom embed page to trigger video load
-    const embedUrl = `https://www.loom.com/embed/${videoId}`;
+    // Navigate to Loom embed page with autoplay to trigger HLS request
+    const embedUrl = `https://www.loom.com/embed/${videoId}?autoplay=1`;
     await page.goto(embedUrl, { timeout: timeoutMs, waitUntil: "domcontentloaded" });
-
-    // Wait a bit for HLS request
-    await page.waitForTimeout(2000);
-
-    // Try clicking play if needed
-    try {
-      await page.click('[data-testid="play-button"], .PlayButton, [aria-label="Play"]', { timeout: 1000 });
-      await page.waitForTimeout(1500);
-    } catch {
-      // No play button or already playing
+    
+    // Wait for autoplay to trigger HLS request
+    await page.waitForTimeout(3000);
+    
+    // If autoplay didn't work, try clicking play button
+    if (!capturedUrl) {
+      try {
+        // Try various play button selectors
+        const playSelectors = [
+          '[data-testid="play-button"]',
+          '.PlayButton',
+          '[aria-label="Play"]',
+          'button[class*="play"]',
+          '[class*="PlaybackButton"]',
+          'svg[class*="play"]',
+        ];
+        
+        for (const selector of playSelectors) {
+          const btn = await page.$(selector);
+          if (btn) {
+            await btn.click();
+            await page.waitForTimeout(2000);
+            if (capturedUrl) break;
+          }
+        }
+      } catch {
+        // No play button found
+      }
     }
 
   } catch {
