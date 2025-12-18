@@ -454,40 +454,48 @@ export async function downloadLoomVideo(
     return { success: true };
   }
 
-  const videoId = urlOrId.includes("loom.com") ? extractLoomId(urlOrId) : urlOrId;
-  if (!videoId) {
-    return { success: false, error: "Invalid Loom URL or ID", errorCode: "INVALID_URL" };
-  }
+  let hlsUrl: string;
 
-  // Add random delay to avoid concurrent rate limiting (200-800ms)
-  await sleep(200 + Math.random() * 600);
-
-  const fetchResult = await getLoomVideoInfoDetailed(videoId);
-  if (!fetchResult.success || !fetchResult.info) {
-    const result: LoomDownloadResult = {
-      success: false,
-      error: fetchResult.error ?? "Could not fetch video info from Loom",
-    };
-    if (fetchResult.errorCode) {
-      result.errorCode = fetchResult.errorCode;
+  // Check if this is already a direct HLS URL (from previous validation)
+  if (urlOrId.includes("luna.loom.com") && urlOrId.includes("playlist.m3u8")) {
+    hlsUrl = urlOrId;
+  } else {
+    // Extract video ID and fetch HLS URL from Loom API
+    const videoId = urlOrId.includes("loom.com") ? extractLoomId(urlOrId) : urlOrId;
+    if (!videoId) {
+      return { success: false, error: "Invalid Loom URL or ID", errorCode: "INVALID_URL" };
     }
-    if (fetchResult.details) {
-      result.details = fetchResult.details;
-    }
-    return result;
-  }
 
-  const info = fetchResult.info;
+    // Add random delay to avoid concurrent rate limiting (200-800ms)
+    await sleep(200 + Math.random() * 600);
+
+    const fetchResult = await getLoomVideoInfoDetailed(videoId);
+    if (!fetchResult.success || !fetchResult.info) {
+      const result: LoomDownloadResult = {
+        success: false,
+        error: fetchResult.error ?? "Could not fetch video info from Loom",
+      };
+      if (fetchResult.errorCode) {
+        result.errorCode = fetchResult.errorCode;
+      }
+      if (fetchResult.details) {
+        result.details = fetchResult.details;
+      }
+      return result;
+    }
+
+    hlsUrl = fetchResult.info.hlsUrl;
+  }
 
   // Parse master playlist
-  const { videoUrl, audioUrl } = await parseHlsMasterPlaylist(info.hlsUrl);
+  const { videoUrl, audioUrl } = await parseHlsMasterPlaylist(hlsUrl);
 
   if (!videoUrl) {
     return {
       success: false,
       error: "Could not find video stream in HLS playlist",
       errorCode: "NO_VIDEO_STREAM",
-      details: `HLS URL: ${info.hlsUrl.substring(0, 80)}...`,
+      details: `HLS URL: ${hlsUrl.substring(0, 80)}...`,
     };
   }
 
@@ -513,8 +521,9 @@ export async function downloadLoomVideo(
 
     if (hasFfmpeg) {
       const audioSegments = await getSegmentUrls(audioUrl);
-      const tempVideoPath = join(dir, `.temp-video-${videoId}.ts`);
-      const tempAudioPath = join(dir, `.temp-audio-${videoId}.ts`);
+      const tempId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      const tempVideoPath = join(dir, `.temp-video-${tempId}.ts`);
+      const tempAudioPath = join(dir, `.temp-audio-${tempId}.ts`);
 
       // Download video segments
       const totalSegments = videoSegments.length + audioSegments.length;

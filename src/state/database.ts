@@ -628,9 +628,9 @@ export class CourseDatabase {
    */
   getVideoTypeSummary(): Record<string, number> {
     const stmt = this.db.prepare(`
-      SELECT video_type, COUNT(*) as count 
-      FROM lessons 
-      WHERE video_type IS NOT NULL 
+      SELECT video_type, COUNT(*) as count
+      FROM lessons
+      WHERE video_type IS NOT NULL
       GROUP BY video_type
     `);
     const rows = stmt.all() as Array<{ video_type: string; count: number }>;

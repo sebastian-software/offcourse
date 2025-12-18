@@ -639,7 +639,7 @@ function printStatusSummary(db: CourseDatabase): void {
     const unsupported = db.getLessonsByErrorCode("UNSUPPORTED_PROVIDER");
     if (unsupported.length > 0) {
       console.log(chalk.yellow(`\n   ⚠ Unsupported video providers:`));
-      
+
       // Group by video type
       const byType = new Map<string, typeof unsupported>();
       for (const lesson of unsupported) {
