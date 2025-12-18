@@ -37,7 +37,43 @@ export async function extractCourseName(page: Page): Promise<string> {
  */
 export async function extractModulesFromJson(page: Page): Promise<CourseModule[]> {
   const modules = await page.evaluate(() => {
-    // Find script tags that contain course data
+    // Try to get module data from __NEXT_DATA__
+    const nextDataScript = document.getElementById("__NEXT_DATA__");
+    if (nextDataScript?.textContent) {
+      try {
+        const json = JSON.parse(nextDataScript.textContent);
+        const courseChildren = json?.props?.pageProps?.course?.children;
+        
+        if (Array.isArray(courseChildren)) {
+          const results: CourseModule[] = [];
+          
+          for (const child of courseChildren) {
+            const course = child?.course;
+            if (!course?.name || !/^[a-f0-9]{8}$/.test(course.name)) continue;
+            
+            const slug = course.name;
+            const title = course.metadata?.title ?? `Module ${results.length + 1}`;
+            // Check hasAccess field - if false, the module/lesson is locked
+            const hasAccess = child?.hasAccess !== false;
+            
+            if (!results.some((m) => m.slug === slug)) {
+              results.push({
+                name: title,
+                slug,
+                url: "",
+                isLocked: !hasAccess,
+              });
+            }
+          }
+          
+          if (results.length > 0) return results;
+        }
+      } catch {
+        // Fall through to regex approach
+      }
+    }
+    
+    // Fallback: Find script tags that contain course data
     const scripts = Array.from(document.querySelectorAll("script"));
     const results: CourseModule[] = [];
 
@@ -65,7 +101,7 @@ export async function extractModulesFromJson(page: Page): Promise<CourseModule[]
             name: decodedTitle,
             slug,
             url: "", // Will be set later
-            isLocked: false, // Could check "hasAccess" field
+            isLocked: false,
           });
         }
       }
@@ -98,9 +134,32 @@ export async function extractLessons(page: Page, moduleUrl: string): Promise<Les
   }
 
   const lessons = await page.evaluate(() => {
+    const results: Lesson[] = [];
+    
+    // First try to get hasAccess from __NEXT_DATA__
+    const accessMap = new Map<string, boolean>();
+    const nextDataScript = document.getElementById("__NEXT_DATA__");
+    if (nextDataScript?.textContent) {
+      try {
+        const json = JSON.parse(nextDataScript.textContent);
+        const courseChildren = json?.props?.pageProps?.course?.children;
+        
+        if (Array.isArray(courseChildren)) {
+          for (const child of courseChildren) {
+            const lessonId = child?.course?.id;
+            const hasAccess = child?.hasAccess;
+            if (lessonId && typeof hasAccess === "boolean") {
+              accessMap.set(lessonId, hasAccess);
+            }
+          }
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+    
     // Skool uses styled-components with "ChildrenLink" in the class name
     const lessonLinks = document.querySelectorAll('a[class*="ChildrenLink"]');
-    const results: Lesson[] = [];
 
     lessonLinks.forEach((link, index) => {
       const anchor = link as HTMLAnchorElement;
@@ -111,19 +170,24 @@ export async function extractLessons(page: Page, moduleUrl: string): Promise<Les
       const urlParams = new URL(href).searchParams;
       const lessonId = urlParams.get("md") ?? "";
 
-      // Check for lock icon - look in parent elements too
+      // Check hasAccess from JSON data first
       let isLocked = false;
-      let parent: Element | null = anchor;
-      for (let i = 0; i < 3 && parent; i++) {
-        if (parent.querySelector('[class*="lock"], [class*="Lock"], svg[class*="lock"], svg[class*="Lock"]')) {
-          isLocked = true;
-          break;
+      if (accessMap.has(lessonId)) {
+        isLocked = !accessMap.get(lessonId);
+      } else {
+        // Fallback: Check for lock icon in DOM
+        let parent: Element | null = anchor;
+        for (let i = 0; i < 3 && parent; i++) {
+          if (parent.querySelector('[class*="lock"], [class*="Lock"], svg[class*="lock"], svg[class*="Lock"]')) {
+            isLocked = true;
+            break;
+          }
+          parent = parent.parentElement;
         }
-        parent = parent.parentElement;
-      }
-      // Also check if the link itself has a lock indicator
-      if (anchor.querySelector('[class*="lock"], [class*="Lock"]')) {
-        isLocked = true;
+        // Also check if the link itself has a lock indicator
+        if (anchor.querySelector('[class*="lock"], [class*="Lock"]')) {
+          isLocked = true;
+        }
       }
 
       if (lessonId && !results.some((l) => l.slug === lessonId)) {
