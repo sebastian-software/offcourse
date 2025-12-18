@@ -155,25 +155,23 @@ async function triggerVideoLoad(page: Page): Promise<void> {
 }
 
 /**
- * Extracts video config by navigating to embed page and intercepting config request.
+ * Extracts video config by navigating to embed page and capturing config response.
  */
 export async function captureVimeoConfig(
   page: Page,
   videoId: string,
-  timeoutMs = 8000
+  timeoutMs = 10000
 ): Promise<{ hlsUrl: string | null; progressiveUrl: string | null; error?: string }> {
   let hlsUrl: string | null = null;
   let progressiveUrl: string | null = null;
 
   const configPattern = /player\.vimeo\.com\/video\/\d+\/config/;
 
-  const handleRoute = async (route: Route) => {
-    const url = route.request().url();
-
+  // Listen for config response
+  const responseHandler = async (response: { url: () => string; json: () => Promise<any> }) => {
+    const url = response.url();
     if (configPattern.test(url)) {
       try {
-        // Fetch the response to read the config
-        const response = await route.fetch();
         const body = await response.json();
 
         // Extract URLs from config
@@ -195,45 +193,43 @@ export async function captureVimeoConfig(
           );
           progressiveUrl = sorted[0]?.url ?? null;
         }
-
-        // Fulfill the original request
-        await route.fulfill({ response });
-        return;
       } catch {
-        await route.continue();
+        // JSON parse failed
       }
     }
-
-    await route.continue();
   };
 
-  // Set up interception
-  await page.route("**/*", handleRoute);
+  page.on('response', responseHandler);
 
   try {
     // Navigate to Vimeo embed page with autoplay
-    const embedUrl = `https://player.vimeo.com/video/${videoId}?autoplay=1`;
-    await page.goto(embedUrl, { timeout: timeoutMs, waitUntil: "domcontentloaded" });
-    
-    // Wait for config to load (Vimeo fetches config before playing)
-    await page.waitForTimeout(3000);
-    
-    // If no config captured, try clicking play
-    if (!hlsUrl && !progressiveUrl) {
-      try {
-        await page.click('.play, [aria-label="Play"], button', { timeout: 1000 });
-        await page.waitForTimeout(2000);
-      } catch {
-        // No play button or already playing
-      }
+    const embedUrl = `https://player.vimeo.com/video/${videoId}?autoplay=1&muted=1`;
+    await page.goto(embedUrl, { timeout: timeoutMs, waitUntil: "networkidle" });
+
+    // Check if captured
+    if (hlsUrl || progressiveUrl) {
+      return { hlsUrl, progressiveUrl };
+    }
+
+    // Wait a bit and check again
+    await page.waitForTimeout(2000);
+    if (hlsUrl || progressiveUrl) {
+      return { hlsUrl, progressiveUrl };
+    }
+
+    // Try clicking play if autoplay didn't work
+    try {
+      await page.click('.play, [aria-label="Play"], button', { timeout: 1000 });
+      await page.waitForTimeout(2000);
+    } catch {
+      // No play button
     }
 
   } catch {
-    // Navigation might fail but we might have captured config
+    // Navigation might fail
+  } finally {
+    page.off('response', responseHandler);
   }
-
-  // Cleanup
-  await page.unroute("**/*", handleRoute).catch(() => {});
 
   if (hlsUrl || progressiveUrl) {
     return { hlsUrl, progressiveUrl };
@@ -243,71 +239,97 @@ export async function captureVimeoConfig(
 }
 
 /**
- * Captures Loom HLS URL by navigating to embed page and intercepting requests.
+ * Captures Loom HLS URL by navigating to embed page and listening for responses.
  */
 export async function captureLoomHls(
   page: Page,
   videoId: string,
-  timeoutMs = 8000
+  timeoutMs = 10000
 ): Promise<{ hlsUrl: string | null; error?: string }> {
   let capturedUrl: string | null = null;
 
   const hlsPattern = /luna\.loom\.com.*playlist\.m3u8/;
 
-  const handleRoute = async (route: Route) => {
-    const url = route.request().url();
-
+  // Listen for responses (more reliable than route interception)
+  const responseHandler = (response: { url: () => string }) => {
+    const url = response.url();
     if (hlsPattern.test(url)) {
       capturedUrl = url;
     }
-
-    await route.continue();
   };
 
-  // Set up interception
-  await page.route("**/*", handleRoute);
+  page.on('response', responseHandler);
 
   try {
-    // Navigate to Loom embed page with autoplay to trigger HLS request
-    const embedUrl = `https://www.loom.com/embed/${videoId}?autoplay=1`;
-    await page.goto(embedUrl, { timeout: timeoutMs, waitUntil: "domcontentloaded" });
+    // Navigate to Loom embed page with autoplay
+    const embedUrl = `https://www.loom.com/embed/${videoId}?autoplay=1&hide_owner=true&hide_share=true&hide_title=true`;
+    await page.goto(embedUrl, { timeout: timeoutMs, waitUntil: "networkidle" });
     
-    // Wait for autoplay to trigger HLS request
-    await page.waitForTimeout(3000);
+    // Check if we already captured it
+    if (capturedUrl) {
+      return { hlsUrl: capturedUrl };
+    }
+
+    // Wait a bit more and check
+    await page.waitForTimeout(2000);
+    if (capturedUrl) {
+      return { hlsUrl: capturedUrl };
+    }
     
-    // If autoplay didn't work, try clicking play button
-    if (!capturedUrl) {
-      try {
-        // Try various play button selectors
-        const playSelectors = [
-          '[data-testid="play-button"]',
-          '.PlayButton',
-          '[aria-label="Play"]',
-          'button[class*="play"]',
-          '[class*="PlaybackButton"]',
-          'svg[class*="play"]',
-        ];
-        
-        for (const selector of playSelectors) {
-          const btn = await page.$(selector);
-          if (btn) {
+    // Try clicking play button if autoplay didn't work
+    try {
+      const playSelectors = [
+        '[data-testid="play-button"]',
+        '.PlayButton', 
+        '[aria-label="Play"]',
+        'button[class*="play"]',
+        '[class*="PlaybackButton"]',
+      ];
+      
+      for (const selector of playSelectors) {
+        const btn = await page.$(selector);
+        if (btn) {
+          const isVisible = await btn.isVisible();
+          if (isVisible) {
             await btn.click();
-            await page.waitForTimeout(2000);
+            // Wait for HLS request after click
+            await page.waitForTimeout(3000);
             if (capturedUrl) break;
           }
         }
-      } catch {
-        // No play button found
+      }
+    } catch {
+      // No play button found
+    }
+
+    // Try extracting from page JavaScript as fallback
+    if (!capturedUrl) {
+      const jsUrl = await page.evaluate(() => {
+        // Check for Loom's internal state
+        const win = window as any;
+        if (win.__LOOM_SSR_STATE__?.video?.asset_urls?.hls_url) {
+          return win.__LOOM_SSR_STATE__.video.asset_urls.hls_url;
+        }
+        // Check for any m3u8 URL in script tags
+        const scripts = Array.from(document.querySelectorAll('script'));
+        for (const script of scripts) {
+          const match = script.textContent?.match(/https:\/\/luna\.loom\.com[^"'\s]+playlist\.m3u8[^"'\s]*/);
+          if (match) return match[0];
+        }
+        return null;
+      });
+      if (jsUrl) {
+        capturedUrl = jsUrl;
       }
     }
 
-  } catch {
-    // Navigation might timeout but we might have captured the URL
+  } catch (error) {
+    // Navigation might timeout
+  } finally {
+    // Remove listener
+    page.off('response', responseHandler);
   }
-
-  // Cleanup
-  await page.unroute("**/*", handleRoute).catch(() => {});
-
+  
   if (capturedUrl) {
     return { hlsUrl: capturedUrl };
   } else {
