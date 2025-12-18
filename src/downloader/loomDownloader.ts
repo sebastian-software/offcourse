@@ -1,4 +1,4 @@
-import { createWriteStream, existsSync, mkdirSync, renameSync, unlinkSync, statSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { finished } from "node:stream/promises";
@@ -17,13 +17,6 @@ export interface DownloadProgress {
   percent: number;
   downloaded: number;
   total: number;
-  phase?: string;  // e.g., "video", "audio", "merging"
-}
-
-export interface DownloadResult {
-  success: boolean;
-  error?: string;
-  fileSize?: number | undefined;  // bytes
 }
 
 /**
@@ -199,79 +192,37 @@ async function getSegmentUrls(playlistUrl: string): Promise<string[]> {
   }
 }
 
-// Default parallelism for segment downloads
-const SEGMENT_CONCURRENCY = 8;
-
 /**
- * Downloads a single segment and returns its data.
- */
-async function downloadSegment(url: string, retries = 3): Promise<Buffer | null> {
-  for (let attempt = 0; attempt < retries; attempt++) {
-    try {
-      const response = await fetch(url, {
-        headers: { "User-Agent": "Mozilla/5.0" },
-      });
-
-      if (!response.ok || !response.body) {
-        continue;
-      }
-
-      const chunks: Uint8Array[] = [];
-      const reader = response.body.getReader();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-      }
-
-      return Buffer.concat(chunks.map(c => Buffer.from(c)));
-    } catch {
-      // Retry on failure
-      await new Promise(r => setTimeout(r, 100 * (attempt + 1)));
-    }
-  }
-  return null;
-}
-
-/**
- * Downloads segments in parallel and writes them to a file in order.
+ * Downloads segments and writes them to a file.
  */
 async function downloadSegmentsToFile(
   segments: string[],
   outputPath: string,
-  onProgress?: (current: number, total: number) => void,
-  concurrency = SEGMENT_CONCURRENCY
+  onProgress?: (current: number, total: number) => void
 ): Promise<boolean> {
   const tempPath = `${outputPath}.tmp`;
+  const fileStream = createWriteStream(tempPath);
 
   try {
-    // Download segments in parallel batches, but preserve order
-    const segmentData: (Buffer | null)[] = new Array(segments.length).fill(null);
-    let completed = 0;
+    for (let i = 0; i < segments.length; i++) {
+      const segmentUrl = segments[i];
+      if (!segmentUrl) continue;
 
-    // Process in batches for controlled parallelism
-    for (let i = 0; i < segments.length; i += concurrency) {
-      const batch = segments.slice(i, i + concurrency);
-      const batchPromises = batch.map(async (url, batchIndex) => {
-        const globalIndex = i + batchIndex;
-        const data = await downloadSegment(url);
-        segmentData[globalIndex] = data;
-        completed++;
-        if (onProgress) {
-          onProgress(completed, segments.length);
-        }
+      const response = await fetch(segmentUrl, {
+        headers: { "User-Agent": "Mozilla/5.0" },
       });
 
-      await Promise.all(batchPromises);
-    }
+      if (!response.ok || !response.body) continue;
 
-    // Write all segments in order
-    const fileStream = createWriteStream(tempPath);
+      const reader = response.body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        fileStream.write(Buffer.from(value));
+      }
 
-    for (const data of segmentData) {
-      if (data) {
-        fileStream.write(data);
+      if (onProgress) {
+        onProgress(i + 1, segments.length);
       }
     }
 
@@ -281,7 +232,7 @@ async function downloadSegmentsToFile(
 
     renameSync(tempPath, outputPath);
     return true;
-  } catch {
+  } catch (error) {
     if (existsSync(tempPath)) unlinkSync(tempPath);
     return false;
   }
@@ -340,10 +291,9 @@ export async function downloadLoomVideo(
   urlOrId: string,
   outputPath: string,
   onProgress?: (progress: DownloadProgress) => void
-): Promise<DownloadResult> {
+): Promise<{ success: boolean; error?: string }> {
   if (existsSync(outputPath)) {
-    const fileSize = statSync(outputPath).size;
-    return { success: true, fileSize };
+    return { success: true };
   }
 
   const videoId = urlOrId.includes("loom.com") ? extractLoomId(urlOrId) : urlOrId;
@@ -390,7 +340,7 @@ export async function downloadLoomVideo(
       const videoSuccess = await downloadSegmentsToFile(videoSegments, tempVideoPath, (curr, _total) => {
         completed = curr;
         if (onProgress) {
-          onProgress({ percent: (completed / totalSegments) * 100, downloaded: completed, total: totalSegments, phase: "video" });
+          onProgress({ percent: (completed / totalSegments) * 100, downloaded: completed, total: totalSegments });
         }
       });
 
@@ -402,7 +352,7 @@ export async function downloadLoomVideo(
       const audioSuccess = await downloadSegmentsToFile(audioSegments, tempAudioPath, (curr, _total) => {
         completed = videoSegments.length + curr;
         if (onProgress) {
-          onProgress({ percent: (completed / totalSegments) * 100, downloaded: completed, total: totalSegments, phase: "audio" });
+          onProgress({ percent: (completed / totalSegments) * 100, downloaded: completed, total: totalSegments });
         }
       });
 
@@ -412,17 +362,12 @@ export async function downloadLoomVideo(
       }
 
       // Merge with ffmpeg
-      if (onProgress) {
-        onProgress({ percent: 99, downloaded: totalSegments, total: totalSegments, phase: "merging" });
-      }
-
       const mergeSuccess = await mergeWithFfmpeg(tempVideoPath, tempAudioPath, outputPath);
       if (!mergeSuccess) {
         return { success: false, error: "Failed to merge video and audio" };
       }
 
-      const fileSize = existsSync(outputPath) ? statSync(outputPath).size : undefined;
-      return { success: true, fileSize };
+      return { success: true };
     } else {
       // No ffmpeg - download video only with warning
       console.warn("⚠️  ffmpeg not found - downloading video without audio");
@@ -432,7 +377,7 @@ export async function downloadLoomVideo(
   // Download video only (no audio or no ffmpeg)
   const success = await downloadSegmentsToFile(videoSegments, outputPath, (curr, total) => {
     if (onProgress) {
-      onProgress({ percent: (curr / total) * 100, downloaded: curr, total, phase: "video" });
+      onProgress({ percent: (curr / total) * 100, downloaded: curr, total });
     }
   });
 
@@ -440,8 +385,7 @@ export async function downloadLoomVideo(
     return { success: false, error: "Failed to download video segments" };
   }
 
-  const fileSize = existsSync(outputPath) ? statSync(outputPath).size : undefined;
-  return { success: true, fileSize };
+  return { success: true };
 }
 
 /**
@@ -451,10 +395,9 @@ export async function downloadFile(
   url: string,
   outputPath: string,
   onProgress?: (progress: DownloadProgress) => void
-): Promise<DownloadResult> {
+): Promise<{ success: boolean; error?: string }> {
   if (existsSync(outputPath)) {
-    const fileSize = statSync(outputPath).size;
-    return { success: true, fileSize };
+    return { success: true };
   }
 
   const dir = dirname(outputPath);
@@ -505,8 +448,7 @@ export async function downloadFile(
     await finished(readable.pipe(fileStream));
     renameSync(tempPath, outputPath);
 
-    const fileSize = statSync(outputPath).size;
-    return { success: true, fileSize };
+    return { success: true };
   } catch (error) {
     if (existsSync(tempPath)) unlinkSync(tempPath);
     return { success: false, error: error instanceof Error ? error.message : String(error) };

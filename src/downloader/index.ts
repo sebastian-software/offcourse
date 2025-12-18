@@ -1,4 +1,4 @@
-import { downloadFile, downloadLoomVideo, extractLoomId, type DownloadProgress, type DownloadResult } from "./loomDownloader.js";
+import { downloadFile, downloadLoomVideo, extractLoomId, type DownloadProgress } from "./loomDownloader.js";
 
 export interface VideoDownloadTask {
   lessonName: string;
@@ -7,7 +7,10 @@ export interface VideoDownloadTask {
   outputPath: string;
 }
 
-export type { DownloadResult };
+export interface DownloadResult {
+  success: boolean;
+  error?: string;
+}
 
 /**
  * Downloads a video based on its type.
