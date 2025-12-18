@@ -9,7 +9,7 @@ export async function captureVimeoConfig(
   _videoId: string,
   timeoutMs = 20000
 ): Promise<{ hlsUrl: string | null; progressiveUrl: string | null; error?: string }> {
-  
+
   try {
     // Step 1: Make sure we have a Vimeo iframe or video wrapper
     // Skool wraps videos in a VideoPlayerWrapper - click it to ensure video loads
@@ -22,7 +22,7 @@ export async function captureVimeoConfig(
     // Step 2: Wait for Vimeo iframe to appear
     let vimeoFrame = null;
     const startTime = Date.now();
-    
+
     while (!vimeoFrame && Date.now() - startTime < timeoutMs) {
       // Try to find the iframe
       const iframe = await page.$('iframe[src*="vimeo.com"], iframe[src*="player.vimeo"]');
@@ -37,7 +37,16 @@ export async function captureVimeoConfig(
       return { hlsUrl: null, progressiveUrl: null, error: "Vimeo iframe not found after waiting" };
     }
 
-    // Step 3: Click play button in the iframe to start video
+    // Step 3: Mute the video before playing (we don't want audio!)
+    await vimeoFrame.evaluate(() => {
+      const video = document.querySelector('video');
+      if (video) {
+        video.muted = true;
+        video.volume = 0;
+      }
+    }).catch(() => {});
+
+    // Step 4: Click play button in the iframe to start video
     try {
       // Multiple selectors for Vimeo's play button
       await vimeoFrame.click('.vp-controls button, .play-icon, [aria-label="Play"], .vp-big-play-button, button', { 
@@ -47,16 +56,25 @@ export async function captureVimeoConfig(
       // Video might auto-play
     }
     
+    // Ensure video stays muted
+    await vimeoFrame.evaluate(() => {
+      const video = document.querySelector('video');
+      if (video) {
+        video.muted = true;
+        video.volume = 0;
+      }
+    }).catch(() => {});
+
     // Step 4: Wait for video to actually start playing and get the URL
     let hlsUrl: string | null = null;
     let progressiveUrl: string | null = null;
-    
+
     const extractionStart = Date.now();
     while (!hlsUrl && !progressiveUrl && Date.now() - extractionStart < timeoutMs - 5000) {
-      
+
       const urls = await vimeoFrame.evaluate(() => {
-        const result = { 
-          hlsUrl: null as string | null, 
+        const result = {
+          hlsUrl: null as string | null,
           progressiveUrl: null as string | null,
           debug: [] as string[]
         };
@@ -65,7 +83,7 @@ export async function captureVimeoConfig(
         const video = document.querySelector('video');
         if (video) {
           result.debug.push(`Video element found, src length: ${video.src?.length ?? 0}`);
-          
+
           // Check currentSrc (what's actually playing)
           if (video.currentSrc) {
             result.debug.push(`currentSrc: ${video.currentSrc.substring(0, 80)}`);
@@ -75,7 +93,7 @@ export async function captureVimeoConfig(
               result.progressiveUrl = video.currentSrc;
             }
           }
-          
+
           // Also check src attribute
           if (!result.hlsUrl && !result.progressiveUrl && video.src) {
             if (video.src.includes('.m3u8')) {
@@ -105,17 +123,17 @@ export async function captureVimeoConfig(
         if (!result.hlsUrl && !result.progressiveUrl) {
           try {
             const win = window as any;
-            
+
             // Try various Vimeo internal variables
             const configPaths = [
               win.playerConfig?.request?.files,
               win.vimeo?.config?.request?.files,
               win.__vimeo_player__?.config?.request?.files,
             ];
-            
+
             for (const files of configPaths) {
               if (!files) continue;
-              
+
               // HLS
               if (files.hls?.cdns) {
                 const cdns = files.hls.cdns;
@@ -127,10 +145,10 @@ export async function captureVimeoConfig(
                   }
                 }
               }
-              
+
               // Progressive MP4
               if (!result.progressiveUrl && files.progressive?.length > 0) {
-                const sorted = [...files.progressive].sort((a: any, b: any) => 
+                const sorted = [...files.progressive].sort((a: any, b: any) =>
                   (b.height ?? 0) - (a.height ?? 0)
                 );
                 result.progressiveUrl = sorted[0]?.url ?? null;
@@ -138,7 +156,7 @@ export async function captureVimeoConfig(
                   result.debug.push('Found progressive in playerConfig');
                 }
               }
-              
+
               if (result.hlsUrl || result.progressiveUrl) break;
             }
           } catch (e) {
@@ -168,7 +186,7 @@ export async function captureVimeoConfig(
 
       hlsUrl = urls.hlsUrl;
       progressiveUrl = urls.progressiveUrl;
-      
+
       if (!hlsUrl && !progressiveUrl) {
         // Wait and try again
         await new Promise(r => setTimeout(r, 1000));
@@ -179,10 +197,10 @@ export async function captureVimeoConfig(
       return { hlsUrl, progressiveUrl };
     }
 
-    return { 
-      hlsUrl: null, 
-      progressiveUrl: null, 
-      error: "Could not extract video URL from Vimeo player" 
+    return {
+      hlsUrl: null,
+      progressiveUrl: null,
+      error: "Could not extract video URL from Vimeo player"
     };
 
   } catch (error) {
@@ -229,20 +247,46 @@ export async function captureLoomHls(
       });
     });
 
-    // Navigate directly to Loom embed with autoplay
+    // Navigate directly to Loom embed with autoplay (muted)
     const embedUrl = `https://www.loom.com/embed/${videoId}?autoplay=1`;
     await page.goto(embedUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
+
+    // Mute the video immediately
+    await page.evaluate(() => {
+      const video = document.querySelector('video');
+      if (video) {
+        video.muted = true;
+        video.volume = 0;
+      }
+    }).catch(() => {});
 
     // Try to click play button if video doesn't autoplay
     try {
       await page.waitForTimeout(2000);
       const playButton = await page.$('[data-testid="play-button"], .PlayButton, [aria-label="Play"], button[class*="play"]');
       if (playButton) {
+        // Mute again before clicking play
+        await page.evaluate(() => {
+          const video = document.querySelector('video');
+          if (video) {
+            video.muted = true;
+            video.volume = 0;
+          }
+        }).catch(() => {});
         await playButton.click();
       }
     } catch {
       // No play button or click failed
     }
+    
+    // Ensure video stays muted after play
+    await page.evaluate(() => {
+      const video = document.querySelector('video');
+      if (video) {
+        video.muted = true;
+        video.volume = 0;
+      }
+    }).catch(() => {});
 
     // Wait for HLS to be captured
     await responsePromise;
