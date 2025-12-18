@@ -155,185 +155,171 @@ async function triggerVideoLoad(page: Page): Promise<void> {
 }
 
 /**
- * Extracts video config by navigating to embed page and capturing config response.
+ * Captures Vimeo config from the current page using CDP network interception.
+ * This works for domain-restricted videos because we stay on the Skool page.
  */
 export async function captureVimeoConfig(
   page: Page,
   videoId: string,
-  timeoutMs = 10000
+  timeoutMs = 15000
 ): Promise<{ hlsUrl: string | null; progressiveUrl: string | null; error?: string }> {
   let hlsUrl: string | null = null;
   let progressiveUrl: string | null = null;
 
-  const configPattern = /player\.vimeo\.com\/video\/\d+\/config/;
+  try {
+    // Use CDP to intercept all network responses (including from iframes)
+    const client = await page.context().newCDPSession(page);
+    await client.send('Network.enable');
 
-  // Listen for config response
-  const responseHandler = async (response: { url: () => string; json: () => Promise<any> }) => {
-    const url = response.url();
-    if (configPattern.test(url)) {
-      try {
-        const body = await response.json();
-
-        // Extract URLs from config
-        const hlsCdns = body?.request?.files?.hls?.cdns;
-        if (hlsCdns) {
-          const cdnKeys = Object.keys(hlsCdns);
-          for (const cdn of ["akfire_interconnect_quic", "akamai_live", "fastly_skyfire", ...cdnKeys]) {
-            if (hlsCdns[cdn]?.url) {
-              hlsUrl = hlsCdns[cdn].url;
-              break;
+    const configPattern = new RegExp(`player\\.vimeo\\.com/video/${videoId}/config`);
+    
+    // Listen for network responses
+    const responsePromise = new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => resolve(), timeoutMs);
+      
+      client.on('Network.responseReceived', async (event) => {
+        const url = event.response.url;
+        
+        if (configPattern.test(url)) {
+          try {
+            // Get the response body
+            const { body } = await client.send('Network.getResponseBody', {
+              requestId: event.requestId,
+            });
+            
+            const config = JSON.parse(body);
+            
+            // Extract HLS URL
+            const hlsCdns = config?.request?.files?.hls?.cdns;
+            if (hlsCdns) {
+              const cdnKeys = Object.keys(hlsCdns);
+              for (const cdn of ["akfire_interconnect_quic", "akamai_live", "fastly_skyfire", ...cdnKeys]) {
+                if (hlsCdns[cdn]?.url) {
+                  hlsUrl = hlsCdns[cdn].url;
+                  break;
+                }
+              }
             }
+
+            // Extract progressive URL
+            const progressive = config?.request?.files?.progressive;
+            if (progressive && Array.isArray(progressive) && progressive.length > 0) {
+              const sorted = [...progressive].sort((a: {height?: number}, b: {height?: number}) =>
+                (b.height ?? 0) - (a.height ?? 0)
+              );
+              progressiveUrl = sorted[0]?.url ?? null;
+            }
+            
+            clearTimeout(timeout);
+            resolve();
+          } catch {
+            // Response body not available or parse failed
           }
         }
+      });
+    });
 
-        const progressive = body?.request?.files?.progressive;
-        if (progressive && Array.isArray(progressive) && progressive.length > 0) {
-          const sorted = [...progressive].sort((a: {height?: number}, b: {height?: number}) =>
-            (b.height ?? 0) - (a.height ?? 0)
-          );
-          progressiveUrl = sorted[0]?.url ?? null;
-        }
-      } catch {
-        // JSON parse failed
-      }
-    }
-  };
+    // Trigger video load by clicking on player or scrolling to iframe
+    await triggerVideoLoad(page);
+    
+    // Wait for config to be captured
+    await responsePromise;
+    
+    await client.detach();
 
-  page.on('response', responseHandler);
-
-  try {
-    // Navigate to Vimeo embed page with autoplay
-    const embedUrl = `https://player.vimeo.com/video/${videoId}?autoplay=1&muted=1`;
-    await page.goto(embedUrl, { timeout: timeoutMs, waitUntil: "networkidle" });
-
-    // Check if captured
-    if (hlsUrl || progressiveUrl) {
-      return { hlsUrl, progressiveUrl };
-    }
-
-    // Wait a bit and check again
-    await page.waitForTimeout(2000);
-    if (hlsUrl || progressiveUrl) {
-      return { hlsUrl, progressiveUrl };
-    }
-
-    // Try clicking play if autoplay didn't work
-    try {
-      await page.click('.play, [aria-label="Play"], button', { timeout: 1000 });
-      await page.waitForTimeout(2000);
-    } catch {
-      // No play button
-    }
-
-  } catch {
-    // Navigation might fail
-  } finally {
-    page.off('response', responseHandler);
+  } catch (error) {
+    // CDP might not be available
   }
 
   if (hlsUrl || progressiveUrl) {
     return { hlsUrl, progressiveUrl };
   } else {
-    return { hlsUrl: null, progressiveUrl: null, error: "Config not captured from embed page" };
+    return { hlsUrl: null, progressiveUrl: null, error: "Config not captured - video may be DRM protected" };
   }
 }
 
 /**
- * Captures Loom HLS URL by navigating to embed page and listening for responses.
+ * Captures Loom HLS URL using CDP network interception.
+ * Works by staying on the current page and capturing iframe requests.
  */
 export async function captureLoomHls(
   page: Page,
-  videoId: string,
-  timeoutMs = 10000
+  _videoId: string,
+  timeoutMs = 15000
 ): Promise<{ hlsUrl: string | null; error?: string }> {
   let capturedUrl: string | null = null;
 
-  const hlsPattern = /luna\.loom\.com.*playlist\.m3u8/;
-
-  // Listen for responses (more reliable than route interception)
-  const responseHandler = (response: { url: () => string }) => {
-    const url = response.url();
-    if (hlsPattern.test(url)) {
-      capturedUrl = url;
-    }
-  };
-
-  page.on('response', responseHandler);
-
   try {
-    // Navigate to Loom embed page with autoplay
-    const embedUrl = `https://www.loom.com/embed/${videoId}?autoplay=1&hide_owner=true&hide_share=true&hide_title=true`;
-    await page.goto(embedUrl, { timeout: timeoutMs, waitUntil: "networkidle" });
-    
-    // Check if we already captured it
-    if (capturedUrl) {
-      return { hlsUrl: capturedUrl };
-    }
+    // Use CDP to intercept all network responses (including from iframes)
+    const client = await page.context().newCDPSession(page);
+    await client.send('Network.enable');
 
-    // Wait a bit more and check
-    await page.waitForTimeout(2000);
-    if (capturedUrl) {
-      return { hlsUrl: capturedUrl };
-    }
+    const hlsPattern = /luna\.loom\.com.*playlist\.m3u8/;
     
-    // Try clicking play button if autoplay didn't work
-    try {
-      const playSelectors = [
-        '[data-testid="play-button"]',
-        '.PlayButton', 
-        '[aria-label="Play"]',
-        'button[class*="play"]',
-        '[class*="PlaybackButton"]',
-      ];
+    // Listen for network responses
+    const responsePromise = new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => resolve(), timeoutMs);
       
-      for (const selector of playSelectors) {
-        const btn = await page.$(selector);
-        if (btn) {
-          const isVisible = await btn.isVisible();
-          if (isVisible) {
-            await btn.click();
-            // Wait for HLS request after click
-            await page.waitForTimeout(3000);
-            if (capturedUrl) break;
+      client.on('Network.responseReceived', (event) => {
+        const url = event.response.url;
+        
+        if (hlsPattern.test(url)) {
+          capturedUrl = url;
+          clearTimeout(timeout);
+          resolve();
+        }
+      });
+    });
+
+    // Trigger video load
+    await triggerVideoLoad(page);
+    
+    // Wait for HLS to be captured
+    await responsePromise;
+    
+    await client.detach();
+
+  } catch {
+    // CDP might not be available, try fallback
+  }
+
+  // Fallback: try extracting from page JavaScript
+  if (!capturedUrl) {
+    try {
+      const jsUrl = await page.evaluate(() => {
+        // Check for Loom's internal state in any iframe
+        const iframes = Array.from(document.querySelectorAll('iframe[src*="loom"]'));
+        for (const iframe of iframes) {
+          try {
+            const win = (iframe as HTMLIFrameElement).contentWindow as any;
+            if (win?.__LOOM_SSR_STATE__?.video?.asset_urls?.hls_url) {
+              return win.__LOOM_SSR_STATE__.video.asset_urls.hls_url;
+            }
+          } catch {
+            // Cross-origin access denied
           }
         }
-      }
-    } catch {
-      // No play button found
-    }
-
-    // Try extracting from page JavaScript as fallback
-    if (!capturedUrl) {
-      const jsUrl = await page.evaluate(() => {
-        // Check for Loom's internal state
-        const win = window as any;
-        if (win.__LOOM_SSR_STATE__?.video?.asset_urls?.hls_url) {
-          return win.__LOOM_SSR_STATE__.video.asset_urls.hls_url;
+        
+        // Check main window
+        const mainWin = window as any;
+        if (mainWin.__LOOM_SSR_STATE__?.video?.asset_urls?.hls_url) {
+          return mainWin.__LOOM_SSR_STATE__.video.asset_urls.hls_url;
         }
-        // Check for any m3u8 URL in script tags
-        const scripts = Array.from(document.querySelectorAll('script'));
-        for (const script of scripts) {
-          const match = script.textContent?.match(/https:\/\/luna\.loom\.com[^"'\s]+playlist\.m3u8[^"'\s]*/);
-          if (match) return match[0];
-        }
+        
         return null;
       });
       if (jsUrl) {
         capturedUrl = jsUrl;
       }
+    } catch {
+      // Evaluation failed
     }
-
-  } catch (error) {
-    // Navigation might timeout
-  } finally {
-    // Remove listener
-    page.off('response', responseHandler);
   }
   
   if (capturedUrl) {
     return { hlsUrl: capturedUrl };
   } else {
-    return { hlsUrl: null, error: "HLS URL not captured from embed page" };
+    return { hlsUrl: null, error: "HLS URL not captured" };
   }
 }
 
