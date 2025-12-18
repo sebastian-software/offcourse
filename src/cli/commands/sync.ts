@@ -150,7 +150,8 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
   if (hasExistingData && !options.force) {
     const summary = db.getStatusSummary();
     console.log(chalk.gray(`   Existing: ${existingMeta.totalModules} modules, ${existingMeta.totalLessons} lessons`));
-    console.log(chalk.gray(`   Status: ${summary.downloaded} downloaded, ${summary.validated} ready, ${summary.error} errors, ${summary.pending} pending`));
+    const lockedInfo = summary.locked > 0 ? `, ${summary.locked} locked` : "";
+    console.log(chalk.gray(`   Status: ${summary.downloaded} downloaded, ${summary.validated} ready, ${summary.error} errors, ${summary.pending} pending${lockedInfo}`));
   }
 
   // Get authenticated session
@@ -254,7 +255,7 @@ async function scanCourseStructure(
 
         // Check if lesson exists
         const existingLesson = db.getLessonByUrl(lesson.url);
-        db.upsertLesson(moduleRecord.id, lesson.slug, lesson.name, lesson.url, lessonIndex);
+        db.upsertLesson(moduleRecord.id, lesson.slug, lesson.name, lesson.url, lessonIndex, lesson.isLocked);
 
         if (!existingLesson) {
           newLessons++;
@@ -650,6 +651,9 @@ function printStatusSummary(db: CourseDatabase): void {
   console.log(chalk.blue(`   ◆ Validated:  ${summary.validated}`));
   console.log(chalk.gray(`   ○ Pending:    ${summary.pending}`));
   console.log(chalk.gray(`   - Skipped:    ${summary.skipped}`));
+  if (summary.locked > 0) {
+    console.log(chalk.yellow(`   🔒 Locked:    ${summary.locked}`));
+  }
 
   if (summary.error > 0) {
     console.log(chalk.red(`   ✗ Errors:     ${summary.error}`));

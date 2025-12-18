@@ -12,6 +12,7 @@ export interface Lesson {
   slug: string;
   url: string;
   index: number;
+  isLocked: boolean;
 }
 
 export interface CourseStructure {
@@ -110,12 +111,28 @@ export async function extractLessons(page: Page, moduleUrl: string): Promise<Les
       const urlParams = new URL(href).searchParams;
       const lessonId = urlParams.get("md") ?? "";
 
+      // Check for lock icon - look in parent elements too
+      let isLocked = false;
+      let parent: Element | null = anchor;
+      for (let i = 0; i < 3 && parent; i++) {
+        if (parent.querySelector('[class*="lock"], [class*="Lock"], svg[class*="lock"], svg[class*="Lock"]')) {
+          isLocked = true;
+          break;
+        }
+        parent = parent.parentElement;
+      }
+      // Also check if the link itself has a lock indicator
+      if (anchor.querySelector('[class*="lock"], [class*="Lock"]')) {
+        isLocked = true;
+      }
+
       if (lessonId && !results.some((l) => l.slug === lessonId)) {
         results.push({
           name,
           slug: lessonId,
           url: href,
           index: results.length,
+          isLocked,
         });
       }
     });

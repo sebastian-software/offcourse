@@ -54,6 +54,7 @@ export interface LessonRecord {
   name: string;
   url: string;
   position: number;
+  isLocked: boolean;
   status: LessonStatusType;
   videoType: VideoTypeValue | null;
   videoUrl: string | null;
@@ -157,6 +158,7 @@ export class CourseDatabase {
         name TEXT NOT NULL,
         url TEXT NOT NULL,
         position INTEGER NOT NULL,
+        is_locked INTEGER DEFAULT 0,
         status TEXT DEFAULT 'pending',
         video_type TEXT,
         video_url TEXT,
@@ -174,7 +176,23 @@ export class CourseDatabase {
 
       CREATE INDEX IF NOT EXISTS idx_lessons_status ON lessons(status);
       CREATE INDEX IF NOT EXISTS idx_lessons_module ON lessons(module_id);
+      CREATE INDEX IF NOT EXISTS idx_lessons_locked ON lessons(is_locked);
     `);
+
+    // Run migrations for existing databases
+    this.runMigrations();
+  }
+
+  /**
+   * Run database migrations for schema updates.
+   */
+  private runMigrations(): void {
+    // Migration: Add is_locked column if it doesn't exist
+    const tableInfo = this.db.prepare("PRAGMA table_info(lessons)").all() as Array<{ name: string }>;
+    const hasIsLocked = tableInfo.some((col) => col.name === "is_locked");
+    if (!hasIsLocked) {
+      this.db.exec("ALTER TABLE lessons ADD COLUMN is_locked INTEGER DEFAULT 0");
+    }
   }
 
   /**
@@ -336,19 +354,21 @@ export class CourseDatabase {
     slug: string,
     name: string,
     url: string,
-    position: number
+    position: number,
+    isLocked = false
   ): LessonRecord {
     const stmt = this.db.prepare(`
-      INSERT INTO lessons (module_id, slug, name, url, position, updated_at)
-      VALUES (?, ?, ?, ?, ?, datetime('now'))
+      INSERT INTO lessons (module_id, slug, name, url, position, is_locked, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT(module_id, slug) DO UPDATE SET
         name = excluded.name,
         url = excluded.url,
         position = excluded.position,
+        is_locked = excluded.is_locked,
         updated_at = datetime('now')
       RETURNING *
     `);
-    const row = stmt.get(moduleId, slug, name, url, position) as RawLessonRow;
+    const row = stmt.get(moduleId, slug, name, url, position, isLocked ? 1 : 0) as RawLessonRow;
     return this.mapLessonRow(row);
   }
 
@@ -489,7 +509,8 @@ export class CourseDatabase {
         m.position as module_position
       FROM lessons l
       JOIN modules m ON l.module_id = m.id
-      WHERE l.status = 'pending' OR l.last_scanned_at IS NULL
+      WHERE (l.status = 'pending' OR l.last_scanned_at IS NULL)
+        AND l.is_locked = 0
       ORDER BY m.position, l.position
     `);
     const rows = stmt.all() as Array<RawLessonRow & {
@@ -556,24 +577,30 @@ export class CourseDatabase {
   /**
    * Get status summary.
    */
-  getStatusSummary(): Record<LessonStatusType, number> {
+  getStatusSummary(): Record<LessonStatusType, number> & { locked: number } {
     const stmt = this.db.prepare(`
       SELECT status, COUNT(*) as count FROM lessons GROUP BY status
     `);
     const rows = stmt.all() as Array<{ status: LessonStatusType; count: number }>;
 
-    const summary: Record<LessonStatusType, number> = {
+    const summary: Record<LessonStatusType, number> & { locked: number } = {
       pending: 0,
       scanned: 0,
       validated: 0,
       downloaded: 0,
       error: 0,
       skipped: 0,
+      locked: 0,
     };
 
     for (const row of rows) {
       summary[row.status] = row.count;
     }
+
+    // Count locked lessons separately
+    const lockedStmt = this.db.prepare(`SELECT COUNT(*) as count FROM lessons WHERE is_locked = 1`);
+    const lockedRow = lockedStmt.get() as { count: number };
+    summary.locked = lockedRow.count;
 
     return summary;
   }
@@ -651,6 +678,7 @@ export class CourseDatabase {
       name: row.name,
       url: row.url,
       position: row.position,
+      isLocked: row.is_locked === 1,
       status: row.status as LessonStatusType,
       videoType: row.video_type as VideoTypeValue | null,
       videoUrl: row.video_url,
@@ -676,6 +704,7 @@ interface RawLessonRow {
   name: string;
   url: string;
   position: number;
+  is_locked: number;
   status: string;
   video_type: string | null;
   video_url: string | null;

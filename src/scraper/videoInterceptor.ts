@@ -49,13 +49,13 @@ export async function captureVimeoConfig(
     // Step 4: Click play button in the iframe to start video
     try {
       // Multiple selectors for Vimeo's play button
-      await vimeoFrame.click('.vp-controls button, .play-icon, [aria-label="Play"], .vp-big-play-button, button', { 
-        timeout: 2000 
+      await vimeoFrame.click('.vp-controls button, .play-icon, [aria-label="Play"], .vp-big-play-button, button', {
+        timeout: 2000
       }).catch(() => {});
     } catch {
       // Video might auto-play
     }
-    
+
     // Ensure video stays muted
     await vimeoFrame.evaluate(() => {
       const video = document.querySelector('video');
@@ -278,7 +278,7 @@ export async function captureLoomHls(
     } catch {
       // No play button or click failed
     }
-    
+
     // Ensure video stays muted after play
     await page.evaluate(() => {
       const video = document.querySelector('video');
