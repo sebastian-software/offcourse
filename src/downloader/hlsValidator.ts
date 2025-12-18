@@ -1,4 +1,5 @@
 import { extractLoomId, getLoomVideoInfoDetailed } from "./loomDownloader.js";
+import { extractVimeoId, getVimeoVideoInfo } from "./vimeoDownloader.js";
 
 /**
  * Result of HLS validation.
@@ -52,6 +53,50 @@ export async function validateLoomHls(loomUrl: string): Promise<HlsValidationRes
 }
 
 /**
+ * Validates a Vimeo video has accessible streams.
+ */
+export async function validateVimeoVideo(vimeoUrl: string): Promise<HlsValidationResult> {
+  const videoId = extractVimeoId(vimeoUrl);
+
+  if (!videoId) {
+    return {
+      isValid: false,
+      hlsUrl: null,
+      error: "Invalid Vimeo URL - could not extract video ID",
+      errorCode: "INVALID_URL",
+      details: `URL: ${vimeoUrl}`,
+    };
+  }
+
+  // Extract unlisted hash if present
+  const hashMatch = vimeoUrl.match(/vimeo\.com\/\d+\/([a-f0-9]+)/) ?? vimeoUrl.match(/[?&]h=([a-f0-9]+)/);
+  const unlistedHash = hashMatch?.[1] ?? null;
+
+  const result = await getVimeoVideoInfo(videoId, unlistedHash);
+
+  if (!result.success || !result.info) {
+    const validation: HlsValidationResult = {
+      isValid: false,
+      hlsUrl: null,
+      error: result.error ?? "Failed to fetch Vimeo video info",
+    };
+    if (result.errorCode) {
+      validation.errorCode = result.errorCode;
+    }
+    if (result.details) {
+      validation.details = result.details;
+    }
+    return validation;
+  }
+
+  // Return HLS URL if available, or progressive URL as fallback
+  return {
+    isValid: true,
+    hlsUrl: result.info.hlsUrl ?? result.info.progressiveUrl,
+  };
+}
+
+/**
  * Validates HLS availability for a video URL based on its type.
  */
 export async function validateVideoHls(
@@ -63,14 +108,15 @@ export async function validateVideoHls(
       return validateLoomHls(videoUrl);
 
     case "vimeo":
+      return validateVimeoVideo(videoUrl);
+
     case "youtube":
     case "wistia":
-      // For now, skip validation for other types
-      // These could be implemented later with their own APIs
+      // These require yt-dlp - skip validation, will fail at download
       return {
         isValid: true,
         hlsUrl: null,
-        details: `${videoType} validation not implemented - will attempt download`,
+        details: `${videoType} requires yt-dlp - will attempt download`,
       };
 
     case "native":

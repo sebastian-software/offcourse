@@ -1,4 +1,5 @@
 import { downloadFile, downloadLoomVideo, type DownloadProgress } from "./loomDownloader.js";
+import { downloadVimeoVideo } from "./vimeoDownloader.js";
 
 export interface VideoDownloadTask {
   lessonName: string;
@@ -27,18 +28,20 @@ export async function downloadVideo(
     case "loom":
       return downloadLoomVideo(videoUrl, outputPath, onProgress);
 
+    case "vimeo":
+      return downloadVimeoVideo(videoUrl, outputPath, onProgress);
+
     case "native":
       // Direct MP4/WebM URL - download directly
       return downloadFile(videoUrl, outputPath, onProgress);
 
-    case "vimeo":
     case "youtube":
     case "wistia":
-      // For now, return an error suggesting these need special handling
-      // We can add support for these later
+      // These require yt-dlp or special handling
       return {
         success: false,
-        error: `${videoType} videos are not yet supported. Video URL: ${videoUrl}`,
+        error: `${videoType} videos are not yet supported. Consider installing yt-dlp. Video URL: ${videoUrl}`,
+        errorCode: "UNSUPPORTED_TYPE",
       };
 
     case "unknown":
@@ -55,6 +58,7 @@ export async function downloadVideo(
 }
 
 export { downloadFile, downloadLoomVideo, extractLoomId, getLoomVideoInfoDetailed, type DownloadProgress, type LoomFetchResult } from "./loomDownloader.js";
+export { downloadVimeoVideo, extractVimeoId, getVimeoVideoInfo, type VimeoDownloadResult, type VimeoFetchResult, type VimeoVideoInfo } from "./vimeoDownloader.js";
 export { AsyncQueue, type QueueItem, type QueueOptions } from "./queue.js";
-export { validateLoomHls, validateVideoHls, type HlsValidationResult } from "./hlsValidator.js";
+export { validateLoomHls, validateVideoHls, validateVimeoVideo, type HlsValidationResult } from "./hlsValidator.js";
 
