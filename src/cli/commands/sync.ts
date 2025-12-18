@@ -367,7 +367,7 @@ async function validateVideos(
       if (videoType === "loom" || videoType === "vimeo") {
         // Pass page for Vimeo domain-restricted videos
         const validation = await validateVideoHls(
-          videoUrl, 
+          videoUrl,
           videoType,
           videoType === "vimeo" ? page : undefined,
           videoType === "vimeo" ? lesson.url : undefined

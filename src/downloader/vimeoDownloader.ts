@@ -83,7 +83,7 @@ function extractUnlistedHash(url: string): string | null {
  * @param referer - Optional referer URL (e.g., the Skool page URL) for domain-restricted videos
  */
 export async function getVimeoVideoInfo(
-  videoId: string, 
+  videoId: string,
   unlistedHash?: string | null,
   referer?: string
 ): Promise<VimeoFetchResult> {
@@ -98,7 +98,7 @@ export async function getVimeoVideoInfo(
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept": "application/json",
   };
-  
+
   // Try with Skool referer first if provided, otherwise use Vimeo's player
   if (referer) {
     headers["Referer"] = referer;
@@ -246,8 +246,9 @@ export async function getVimeoVideoInfo(
 
 /**
  * Fetches Vimeo config from within a Playwright browser context.
- * This is useful for domain-restricted videos that only work when embedded.
- * 
+ * Uses page.request API which runs at browser level (no CORS restrictions)
+ * and includes the browser's cookies/session.
+ *
  * @param page - Playwright page (should be on the Skool lesson page)
  * @param videoId - Vimeo video ID
  * @param unlistedHash - Optional hash for unlisted videos
@@ -263,51 +264,45 @@ export async function getVimeoVideoInfoFromBrowser(
   }
 
   try {
-    // Use page.evaluate to fetch from browser context (includes cookies, referer)
-    const result = await page.evaluate(async (url: string) => {
-      try {
-        const response = await fetch(url, {
-          headers: {
-            "Accept": "application/json",
-          },
-          credentials: "include",
-        });
+    // Use page.request (Playwright API) - runs at browser level, no CORS issues
+    // and includes the browser's cookies/session
+    const currentUrl = page.url();
+    const response = await page.request.get(configUrl, {
+      headers: {
+        "Accept": "application/json",
+        "Referer": currentUrl,
+        "Origin": new URL(currentUrl).origin,
+      },
+    });
 
-        if (!response.ok) {
-          return { 
-            success: false, 
-            status: response.status,
-            error: `HTTP ${response.status}` 
-          };
-        }
-
-        const config = await response.json();
-        return { success: true, config };
-      } catch (err) {
-        return { 
-          success: false, 
-          error: err instanceof Error ? err.message : String(err) 
-        };
-      }
-    }, configUrl);
-
-    if (!result.success) {
-      if (result.status === 403) {
-        return {
-          success: false,
-          error: "Video is private or requires authentication",
-          errorCode: "PRIVATE_VIDEO",
-          details: `Video ID: ${videoId}. Domain-restricted even in browser context.`,
-        };
-      }
+    if (response.status() === 403) {
       return {
         success: false,
-        error: result.error ?? "Failed to fetch config",
-        errorCode: "NETWORK_ERROR",
+        error: "Video is private or requires authentication",
+        errorCode: "PRIVATE_VIDEO",
+        details: `Video ID: ${videoId}. Domain-restricted even with browser session.`,
       };
     }
 
-    const config = result.config as VimeoConfig;
+    if (response.status() === 404) {
+      return {
+        success: false,
+        error: "Video not found",
+        errorCode: "VIDEO_NOT_FOUND",
+        details: `Video ID: ${videoId}`,
+      };
+    }
+
+    if (!response.ok()) {
+      return {
+        success: false,
+        error: `Vimeo returned HTTP ${response.status()}`,
+        errorCode: "NETWORK_ERROR",
+        details: `Config URL: ${configUrl}`,
+      };
+    }
+
+    const config = await response.json() as VimeoConfig;
 
     // Extract HLS URL (same logic as getVimeoVideoInfo)
     let hlsUrl: string | null = null;
