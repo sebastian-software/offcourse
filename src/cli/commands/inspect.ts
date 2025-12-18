@@ -13,7 +13,6 @@ interface InspectOptions {
   output?: string;
   full?: boolean;
   click?: boolean;
-  api?: boolean;  // Log all API calls
 }
 
 /**
@@ -44,19 +43,9 @@ export async function inspectCommand(url: string, options: InspectOptions): Prom
   try {
     // Collect network requests to find video URLs
     const videoRequests: Array<{ url: string; resourceType: string }> = [];
-    const apiCalls: Array<{
-      method: string;
-      url: string;
-      postData?: string | undefined;
-      timestamp: string;
-    }> = [];
-
     session.page.on("request", (request) => {
       const reqUrl = request.url();
       const resourceType = request.resourceType();
-      const method = request.method();
-
-      // Log video-related requests
       if (
         resourceType === "media" ||
         reqUrl.includes(".mp4") ||
@@ -70,51 +59,7 @@ export async function inspectCommand(url: string, options: InspectOptions): Prom
       ) {
         videoRequests.push({ url: reqUrl, resourceType });
       }
-
-      // Log API calls (XHR/Fetch)
-      if (options.api && (resourceType === "xhr" || resourceType === "fetch")) {
-        const postData = request.postData();
-        apiCalls.push({
-          method,
-          url: reqUrl,
-          postData: postData?.substring(0, 500),
-          timestamp: new Date().toISOString(),
-        });
-
-        // Live logging for POST requests (likely progress updates)
-        if (method === "POST") {
-          console.log(chalk.yellow(`\n   📤 POST ${reqUrl}`));
-          if (postData) {
-            console.log(chalk.gray(`      ${postData.substring(0, 200)}`));
-          }
-        }
-      }
     });
-
-    // Also log responses for API calls
-    if (options.api) {
-      session.page.on("response", async (response) => {
-        const request = response.request();
-        const resourceType = request.resourceType();
-
-        if ((resourceType === "xhr" || resourceType === "fetch") && request.method() === "POST") {
-          try {
-            const status = response.status();
-            const url = response.url();
-            // Only log interesting responses
-            if (url.includes("progress") || url.includes("complete") || url.includes("track") || url.includes("event")) {
-              const body = await response.text().catch(() => "");
-              console.log(chalk.green(`   📥 ${status} ${url}`));
-              if (body) {
-                console.log(chalk.gray(`      ${body.substring(0, 200)}`));
-              }
-            }
-          } catch {
-            // Ignore errors reading response
-          }
-        }
-      });
-    }
 
     const pageSpinner = ora("Loading page...").start();
     await session.page.goto(url, { timeout: 60000 });
@@ -481,21 +426,8 @@ export async function inspectCommand(url: string, options: InspectOptions): Prom
       }
     }
 
-    // Show collected API calls
-    if (options.api && apiCalls.length > 0) {
-      console.log(chalk.cyan("\n📡 All API Calls:\n"));
-      for (const call of apiCalls) {
-        const color = call.method === "POST" ? chalk.yellow : chalk.gray;
-        console.log(color(`   ${call.method} ${call.url}`));
-        if (call.postData) {
-          console.log(chalk.gray(`      ${call.postData}`));
-        }
-      }
-    }
-
     console.log(chalk.gray("\n💡 Tips:"));
     console.log(chalk.gray("   - Use --click to trigger lazy-loaded video players"));
-    console.log(chalk.gray("   - Use --api to monitor API calls (progress tracking)"));
     console.log(chalk.gray("   - Use --full to save complete HTML for offline analysis\n"));
   } finally {
     await browser.close();

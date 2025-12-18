@@ -40,7 +40,6 @@ program
   .option("-o, --output <dir>", "Save analysis to directory")
   .option("--full", "Save complete HTML as well")
   .option("--click", "Try to click video preview to trigger lazy loading")
-  .option("--api", "Monitor API calls (find progress tracking endpoints)")
   .action(inspectCommand);
 
 // Config commands
