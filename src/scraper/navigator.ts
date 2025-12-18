@@ -43,19 +43,19 @@ export async function extractModulesFromJson(page: Page): Promise<CourseModule[]
       try {
         const json = JSON.parse(nextDataScript.textContent);
         const courseChildren = json?.props?.pageProps?.course?.children;
-        
+
         if (Array.isArray(courseChildren)) {
           const results: CourseModule[] = [];
-          
+
           for (const child of courseChildren) {
             const course = child?.course;
             if (!course?.name || !/^[a-f0-9]{8}$/.test(course.name)) continue;
-            
+
             const slug = course.name;
             const title = course.metadata?.title ?? `Module ${results.length + 1}`;
             // Check hasAccess field - if false, the module/lesson is locked
             const hasAccess = child?.hasAccess !== false;
-            
+
             if (!results.some((m) => m.slug === slug)) {
               results.push({
                 name: title,
@@ -65,14 +65,14 @@ export async function extractModulesFromJson(page: Page): Promise<CourseModule[]
               });
             }
           }
-          
+
           if (results.length > 0) return results;
         }
       } catch {
         // Fall through to regex approach
       }
     }
-    
+
     // Fallback: Find script tags that contain course data
     const scripts = Array.from(document.querySelectorAll("script"));
     const results: CourseModule[] = [];
@@ -135,7 +135,7 @@ export async function extractLessons(page: Page, moduleUrl: string): Promise<Les
 
   const lessons = await page.evaluate(() => {
     const results: Lesson[] = [];
-    
+
     // First try to get hasAccess from __NEXT_DATA__
     const accessMap = new Map<string, boolean>();
     const nextDataScript = document.getElementById("__NEXT_DATA__");
@@ -143,7 +143,7 @@ export async function extractLessons(page: Page, moduleUrl: string): Promise<Les
       try {
         const json = JSON.parse(nextDataScript.textContent);
         const courseChildren = json?.props?.pageProps?.course?.children;
-        
+
         if (Array.isArray(courseChildren)) {
           for (const child of courseChildren) {
             const lessonId = child?.course?.id;
@@ -157,7 +157,7 @@ export async function extractLessons(page: Page, moduleUrl: string): Promise<Les
         // Ignore parse errors
       }
     }
-    
+
     // Skool uses styled-components with "ChildrenLink" in the class name
     const lessonLinks = document.querySelectorAll('a[class*="ChildrenLink"]');
 
