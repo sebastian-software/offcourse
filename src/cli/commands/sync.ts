@@ -367,6 +367,13 @@ async function validateVideos(
 
       // Validate HLS for video types that support it
       if (videoType === "loom" || videoType === "vimeo") {
+        // Ensure we're on the lesson page before validation (important for iframe-based extraction)
+        if (page.url() !== lesson.url) {
+          await page.goto(lesson.url, { timeout: 30000 });
+          await page.waitForLoadState("domcontentloaded");
+          await page.waitForTimeout(1000); // Wait for iframes to load
+        }
+
         // Pass page for network interception fallback
         const validation = await validateVideoHls(
           videoUrl,

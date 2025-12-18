@@ -109,14 +109,14 @@ export async function validateVimeoVideo(
     result = await getVimeoVideoInfoFromBrowser(page, videoId, unlistedHash);
   }
 
-  // If still failing and we have a page, try network interception
+  // If still failing and we have a page, try extracting from the running player
   if (!result.success && result.errorCode === "PRIVATE_VIDEO" && page) {
-    const captured = await captureVimeoConfig(page, videoId, 15000);
+    const captured = await captureVimeoConfig(page, videoId, 20000);
     if (captured.hlsUrl || captured.progressiveUrl) {
       return {
         isValid: true,
         hlsUrl: captured.hlsUrl ?? captured.progressiveUrl,
-        details: "Captured via network interception",
+        details: "Extracted from running player",
       };
     }
   }
