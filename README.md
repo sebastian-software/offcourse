@@ -1,5 +1,10 @@
 # Offcourse
 
+[![npm version](https://img.shields.io/npm/v/offcourse?color=cb0000&label=npm)](https://www.npmjs.com/package/offcourse)
+[![npm downloads](https://img.shields.io/npm/dm/offcourse?color=cb0000)](https://www.npmjs.com/package/offcourse)
+[![license](https://img.shields.io/npm/l/offcourse?color=cb0000)](https://github.com/sebastian-software/offcourse/blob/main/LICENSE)
+[![node](https://img.shields.io/node/v/offcourse?color=cb0000)](https://nodejs.org)
+
 Download online courses for offline access – of course! 📚
 
 Saves video content and lesson text as Markdown files, organized by module structure.
