@@ -1,8 +1,7 @@
 import chalk from "chalk";
 import ora from "ora";
-import cliProgress from "cli-progress";
 import { loadConfig } from "../../config/configManager.js";
-import { downloadVideo, type VideoDownloadTask, type DownloadResult } from "../../downloader/index.js";
+import { downloadVideo, AsyncQueue, type VideoDownloadTask } from "../../downloader/index.js";
 import { getAuthenticatedSession } from "../../scraper/auth.js";
 import { extractLessonContent, formatMarkdown } from "../../scraper/extractor.js";
 import { buildCourseStructure } from "../../scraper/navigator.js";
@@ -12,20 +11,8 @@ import {
   createModuleDirectory,
   getVideoPath,
   isLessonSynced,
-  saveLessonMetadata,
   saveMarkdown,
 } from "../../storage/fileSystem.js";
-
-/**
- * Format bytes to human readable string.
- */
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
-}
 
 const SKOOL_DOMAIN = "www.skool.com";
 const SKOOL_LOGIN_URL = "https://www.skool.com/login";
@@ -76,7 +63,6 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
   try {
     const result = await getAuthenticatedSession(SKOOL_DOMAIN, SKOOL_LOGIN_URL, {
       headless: config.headless,
-      fastMode: true,  // Skip images, fonts, CSS for faster scraping
     });
     browser = result.browser;
     session = result.session;
@@ -177,31 +163,15 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
         // Always extract content to get video URL
         const content = await extractLessonContent(session.page, task.lessonUrl);
 
-        // Check if locked
-        if (content.isLocked) {
-          lessonSpinner.warn(`   ${task.lessonName} (locked - no access)`);
-          contentSkipped++;
-          continue;
-        }
-
         // Save markdown content if needed
         if (needsContent) {
           const markdown = formatMarkdown(
             content.title,
             content.markdownContent,
             content.videoUrl,
-            content.videoType,
-            content.updatedAt
+            content.videoType
           );
           saveMarkdown(task.lessonDir, "content.md", markdown);
-
-          // Save metadata for incremental sync
-          saveLessonMetadata(task.lessonDir, {
-            syncedAt: new Date().toISOString(),
-            updatedAt: content.updatedAt,
-            videoUrl: content.videoUrl,
-            videoType: content.videoType,
-          });
         }
 
         // Queue video for download if needed
@@ -231,90 +201,33 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
     if (!options.skipVideos && videoTasks.length > 0) {
       console.log(chalk.blue(`\n🎬 Phase 2: Downloading ${videoTasks.length} videos...\n`));
 
-      const downloadErrors: Array<{ name: string; error: string }> = [];
-      let completedDownloads = 0;
-      let totalBytes = 0;
+      const queue = new AsyncQueue<VideoDownloadTask>({
+        concurrency: config.concurrency,
+        maxRetries: config.retryAttempts,
+      });
 
-      // Process videos with controlled parallelism
-      const videoConcurrency = config.concurrency;
-      console.log(chalk.gray(`   (${videoConcurrency} parallel downloads, 8 parallel segments per video)\n`));
+      queue.addAll(videoTasks.map((task) => ({ id: task.lessonName, data: task })));
 
-      // Track progress for each active download
-      const activeDownloads = new Map<string, { bar: cliProgress.SingleBar; name: string }>();
+      const videoSpinner = ora("Starting downloads...").start();
 
-      const multibar = new cliProgress.MultiBar({
-        clearOnComplete: false,
-        hideCursor: true,
-        format: chalk.cyan("   {bar}") + " | {percentage}% | {phase} | {name}",
-        barCompleteChar: "█",
-        barIncompleteChar: "░",
-        linewrap: false,
-      }, cliProgress.Presets.shades_grey);
+      const result = await queue.process(async (task, id) => {
+        videoSpinner.text = `   Downloading: ${id}`;
 
-      // Process in batches
-      for (let i = 0; i < videoTasks.length; i += videoConcurrency) {
-        const batch = videoTasks.slice(i, i + videoConcurrency);
-
-        const batchPromises = batch.map(async (task) => {
-          const shortName = task.lessonName.length > 40
-            ? task.lessonName.substring(0, 37) + "..."
-            : task.lessonName;
-
-          const bar = multibar.create(100, 0, { name: shortName, phase: "start" });
-          activeDownloads.set(task.lessonName, { bar, name: shortName });
-
-          try {
-            const result: DownloadResult = await downloadVideo(task, (progress) => {
-              bar.update(Math.round(progress.percent), {
-                phase: progress.phase ?? "dl"
-              });
-            });
-
-            multibar.remove(bar);
-            activeDownloads.delete(task.lessonName);
-
-            if (result.success) {
-              completedDownloads++;
-              if (result.fileSize) {
-                totalBytes += result.fileSize;
-              }
-              return { success: true, name: shortName, size: result.fileSize };
-            } else {
-              downloadErrors.push({ name: task.lessonName, error: result.error ?? "Unknown error" });
-              return { success: false, name: shortName, error: result.error };
-            }
-          } catch (error) {
-            multibar.remove(bar);
-            activeDownloads.delete(task.lessonName);
-            const errMsg = error instanceof Error ? error.message : String(error);
-            downloadErrors.push({ name: task.lessonName, error: errMsg });
-            return { success: false, name: shortName, error: errMsg };
-          }
+        const downloadResult = await downloadVideo(task, (progress) => {
+          videoSpinner.text = `   ${id} (${Math.round(progress.percent)}%)`;
         });
 
-        const results = await Promise.all(batchPromises);
-
-        // Log batch results
-        for (const result of results) {
-          if (result.success) {
-            console.log(chalk.green(`   ✓ ${result.name} (${result.size ? formatBytes(result.size) : "done"})`));
-          } else {
-            console.log(chalk.red(`   ✗ ${result.name}: ${result.error}`));
-          }
+        if (!downloadResult.success) {
+          throw new Error(downloadResult.error ?? "Download failed");
         }
-      }
+      });
 
-      multibar.stop();
+      videoSpinner.succeed(`   Videos: ${result.completed} downloaded, ${result.failed} failed`);
 
-      // Summary
-      console.log();
-      if (completedDownloads > 0) {
-        console.log(chalk.green(`   ✓ ${completedDownloads} videos downloaded (${formatBytes(totalBytes)})`));
-      }
-      if (downloadErrors.length > 0) {
-        console.log(chalk.red(`   ✗ ${downloadErrors.length} failed:`));
-        for (const err of downloadErrors) {
-          console.log(chalk.red(`     - ${err.name}: ${err.error}`));
+      if (result.errors.length > 0) {
+        console.log(chalk.yellow("\n   Failed downloads:"));
+        for (const error of result.errors) {
+          console.log(chalk.red(`   - ${error.id}: ${error.error}`));
         }
       }
     }

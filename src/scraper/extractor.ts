@@ -7,8 +7,6 @@ export interface LessonContent {
   videoType: "loom" | "vimeo" | "youtube" | "wistia" | "native" | "unknown" | null;
   htmlContent: string;
   markdownContent: string;
-  isLocked: boolean;
-  updatedAt: string | null;
 }
 
 // Initialize Turndown for HTML to Markdown conversion
@@ -42,15 +40,15 @@ turndown.addRule("links", {
   },
 });
 
+
 /**
  * Extracts the video URL from the current lesson page.
+ * Supports Loom, Vimeo, YouTube, Wistia, and native video.
  */
 export async function extractVideoUrl(
   page: Page
 ): Promise<{ url: string | null; type: LessonContent["videoType"] }> {
-   
   const videoInfo = await page.evaluate(() => {
-     
     // Check for Loom iframe (most common on Skool)
     const loomIframe = document.querySelector('iframe[src*="loom.com"]');
     if (loomIframe) {
@@ -114,122 +112,61 @@ export async function extractVideoUrl(
 
 /**
  * Extracts the text content from the lesson page.
- * Specifically targets the editor content area and removes sidebar/navigation.
  */
 export async function extractTextContent(page: Page): Promise<{ html: string; markdown: string }> {
   const html = await page.evaluate(() => {
-     
-    // Skool uses styled-components. The actual content is in EditorContentWrapper
-    // Try specific Skool selectors first
-    const skoolSelectors = [
-      '[class*="EditorContentWrapper"]', // Main content area
-      '[class*="PostBody"]',
-      '[class*="LessonBody"]',
+    // Skool lesson content is typically in a styled div below the video
+    // Look for common content container patterns
+    const contentSelectors = [
+      '[class*="LessonContent"]',
+      '[class*="PostContent"]',
+      '[class*="ContentWrapper"]',
+      '[class*="content-body"]',
+      "article",
+      '[class*="prose"]',
     ];
 
-    for (const selector of skoolSelectors) {
+    for (const selector of contentSelectors) {
       const element = document.querySelector(selector);
-      if (element && element.textContent && element.textContent.trim().length > 20) {
-        return element.innerHTML;
+      if (element && element.textContent && element.textContent.trim().length > 50) {
+        // Clone to avoid modifying the actual page
+        const clone = element.cloneNode(true) as HTMLElement;
+
+        // Remove unwanted elements
+        const unwanted = clone.querySelectorAll(
+          "script, style, nav, [class*='video'], [class*='Video'], iframe, [class*='player'], [class*='Player']"
+        );
+        unwanted.forEach((el) => el.remove());
+
+        return clone.innerHTML;
       }
     }
 
-    // Fallback: Find the course content area and extract only the text part
-    const courseContent = document.querySelector('[class*="CourseContent"]');
-    if (courseContent) {
-      const clone = courseContent.cloneNode(true) as HTMLElement;
+    // Fallback: Try to find the main content area by structure
+    // Skool typically has: Header -> Video -> Content
+    const mainContent = document.querySelector("main, [class*='Main']");
+    if (mainContent) {
+      const clone = mainContent.cloneNode(true) as HTMLElement;
 
-      // Remove all navigation, sidebar, video elements
-      const unwantedSelectors = [
-        '[class*="Sidebar"]',
-        '[class*="sidebar"]',
-        '[class*="Navigation"]',
-        '[class*="nav"]',
-        '[class*="ChildrenLink"]', // Lesson navigation links
-        '[class*="VideoPlayer"]',
-        '[class*="video"]',
-        'iframe',
-        'script',
-        'style',
-        '[class*="Progress"]',
-        '[class*="Header"]',
-      ];
+      // Remove video player and navigation
+      const unwanted = clone.querySelectorAll(
+        "script, style, nav, header, [class*='video'], [class*='Video'], iframe, [class*='Sidebar'], [class*='sidebar']"
+      );
+      unwanted.forEach((el) => el.remove());
 
-      for (const selector of unwantedSelectors) {
-        clone.querySelectorAll(selector).forEach((el) => el.remove());
-      }
-
-      // Find the actual text content div (usually after the video)
-      const textDivs = Array.from(clone.querySelectorAll('div[class*="Editor"], div[class*="Content"]'));
-      for (const div of textDivs) {
-        const text = div.textContent?.trim() ?? "";
-        if (text.length > 50 && !text.includes("Herzlich Willkommen")) {
-          return div.innerHTML;
-        }
-      }
-
-      // Last resort: return cleaned content
-      const finalContent = clone.innerHTML;
-      if (finalContent.trim().length > 50) {
-        return finalContent;
+      // Get remaining text content
+      const textContent = clone.innerHTML;
+      if (textContent.trim().length > 100) {
+        return textContent;
       }
     }
 
     return "";
   });
 
-  // Clean up the markdown
-  let markdown = html ? turndown.turndown(html) : "";
-
-  // Remove navigation artifacts that might have slipped through
-  // Pattern: Links that look like lesson navigation (numbered list items with just links)
-  markdown = markdown
-    .replace(/\[\n*\d+\.\s*[^\]]+\n*\]\([^)]+\/classroom\/[^)]+\)/g, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  const markdown = html ? turndown.turndown(html) : "";
 
   return { html, markdown };
-}
-
-/**
- * Checks if the current page shows a "locked" or "no access" message.
- */
-async function checkIfLocked(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
-     
-    const pageText = document.body.textContent?.toLowerCase() ?? "";
-
-    const lockPatterns = [
-      "you don't have access",
-      "you do not have access",
-      "unlock this",
-      "no access",
-      "nicht freigeschaltet",
-      "kein zugriff",
-      "zugang erforderlich",
-    ];
-
-    return lockPatterns.some((pattern) => pageText.includes(pattern));
-  });
-}
-
-/**
- * Extracts the updatedAt timestamp from the page's JSON data.
- */
-async function extractUpdatedAt(page: Page): Promise<string | null> {
-  return page.evaluate(() => {
-     
-    const scripts = Array.from(document.querySelectorAll("script"));
-    for (const script of scripts) {
-      const content = script.textContent ?? "";
-      // Look for updatedAt in the current lesson's data
-      const match = content.match(/"updatedAt":"([^"]+)"/);
-      if (match?.[1]) {
-        return match[1];
-      }
-    }
-    return null;
-  });
 }
 
 /**
@@ -239,45 +176,24 @@ export async function extractLessonContent(page: Page, lessonUrl: string): Promi
   const currentUrl = page.url();
 
   if (currentUrl !== lessonUrl) {
-    await page.goto(lessonUrl, { timeout: 30000, waitUntil: "domcontentloaded" });
-    // Reduced wait time - just enough for React to render
-    await page.waitForTimeout(500);
+    await page.goto(lessonUrl, { timeout: 30000 });
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForTimeout(2000);
   }
 
-  // Check if content is locked
-  const isLocked = await checkIfLocked(page);
+  const title = await page.title();
+  const { url: videoUrl, type: videoType } = await extractVideoUrl(page);
+  const { html: htmlContent, markdown: markdownContent } = await extractTextContent(page);
 
-  if (isLocked) {
-    const title = await page.title();
-    const cleanTitle = title.split(" - ")[0]?.trim() ?? title;
-    return {
-      title: cleanTitle,
-      videoUrl: null,
-      videoType: null,
-      htmlContent: "",
-      markdownContent: "",
-      isLocked: true,
-      updatedAt: null,
-    };
-  }
-
-  const [title, videoInfo, textContent, updatedAt] = await Promise.all([
-    page.title(),
-    extractVideoUrl(page),
-    extractTextContent(page),
-    extractUpdatedAt(page),
-  ]);
-
+  // Clean up title: "1. Lesson Name - Module Name · Course Name" -> "1. Lesson Name"
   const cleanTitle = title.split(" - ")[0]?.trim() ?? title;
 
   return {
     title: cleanTitle,
-    videoUrl: videoInfo.url,
-    videoType: videoInfo.type,
-    htmlContent: textContent.html,
-    markdownContent: textContent.markdown,
-    isLocked: false,
-    updatedAt,
+    videoUrl,
+    videoType,
+    htmlContent,
+    markdownContent,
   };
 }
 
@@ -296,32 +212,20 @@ export function formatMarkdown(
   title: string,
   content: string,
   videoUrl: string | null,
-  videoType: string | null,
-  updatedAt: string | null = null
+  videoType: string | null
 ): string {
   const lines = [`# ${title}`, ""];
 
-  // Add metadata block
-  const metaLines: string[] = [];
-  if (updatedAt) {
-    const date = new Date(updatedAt);
-    metaLines.push(`Last updated: ${date.toLocaleDateString("de-DE")}`);
-  }
   if (videoUrl) {
-    const videoLabel = videoType
-      ? `${videoType.charAt(0).toUpperCase()}${videoType.slice(1)}`
-      : "Video";
-    metaLines.push(`📺 ${videoLabel}: ${videoUrl}`);
-  }
-
-  if (metaLines.length > 0) {
-    lines.push(`> ${metaLines.join("  \n> ")}`, "");
+    const videoLabel = videoType ? `${videoType.charAt(0).toUpperCase()}${videoType.slice(1)}` : "Video";
+    lines.push(`> 📺 ${videoLabel}: ${videoUrl}`, "");
   }
 
   if (content.trim()) {
     lines.push(content);
   }
 
+  // Clean up excessive newlines
   return lines
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")

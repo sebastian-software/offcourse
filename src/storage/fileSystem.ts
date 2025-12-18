@@ -116,46 +116,6 @@ export function saveSyncState(courseSlug: string, state: CourseSyncState): void 
 }
 
 /**
- * Gets the metadata file path for a lesson.
- */
-export function getMetadataPath(lessonDir: string): string {
-  return join(lessonDir, ".meta.json");
-}
-
-export interface LessonMetadata {
-  syncedAt: string;
-  updatedAt: string | null;
-  videoUrl: string | null;
-  videoType: string | null;
-}
-
-/**
- * Saves lesson metadata for incremental sync detection.
- */
-export function saveLessonMetadata(lessonDir: string, meta: LessonMetadata): void {
-  const metaPath = getMetadataPath(lessonDir);
-  writeFileSync(metaPath, JSON.stringify(meta, null, 2), "utf-8");
-}
-
-/**
- * Loads lesson metadata.
- */
-export function loadLessonMetadata(lessonDir: string): LessonMetadata | null {
-  const metaPath = getMetadataPath(lessonDir);
-
-  if (!existsSync(metaPath)) {
-    return null;
-  }
-
-  try {
-    const raw = readFileSync(metaPath, "utf-8");
-    return JSON.parse(raw) as LessonMetadata;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Checks if a lesson has been fully synced.
  */
 export function isLessonSynced(lessonDir: string): { video: boolean; content: boolean } {
@@ -163,17 +123,5 @@ export function isLessonSynced(lessonDir: string): { video: boolean; content: bo
     video: existsSync(getVideoPath(lessonDir)),
     content: existsSync(getMarkdownPath(lessonDir)),
   };
-}
-
-/**
- * Checks if a lesson needs re-sync based on updatedAt.
- */
-export function needsResync(lessonDir: string, remoteUpdatedAt: string | null): boolean {
-  if (!remoteUpdatedAt) return false;
-
-  const meta = loadLessonMetadata(lessonDir);
-  if (!meta?.updatedAt) return true;
-
-  return new Date(remoteUpdatedAt) > new Date(meta.updatedAt);
 }
 

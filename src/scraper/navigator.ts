@@ -91,8 +91,9 @@ export async function extractLessons(page: Page, moduleUrl: string): Promise<Les
 
   const moduleBasePath = moduleUrl.split("?")[0] ?? moduleUrl;
   if (!currentUrl.includes(moduleBasePath)) {
-    await page.goto(moduleUrl, { timeout: 30000, waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(500);
+    await page.goto(moduleUrl, { timeout: 30000 });
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForTimeout(2000);
   }
 
   const lessons = await page.evaluate(() => {
@@ -206,8 +207,9 @@ export async function buildCourseStructure(
   const baseClassroomUrl = isModule ? getClassroomBaseUrl(classroomUrl) : classroomUrl;
 
   // Navigate to the classroom overview to get all modules
-  await page.goto(baseClassroomUrl, { timeout: 30000, waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(500);
+  await page.goto(baseClassroomUrl, { timeout: 30000 });
+  await page.waitForLoadState("domcontentloaded");
+  await page.waitForTimeout(2000);
 
   const courseName = await extractCourseName(page);
   console.log(`   Course: ${courseName}`);

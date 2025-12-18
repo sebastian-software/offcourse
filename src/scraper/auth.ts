@@ -83,33 +83,13 @@ export async function performInteractiveLogin(
   return { context, page };
 }
 
-export interface SessionOptions {
-  forceLogin?: boolean;
-  headless?: boolean;
-  fastMode?: boolean;  // Block images, fonts, stylesheets for faster loading
-}
-
-/**
- * Sets up fast mode by blocking unnecessary resources.
- */
-async function setupFastMode(page: Page): Promise<void> {
-  await page.route("**/*", (route) => {
-    const resourceType = route.request().resourceType();
-    // Block images, fonts, stylesheets - but NOT media (video URLs)
-    if (["image", "font", "stylesheet"].includes(resourceType)) {
-      return route.abort();
-    }
-    return route.continue();
-  });
-}
-
 /**
  * Gets an authenticated session, either from cache or via interactive login.
  */
 export async function getAuthenticatedSession(
   domain: string,
   loginUrl: string,
-  options: SessionOptions = {}
+  options: { forceLogin?: boolean; headless?: boolean } = {}
 ): Promise<{ browser: Browser; session: AuthSession }> {
   const browser = await chromium.launch({
     headless: options.headless ?? false,
@@ -120,11 +100,6 @@ export async function getAuthenticatedSession(
     try {
       const context = await loadSession(browser, domain);
       const page = await context.newPage();
-
-      // Setup fast mode if requested
-      if (options.fastMode) {
-        await setupFastMode(page);
-      }
 
       // Verify session is still valid by navigating
       await page.goto(`https://${domain}`);
@@ -153,11 +128,6 @@ export async function getAuthenticatedSession(
   });
   const context = await loadSession(newBrowser, domain);
   const page = await context.newPage();
-
-  // Setup fast mode if requested
-  if (options.fastMode) {
-    await setupFastMode(page);
-  }
 
   // Close the interactive session
   await session.context.browser()?.close();
