@@ -4,6 +4,7 @@ import { Command } from "commander";
 import { configGetCommand, configSetCommand, configShowCommand } from "./commands/config.js";
 import { inspectCommand } from "./commands/inspect.js";
 import { loginCommand, logoutCommand } from "./commands/login.js";
+import { statusCommand, statusListCommand } from "./commands/status.js";
 import { syncCommand } from "./commands/sync.js";
 
 const program = new Command();
@@ -31,7 +32,24 @@ program
   .option("--skip-content", "Skip text content (only download videos)")
   .option("--dry-run", "Show what would be downloaded without actually downloading")
   .option("--limit <n>", "Limit to first N lessons (for testing)", parseInt)
+  .option("-f, --force", "Force full rescan even if state exists")
+  .option("--retry-errors", "Retry previously failed lessons")
   .action(syncCommand);
+
+// Status command
+program
+  .command("status [url]")
+  .description("Show sync status for a course (or list all if no URL)")
+  .option("--errors", "Show details for failed lessons")
+  .option("--pending", "Show pending lessons")
+  .option("-a, --all", "Show all details")
+  .action((url, options) => {
+    if (url) {
+      statusCommand(url, options);
+    } else {
+      statusListCommand();
+    }
+  });
 
 // Inspect command (debugging)
 program
