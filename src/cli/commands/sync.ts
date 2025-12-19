@@ -150,14 +150,30 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
   const existingMeta = db.getCourseMetadata();
   const hasExistingData = existingMeta.totalLessons > 0;
 
-  if (hasExistingData) {
-    const summary = db.getStatusSummary();
+  // Check what work needs to be done BEFORE opening browser
+  const initialSummary = hasExistingData ? db.getStatusSummary() : null;
+  
+  if (hasExistingData && initialSummary) {
     console.log(chalk.gray(`   Found: ${existingMeta.totalModules} modules, ${existingMeta.totalLessons} lessons`));
-    const lockedInfo = summary.locked > 0 ? `, ${summary.locked} locked` : "";
-    console.log(chalk.gray(`   Status: ${summary.downloaded} downloaded, ${summary.validated} ready, ${summary.error} failed, ${summary.pending} to scan${lockedInfo}`));
+    const lockedInfo = initialSummary.locked > 0 ? `, ${initialSummary.locked} locked` : "";
+    console.log(chalk.gray(`   Status: ${initialSummary.downloaded} downloaded, ${initialSummary.validated} ready, ${initialSummary.error} failed, ${initialSummary.pending} to scan${lockedInfo}`));
   }
 
-  // Get authenticated session
+  const needsScan = !hasExistingData || (initialSummary?.pending ?? 0) > 0;
+  const needsValidation = hasExistingData ? db.getLessonsToValidate().length > 0 : true;
+  const needsDownload = hasExistingData ? db.getLessonsToDownload().length > 0 : true;
+  const courseDir = createCourseDirectory(config.outputDir, communitySlug);
+
+  // Quick exit if nothing to do (and not retry-failed or dry-run)
+  if (hasExistingData && !needsScan && !needsValidation && !needsDownload && !options.dryRun && !options.retryFailed) {
+    console.log(chalk.green("\n✅ Already complete! Nothing to do.\n"));
+    printStatusSummary(db);
+    console.log(chalk.gray(`   Output: ${courseDir}\n`));
+    db.close();
+    return;
+  }
+
+  // Get authenticated session (only if we have work to do)
   // --visible flag overrides headless config
   const useHeadless = options.visible ? false : config.headless;
   const spinner = ora("Connecting to Skool...").start();
@@ -186,28 +202,9 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
       return;
     }
 
-    // Create output directory (use URL slug for consistency)
-    const courseDir = createCourseDirectory(config.outputDir, communitySlug);
-
     // Retry-failed mode: only process lessons that previously failed
     if (options.retryFailed) {
       await retryFailedLessons(session.page, db, courseDir, config, options);
-      await browser.close();
-      db.close();
-      return;
-    }
-
-    // Check what work needs to be done
-    const initialSummary = db.getStatusSummary();
-    const needsScan = initialSummary.pending > 0 || !hasExistingData;
-    const needsValidation = db.getLessonsToValidate().length > 0;
-    const needsDownload = db.getLessonsToDownload().length > 0 || needsValidation;
-
-    // Quick exit if nothing to do
-    if (!needsScan && !needsValidation && !needsDownload && !options.dryRun) {
-      console.log(chalk.green("\n✅ Already complete! Nothing to do.\n"));
-      printStatusSummary(db);
-      console.log(chalk.gray(`   Output: ${courseDir}\n`));
       await browser.close();
       db.close();
       return;
