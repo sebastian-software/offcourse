@@ -140,7 +140,11 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
 
   // Reset error lessons if requested (--retry-errors or --force)
   if (options.retryErrors || options.force) {
-    const resetCount = db.resetErrorLessons();
+    // In resume mode, reset to 'validated' so they can be downloaded directly
+    // Otherwise reset to 'pending' so they go through validation again
+    const resetCount = options.resume 
+      ? db.resetErrorLessonsForResume()
+      : db.resetErrorLessons();
     if (resetCount > 0) {
       console.log(chalk.yellow(`   Reset ${resetCount} error lessons for retry`));
     }
@@ -633,9 +637,9 @@ async function downloadVideos(
   }, cliProgress.Presets.shades_grey);
 
   // Overall progress bar at the top
-  const overallBar = multibar.create(total, 0, { 
-    typeTag: "[TOTAL]".padEnd(8), 
-    lessonName: `0/${total} completed` 
+  const overallBar = multibar.create(total, 0, {
+    typeTag: "[TOTAL]".padEnd(8),
+    lessonName: `0/${total} completed`
   });
 
   // Track results
@@ -711,11 +715,11 @@ async function downloadVideos(
       // Remove the bar when done (key fix!)
       multibar.remove(bar);
       activeBars.delete(task.lessonName);
-      
+
       // Update overall progress
       const done = completed + failed;
-      overallBar.update(done, { 
-        lessonName: `${done}/${total} completed (${failed} failed)` 
+      overallBar.update(done, {
+        lessonName: `${done}/${total} completed (${failed} failed)`
       });
     }
   };

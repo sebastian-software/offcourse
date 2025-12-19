@@ -622,6 +622,23 @@ export class CourseDatabase {
   }
 
   /**
+   * Reset error lessons to validated (for --resume --retry-errors).
+   * Only resets lessons that already have an HLS URL.
+   */
+  resetErrorLessonsForResume(): number {
+    const stmt = this.db.prepare(`
+      UPDATE lessons SET
+        status = 'validated',
+        error_message = NULL,
+        error_code = NULL,
+        updated_at = datetime('now')
+      WHERE status = 'error' AND hls_url IS NOT NULL
+    `);
+    const result = stmt.run();
+    return result.changes;
+  }
+
+  /**
    * Get lessons by error code.
    */
   getLessonsByErrorCode(errorCode: string): LessonWithModule[] {
