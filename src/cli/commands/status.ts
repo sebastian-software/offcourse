@@ -48,13 +48,18 @@ export async function statusCommand(url: string, options: StatusOptions): Promis
     console.log(chalk.gray(`   Modules: ${meta.totalModules}`));
     console.log(chalk.gray(`   Lessons: ${meta.totalLessons}`));
     console.log();
-    console.log(chalk.green(`   ✓ Downloaded: ${summary.downloaded}`));
-    console.log(chalk.blue(`   ◆ Validated:  ${summary.validated}`));
-    console.log(chalk.gray(`   ○ Pending:    ${summary.pending}`));
-    console.log(chalk.gray(`   - Skipped:    ${summary.skipped}`));
-
+    console.log(chalk.green(`   ✅ Downloaded:        ${summary.downloaded}`));
+    if (summary.validated > 0) {
+      console.log(chalk.blue(`   ⬇️  Ready to download: ${summary.validated}`));
+    }
+    if (summary.pending > 0) {
+      console.log(chalk.gray(`   🔍 Not scanned yet:   ${summary.pending}`));
+    }
+    if (summary.skipped > 0) {
+      console.log(chalk.gray(`   ➖ No video:          ${summary.skipped}`));
+    }
     if (summary.error > 0) {
-      console.log(chalk.red(`   ✗ Errors:     ${summary.error}`));
+      console.log(chalk.red(`   ❌ Failed:            ${summary.error}`));
     }
 
     // Show error details if requested
@@ -74,11 +79,11 @@ export async function statusCommand(url: string, options: StatusOptions): Promis
       }
     }
 
-    // Show pending details if requested
+    // Show not-scanned details if requested
     if (options.pending || options.all) {
       const pendingLessons = db.getLessonsByStatus(LessonStatus.PENDING);
       if (pendingLessons.length > 0) {
-        console.log(chalk.yellow("\n   ⏳ Pending Lessons:\n"));
+        console.log(chalk.yellow("\n   🔍 Not Yet Scanned:\n"));
         let currentModule = "";
         for (const lesson of pendingLessons) {
           if (lesson.moduleName !== currentModule) {

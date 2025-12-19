@@ -30,19 +30,19 @@ program
   .description("Download a course for offline access")
   .option("--skip-videos", "Skip video downloads (only save text content)")
   .option("--skip-content", "Skip text content (only download videos)")
-  .option("--dry-run", "Show what would be downloaded without actually downloading")
+  .option("--dry-run", "Scan course structure without downloading")
   .option("--limit <n>", "Limit to first N lessons (for testing)", parseInt)
-  .option("-f, --force", "Force full rescan even if state exists")
-  .option("--retry-errors", "Retry previously failed lessons")
-  .option("-r, --resume", "Resume downloads only (skip scanning and validation)")
+  .option("-f, --force", "Force full rescan (ignore previous state)")
+  .option("--retry-errors", "Retry previously failed downloads")
+  .option("-r, --resume", "Skip scanning, download ready videos only")
   .action(syncCommand);
 
 // Status command
 program
   .command("status [url]")
   .description("Show sync status for a course (or list all if no URL)")
-  .option("--errors", "Show details for failed lessons")
-  .option("--pending", "Show pending lessons")
+  .option("--errors", "Show details for failed downloads")
+  .option("--pending", "Show not-yet-scanned lessons")
   .option("-a, --all", "Show all details")
   .action((url, options) => {
     if (url) {

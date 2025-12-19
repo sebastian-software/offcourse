@@ -142,7 +142,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
   if (options.retryErrors || options.force) {
     // In resume mode, reset to 'validated' so they can be downloaded directly
     // Otherwise reset to 'pending' so they go through validation again
-    const resetCount = options.resume 
+    const resetCount = options.resume
       ? db.resetErrorLessonsForResume()
       : db.resetErrorLessons();
     if (resetCount > 0) {
@@ -158,7 +158,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
     const summary = db.getStatusSummary();
     console.log(chalk.gray(`   Existing: ${existingMeta.totalModules} modules, ${existingMeta.totalLessons} lessons`));
     const lockedInfo = summary.locked > 0 ? `, ${summary.locked} locked` : "";
-    console.log(chalk.gray(`   Status: ${summary.downloaded} downloaded, ${summary.validated} ready, ${summary.error} errors, ${summary.pending} pending${lockedInfo}`));
+    console.log(chalk.gray(`   Status: ${summary.downloaded} downloaded, ${summary.validated} ready, ${summary.error} failed, ${summary.pending} not scanned${lockedInfo}`));
   }
 
   // Get authenticated session
@@ -195,6 +195,13 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
     if (options.resume) {
       console.log(chalk.yellow("\n⏩ Resume mode: skipping scan and validation\n"));
       console.log(chalk.gray(`📁 Output: ${courseDir}\n`));
+
+      // Warn about unscanned lessons
+      const summary = db.getStatusSummary();
+      if (summary.pending > 0) {
+        console.log(chalk.yellow(`   ⚠️  ${summary.pending} lessons have not been scanned yet.`));
+        console.log(chalk.gray(`   Run without --resume to scan them first.\n`));
+      }
 
       // Build download tasks from validated lessons in DB
       const videoTasks = await buildDownloadTasksFromDb(db, courseDir);
@@ -791,8 +798,9 @@ async function buildDownloadTasksFromDb(
 ): Promise<VideoDownloadTask[]> {
   const lessons = db.getLessonsToDownload();
   const videoTasks: VideoDownloadTask[] = [];
+  let alreadyOnDisk = 0;
 
-  console.log(chalk.blue(`\n📦 Building download list from ${lessons.length} validated lessons...\n`));
+  console.log(chalk.blue(`\n📦 Building download list from ${lessons.length} ready lessons...\n`));
 
   for (const lesson of lessons) {
     // Create module directory (flat structure - no lesson subdirectories)
@@ -805,7 +813,10 @@ async function buildDownloadTasksFromDb(
     // Check if already downloaded
     const syncStatus = isLessonSynced(moduleDir, lesson.position, lesson.name);
     if (syncStatus.video) {
-      continue; // Already downloaded
+      // File exists on disk but DB not updated - fix DB state
+      db.markLessonDownloaded(lesson.id);
+      alreadyOnDisk++;
+      continue;
     }
 
     if (lesson.hlsUrl && lesson.videoType) {
@@ -819,7 +830,10 @@ async function buildDownloadTasksFromDb(
     }
   }
 
-  console.log(chalk.gray(`   Found ${videoTasks.length} videos to download`));
+  if (alreadyOnDisk > 0) {
+    console.log(chalk.green(`   ✅ ${alreadyOnDisk} already on disk (DB updated)`));
+  }
+  console.log(chalk.gray(`   ⬇️  ${videoTasks.length} videos to download`));
   return videoTasks;
 }
 
@@ -836,16 +850,24 @@ function printStatusSummary(db: CourseDatabase): void {
   console.log(chalk.gray(`   Modules: ${meta.totalModules}`));
   console.log(chalk.gray(`   Lessons: ${meta.totalLessons}`));
   console.log();
-  console.log(chalk.green(`   ✓ Downloaded: ${summary.downloaded}`));
-  console.log(chalk.blue(`   ◆ Validated:  ${summary.validated}`));
-  console.log(chalk.gray(`   ○ Pending:    ${summary.pending}`));
-  console.log(chalk.gray(`   - Skipped:    ${summary.skipped}`));
+  
+  // Clear status labels
+  console.log(chalk.green(`   ✅ Downloaded:        ${summary.downloaded}`));
+  if (summary.validated > 0) {
+    console.log(chalk.blue(`   ⬇️  Ready to download: ${summary.validated}`));
+  }
+  if (summary.pending > 0) {
+    console.log(chalk.gray(`   🔍 Not scanned yet:   ${summary.pending}`));
+  }
+  if (summary.skipped > 0) {
+    console.log(chalk.gray(`   ➖ No video:          ${summary.skipped}`));
+  }
   if (summary.locked > 0) {
-    console.log(chalk.yellow(`   🔒 Locked:    ${summary.locked}`));
+    console.log(chalk.yellow(`   🔒 Locked:            ${summary.locked}`));
   }
 
   if (summary.error > 0) {
-    console.log(chalk.red(`   ✗ Errors:     ${summary.error}`));
+    console.log(chalk.red(`   ❌ Failed:            ${summary.error}`));
 
     // Show unsupported providers if any
     const unsupported = db.getLessonsByErrorCode("UNSUPPORTED_PROVIDER");
