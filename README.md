@@ -30,18 +30,13 @@ Saves video content and lesson text as Markdown files, organized by module struc
 ## Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/sebastian-software/offcourse.git
-cd offcourse
+npm install -g offcourse
+```
 
-# Install dependencies
-npm install
+Or run directly with npx:
 
-# Build
-npm run build
-
-# Link globally (optional)
-npm link
+```bash
+npx offcourse <command>
 ```
 
 Requires Node.js 22+.
@@ -127,6 +122,25 @@ offcourse inspect <url> --full
 
 ## Development
 
+### Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/sebastian-software/offcourse.git
+cd offcourse
+
+# Install dependencies
+npm install
+
+# Build
+npm run build
+
+# Link globally (optional)
+npm link
+```
+
+### Commands
+
 ```bash
 # Watch mode
 npm run dev
@@ -145,6 +159,68 @@ npm run typecheck
 
 # Test
 npm test
+```
+
+### Git Hooks
+
+This project uses [Husky](https://typicode.github.io/husky/) for Git hooks:
+
+- **pre-commit**: Runs Prettier on staged files via lint-staged
+- **pre-push**: Runs ESLint and TypeScript type checking
+- **commit-msg**: Validates commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
+
+### Commit Convention
+
+We follow [Conventional Commits](https://www.conventionalcommits.org/). Commit messages must follow this format:
+
+```
+<type>[optional scope]: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+**Types:**
+
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `style`: Code style changes (formatting, semicolons, etc.)
+- `refactor`: Code refactoring
+- `perf`: Performance improvements
+- `test`: Adding or updating tests
+- `chore`: Maintenance tasks
+- `ci`: CI/CD changes
+
+**Examples:**
+
+```bash
+git commit -m "feat: add support for Vimeo downloads"
+git commit -m "fix: handle missing video URLs gracefully"
+git commit -m "docs: update installation instructions"
+```
+
+### Releasing
+
+Releases are managed with [release-it](https://github.com/release-it/release-it). The release process:
+
+1. Runs linting, type checking, and tests
+2. Bumps version based on conventional commits
+3. Generates/updates `CHANGELOG.md`
+4. Creates a Git tag and GitHub release
+5. Publishes to npm
+
+```bash
+# Interactive release (will prompt for version bump)
+npm run release
+
+# Dry run (preview what would happen)
+npm run release -- --dry-run
+
+# Specific version bump
+npm run release -- --minor
+npm run release -- --major
 ```
 
 ## License

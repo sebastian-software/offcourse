@@ -45,12 +45,18 @@ src/
 ├── scraper/                # Platform-specific extraction
 │   ├── auth.ts             # Session management (Playwright)
 │   ├── navigator.ts        # Course structure discovery
-│   └── extractor.ts        # Content extraction (video URLs, text)
+│   ├── extractor.ts        # Content extraction (video URLs, text)
+│   └── videoInterceptor.ts # Network interception for video URLs
 │
 ├── downloader/             # Video download handlers
 │   ├── index.ts            # Download dispatcher by video type
 │   ├── queue.ts            # Async queue with concurrency control
-│   └── loomDownloader.ts   # Loom-specific HLS download
+│   ├── loomDownloader.ts   # Loom-specific HLS download
+│   └── vimeoDownloader.ts  # Vimeo-specific download
+│
+├── state/                  # State management
+│   ├── index.ts            # State exports
+│   └── database.ts         # SQLite database for sync state
 │
 └── storage/                # File system operations
     └── fileSystem.ts       # Directory creation, file saving
@@ -74,6 +80,7 @@ Platform-specific logic for extracting course content. Currently supports Skool.
 - **auth.ts**: Manages Playwright browser sessions, session persistence
 - **navigator.ts**: Discovers course structure (modules, lessons, URLs)
 - **extractor.ts**: Extracts video URLs and text content from lesson pages
+- **videoInterceptor.ts**: Intercepts network requests to capture video URLs
 
 To add a new platform, implement the same interfaces with platform-specific selectors.
 
@@ -83,7 +90,15 @@ Video download handlers. Each video host (Loom, Vimeo, etc.) needs its own imple
 
 - **queue.ts**: Generic async queue with concurrency control and retry logic
 - **loomDownloader.ts**: Handles Loom's HLS streaming format
+- **vimeoDownloader.ts**: Handles Vimeo video downloads
 - **index.ts**: Dispatcher that routes downloads by video type
+
+### State (`src/state/`)
+
+Persistent state management using SQLite.
+
+- **database.ts**: Manages sync state, tracks downloaded content
+- Enables resume functionality for interrupted syncs
 
 ### Storage (`src/storage/`)
 
@@ -99,6 +114,7 @@ Centralized configuration with Zod validation.
 
 - **schema.ts**: Type-safe schemas for all configuration
 - **configManager.ts**: Persists config to `~/.offcourse/`
+- **paths.ts**: Path resolution utilities
 
 ## Data Flow
 
@@ -142,3 +158,33 @@ Centralized configuration with Zod validation.
 | Validation | Zod | Runtime validation with TypeScript inference |
 | HTML → Markdown | Turndown | Mature, configurable |
 | Styling | Chalk + Ora | Clean terminal output with spinners |
+| Database | better-sqlite3 | Fast, embedded SQLite for state management |
+
+## Development Tooling
+
+| Tool | Purpose | Configuration |
+|------|---------|---------------|
+| TypeScript | Type safety | `tsconfig.json` |
+| ESLint | Linting | `eslint.config.js` |
+| Prettier | Code formatting | `.prettierrc` (defaults) |
+| Vitest | Testing | `vitest.config.ts` |
+| Husky | Git hooks | `.husky/` |
+| lint-staged | Pre-commit formatting | `package.json` |
+| commitlint | Commit message validation | `commitlint.config.js` |
+| release-it | Release management | `.release-it.json` |
+
+### Git Hooks
+
+- **pre-commit**: Formats staged files with Prettier via lint-staged
+- **pre-push**: Runs ESLint and TypeScript type checking
+- **commit-msg**: Validates conventional commit format
+
+### Release Process
+
+Releases use [release-it](https://github.com/release-it/release-it) with the conventional changelog plugin:
+
+1. Validates code (lint, typecheck, test)
+2. Determines version bump from commit history
+3. Updates `CHANGELOG.md` with categorized changes
+4. Creates Git tag and GitHub release
+5. Publishes to npm
