@@ -244,11 +244,44 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
     await validateVideos(session.page, db, options);
 
     // Phase 3: Extract content and queue downloads
-    const videoTasks = await extractContentAndQueueVideos(session.page, db, courseDir, options);
+    let videoTasks = await extractContentAndQueueVideos(session.page, db, courseDir, options);
 
-    // Phase 4: Download videos
-    if (!options.skipVideos && videoTasks.length > 0) {
+    // Phase 4: Download videos with auto-retry
+    const MAX_RETRIES = 3;
+    let retryRound = 0;
+
+    while (!options.skipVideos && videoTasks.length > 0) {
       await downloadVideos(db, videoTasks, courseDir, config);
+
+      // Check for retryable failures
+      const retryable = db.getLessonsToRetry(MAX_RETRIES);
+      if (retryable.length === 0 || retryRound >= MAX_RETRIES) {
+        break;
+      }
+
+      retryRound++;
+      console.log(chalk.yellow(`\n🔄 Auto-retry round ${retryRound}: ${retryable.length} lesson(s) to retry\n`));
+
+      // Queue them for re-validation and re-download
+      for (const lesson of retryable) {
+        db.incrementRetryCount(lesson.id);
+        // If lesson has HLS URL, just re-queue for download
+        if (lesson.hlsUrl) {
+          db.queueForRetry(lesson.id, LessonStatus.VALIDATED);
+        } else {
+          // Need to re-validate
+          db.queueForRetry(lesson.id, LessonStatus.PENDING);
+        }
+      }
+
+      // Re-validate lessons that need it
+      const needsValidation = db.getLessonsByStatus(LessonStatus.PENDING);
+      if (needsValidation.length > 0) {
+        await validateVideos(session.page, db, options);
+      }
+
+      // Get new download tasks
+      videoTasks = await buildDownloadTasksFromDb(db, courseDir);
     }
 
     // Summary

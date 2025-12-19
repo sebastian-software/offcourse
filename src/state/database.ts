@@ -61,6 +61,7 @@ export interface LessonRecord {
   hlsUrl: string | null;
   errorMessage: string | null;
   errorCode: string | null;
+  retryCount: number;
   lastScannedAt: string | null;
   lastDownloadedAt: string | null;
   videoFileSize: number | null;
@@ -187,11 +188,18 @@ export class CourseDatabase {
    * Run database migrations for schema updates.
    */
   private runMigrations(): void {
-    // Migration: Add is_locked column if it doesn't exist
     const tableInfo = this.db.prepare("PRAGMA table_info(lessons)").all() as Array<{ name: string }>;
+    
+    // Migration: Add is_locked column if it doesn't exist
     const hasIsLocked = tableInfo.some((col) => col.name === "is_locked");
     if (!hasIsLocked) {
       this.db.exec("ALTER TABLE lessons ADD COLUMN is_locked INTEGER DEFAULT 0");
+    }
+
+    // Migration: Add retry_count column if it doesn't exist
+    const hasRetryCount = tableInfo.some((col) => col.name === "retry_count");
+    if (!hasRetryCount) {
+      this.db.exec("ALTER TABLE lessons ADD COLUMN retry_count INTEGER DEFAULT 0");
     }
   }
 
@@ -457,6 +465,84 @@ export class CourseDatabase {
       WHERE id = ?
     `);
     stmt.run(videoType, lessonId);
+  }
+
+  /**
+   * Increment retry count for a lesson.
+   */
+  incrementRetryCount(lessonId: number): number {
+    const stmt = this.db.prepare(`
+      UPDATE lessons SET
+        retry_count = retry_count + 1,
+        updated_at = datetime('now')
+      WHERE id = ?
+    `);
+    stmt.run(lessonId);
+    
+    // Return the new retry count
+    const getStmt = this.db.prepare("SELECT retry_count FROM lessons WHERE id = ?");
+    const row = getStmt.get(lessonId) as { retry_count: number } | undefined;
+    return row?.retry_count ?? 0;
+  }
+
+  /**
+   * Reset retry count for a lesson.
+   */
+  resetRetryCount(lessonId: number): void {
+    const stmt = this.db.prepare(`
+      UPDATE lessons SET
+        retry_count = 0,
+        updated_at = datetime('now')
+      WHERE id = ?
+    `);
+    stmt.run(lessonId);
+  }
+
+  /**
+   * Get lessons that failed but can still be retried (retry_count < maxRetries).
+   * Only returns retryable errors (not UNSUPPORTED_PROVIDER).
+   */
+  getLessonsToRetry(maxRetries: number = 3): LessonWithModule[] {
+    const stmt = this.db.prepare(`
+      SELECT
+        l.*,
+        m.name as module_name,
+        m.slug as module_slug,
+        m.position as module_position
+      FROM lessons l
+      JOIN modules m ON l.module_id = m.id
+      WHERE l.status = 'error'
+        AND l.retry_count < ?
+        AND (l.error_code IS NULL OR l.error_code NOT IN ('UNSUPPORTED_PROVIDER'))
+      ORDER BY m.position, l.position
+    `);
+    const rows = stmt.all(maxRetries) as Array<RawLessonRow & {
+      module_name: string;
+      module_slug: string;
+      module_position: number;
+    }>;
+
+    return rows.map((row) => ({
+      ...this.mapLessonRow(row),
+      moduleName: row.module_name,
+      moduleSlug: row.module_slug,
+      modulePosition: row.module_position,
+    }));
+  }
+
+  /**
+   * Mark a lesson for retry by setting it back to pending/validated status.
+   */
+  queueForRetry(lessonId: number, targetStatus: LessonStatusType = LessonStatus.PENDING): void {
+    const stmt = this.db.prepare(`
+      UPDATE lessons SET
+        status = ?,
+        error_message = NULL,
+        error_code = NULL,
+        updated_at = datetime('now')
+      WHERE id = ?
+    `);
+    stmt.run(targetStatus, lessonId);
   }
 
   /**
@@ -730,6 +816,7 @@ export class CourseDatabase {
       hlsUrl: row.hls_url,
       errorMessage: row.error_message,
       errorCode: row.error_code,
+      retryCount: row.retry_count ?? 0,
       lastScannedAt: row.last_scanned_at,
       lastDownloadedAt: row.last_downloaded_at,
       videoFileSize: row.video_file_size,
@@ -756,6 +843,7 @@ interface RawLessonRow {
   hls_url: string | null;
   error_message: string | null;
   error_code: string | null;
+  retry_count: number;
   last_scanned_at: string | null;
   last_downloaded_at: string | null;
   video_file_size: number | null;
