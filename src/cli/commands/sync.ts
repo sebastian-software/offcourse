@@ -152,7 +152,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
 
   // Check what work needs to be done BEFORE opening browser
   const initialSummary = hasExistingData ? db.getStatusSummary() : null;
-  
+
   if (hasExistingData && initialSummary) {
     console.log(chalk.gray(`   Found: ${existingMeta.totalModules} modules, ${existingMeta.totalLessons} lessons`));
     const lockedInfo = initialSummary.locked > 0 ? `, ${initialSummary.locked} locked` : "";

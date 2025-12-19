@@ -4,6 +4,8 @@
 [![npm downloads](https://img.shields.io/npm/dm/offcourse?color=cb0000)](https://www.npmjs.com/package/offcourse)
 [![license](https://img.shields.io/npm/l/offcourse?color=cb0000)](https://github.com/sebastian-software/offcourse/blob/main/LICENSE)
 [![node](https://img.shields.io/node/v/offcourse?color=cb0000)](https://nodejs.org)
+[![codecov](https://codecov.io/gh/sebastian-software/offcourse/graph/badge.svg)](https://codecov.io/gh/sebastian-software/offcourse)
+[![CI](https://github.com/sebastian-software/offcourse/actions/workflows/ci.yml/badge.svg)](https://github.com/sebastian-software/offcourse/actions/workflows/ci.yml)
 
 Download online courses for offline access – of course! 📚
 
