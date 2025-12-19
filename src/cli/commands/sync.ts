@@ -326,25 +326,39 @@ async function validateVideos(
 
   console.log(chalk.blue(`\n🔍 Phase 2: Validating ${lessonsToScan.length} videos...\n`));
 
+  // Create progress bar
+  const progressBar = new cliProgress.SingleBar({
+    format: "   {bar} {percentage}% | {value}/{total} | {status}",
+    barCompleteChar: "█",
+    barIncompleteChar: "░",
+    barsize: 30,
+    hideCursor: true,
+  }, cliProgress.Presets.shades_grey);
+
+  progressBar.start(lessonsToScan.length, 0, { status: "Starting..." });
+
   let validated = 0;
   let errors = 0;
   let skipped = 0;
   let currentModule = "";
+  let processed = 0;
 
   for (const lesson of lessonsToScan) {
     // Check for graceful shutdown
     if (!shouldContinue()) {
+      progressBar.stop();
       console.log(chalk.yellow("\n   Stopping validation (shutdown requested)"));
       break;
     }
 
-    // Print module header when it changes
+    // Update module in status
     if (lesson.moduleName !== currentModule) {
       currentModule = lesson.moduleName;
-      console.log(chalk.blue(`\n📖 ${currentModule}`));
     }
 
-    const lessonSpinner = ora(`   ${lesson.name}`).start();
+    // Update progress bar with current lesson
+    const shortName = lesson.name.length > 40 ? lesson.name.substring(0, 37) + "..." : lesson.name;
+    progressBar.update(processed, { status: shortName });
 
     try {
       // Navigate to lesson and extract video URL
@@ -365,16 +379,9 @@ async function validateVideos(
       if (!videoUrl || !videoType) {
         // No video on this lesson
         db.updateLessonScan(lesson.id, null, null, null, LessonStatus.SKIPPED);
-        lessonSpinner.succeed(chalk.gray(`   ${lesson.name} (no video)`));
         skipped++;
-        continue;
-      }
-
-      // Create a tag for the video type
-      const typeTag = videoType ? `[${videoType.toUpperCase()}]` : "[UNKNOWN]";
-
-      // Handle unsupported video types early
-      if (videoType === "youtube" || videoType === "wistia") {
+      } else if (videoType === "youtube" || videoType === "wistia") {
+        // Handle unsupported video types
         db.updateLessonScan(
           lesson.id,
           videoType,
@@ -384,75 +391,48 @@ async function validateVideos(
           `${videoType.charAt(0).toUpperCase() + videoType.slice(1)} videos are not yet supported`,
           "UNSUPPORTED_PROVIDER"
         );
-        lessonSpinner.warn(chalk.yellow(`   ${typeTag} ${lesson.name}`));
-        console.log(chalk.yellow(`      ⚠ Not supported (requires yt-dlp)`));
-        console.log(chalk.gray(`        ${videoUrl}`));
         errors++;
-        continue;
-      }
-
-      // Validate HLS for video types that support it
-      if (videoType === "loom" || videoType === "vimeo") {
-        // Ensure we're on the lesson page before validation (important for iframe-based extraction)
+      } else if (videoType === "loom" || videoType === "vimeo") {
+        // Validate HLS for video types that support it
         if (page.url() !== lesson.url) {
           await page.goto(lesson.url, { timeout: 30000 });
           await page.waitForLoadState("domcontentloaded");
-          await page.waitForTimeout(1000); // Wait for iframes to load
+          await page.waitForTimeout(1000);
         }
 
-        // Pass page for network interception fallback
-        const validation = await validateVideoHls(
-          videoUrl,
-          videoType,
-          page,
-          lesson.url
-        );
+        const validation = await validateVideoHls(videoUrl, videoType, page, lesson.url);
 
         if (validation.isValid) {
-          db.updateLessonScan(
-            lesson.id,
-            videoType,
-            videoUrl,
-            validation.hlsUrl,
-            LessonStatus.VALIDATED
-          );
-          lessonSpinner.succeed(`   ${typeTag} ${lesson.name} ✓`);
+          db.updateLessonScan(lesson.id, videoType, videoUrl, validation.hlsUrl, LessonStatus.VALIDATED);
           validated++;
         } else {
-          db.updateLessonScan(
-            lesson.id,
-            videoType,
-            videoUrl,
-            null,
-            LessonStatus.ERROR,
-            validation.error,
-            validation.errorCode
-          );
-          lessonSpinner.fail(chalk.red(`   ${typeTag} ${lesson.name}`));
-          console.log(chalk.red(`      ⚠ ${validation.error}`));
-          if (validation.details) {
-            console.log(chalk.gray(`        ${validation.details}`));
-          }
+          db.updateLessonScan(lesson.id, videoType, videoUrl, null, LessonStatus.ERROR, validation.error, validation.errorCode);
           errors++;
         }
       } else {
-        // For native/unknown video types, mark as validated (will attempt direct download)
+        // For native/unknown video types, mark as validated
         db.updateLessonScan(lesson.id, videoType, videoUrl, null, LessonStatus.VALIDATED);
-        lessonSpinner.succeed(`   ${typeTag} ${lesson.name} ✓`);
         validated++;
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       db.updateLessonScan(lesson.id, null, null, null, LessonStatus.ERROR, errorMessage, "SCAN_ERROR");
-      lessonSpinner.fail(chalk.red(`   ${lesson.name}`));
-      console.log(chalk.red(`      Error: ${errorMessage}`));
       errors++;
     }
+
+    processed++;
+    progressBar.update(processed, { status: shortName });
   }
 
-  console.log(
-    chalk.gray(`\n   Validation: ${validated} ready, ${skipped} no video, ${errors} errors`)
-  );
+  progressBar.stop();
+
+  // Print summary
+  console.log();
+  const parts: string[] = [];
+  if (validated > 0) parts.push(chalk.green(`${validated} ready`));
+  if (skipped > 0) parts.push(chalk.gray(`${skipped} no video`));
+  if (errors > 0) parts.push(chalk.red(`${errors} errors`));
+  console.log(`   Validation: ${parts.join(", ")}`);
 }
 
 /**
@@ -474,10 +454,22 @@ async function extractContentAndQueueVideos(
 
   console.log(chalk.blue(`\n📝 Phase 3: Extracting content for ${lessonsToProcess.length} lessons...\n`));
 
+  // Create progress bar
+  const progressBar = new cliProgress.SingleBar({
+    format: "   {bar} {percentage}% | {value}/{total} | {status}",
+    barCompleteChar: "█",
+    barIncompleteChar: "░",
+    barsize: 30,
+    hideCursor: true,
+  }, cliProgress.Presets.shades_grey);
+
+  progressBar.start(lessonsToProcess.length, 0, { status: "Starting..." });
+
   const videoTasks: VideoDownloadTask[] = [];
   let contentExtracted = 0;
   let contentSkipped = 0;
-  let currentModule = "";
+  let filesDownloadedTotal = 0;
+  let processed = 0;
 
   // Group lessons by module for directory creation
   const lessonsByModule = new Map<string, LessonWithModule[]>();
@@ -492,6 +484,7 @@ async function extractContentAndQueueVideos(
   for (const [_moduleKey, lessons] of lessonsByModule) {
     // Check for graceful shutdown
     if (!shouldContinue()) {
+      progressBar.stop();
       console.log(chalk.yellow("\n   Stopping content extraction (shutdown requested)"));
       break;
     }
@@ -499,24 +492,19 @@ async function extractContentAndQueueVideos(
     const firstLesson = lessons[0]!;
     const moduleDir = createModuleDirectory(courseDir, firstLesson.modulePosition, firstLesson.moduleName);
 
-    // Print module header
-    if (firstLesson.moduleName !== currentModule) {
-      currentModule = firstLesson.moduleName;
-      console.log(chalk.blue(`\n📖 ${currentModule}`));
-    }
-
     for (const lesson of lessons) {
       // Check for graceful shutdown
       if (!shouldContinue()) {
         break;
       }
 
+      const shortName = lesson.name.length > 40 ? lesson.name.substring(0, 37) + "..." : lesson.name;
+      progressBar.update(processed, { status: shortName });
+
       const syncStatus = isLessonSynced(moduleDir, lesson.position, lesson.name);
 
       // Check if content already exists
       if (!options.skipContent && !syncStatus.content) {
-        const lessonSpinner = ora(`   ${lesson.name}`).start();
-
         try {
           const content = await extractLessonContent(page, lesson.url);
           const markdown = formatMarkdown(
@@ -529,7 +517,6 @@ async function extractContentAndQueueVideos(
           saveMarkdown(dirname(mdPath), basename(mdPath), markdown);
 
           // Download any linked files (PDFs, Office documents, etc.)
-          let filesDownloaded = 0;
           if (content.downloadableFiles.length > 0) {
             for (const file of content.downloadableFiles) {
               const filePath = getDownloadFilePath(
@@ -540,17 +527,13 @@ async function extractContentAndQueueVideos(
               );
               const result = await downloadFile(file.url, filePath);
               if (result.success) {
-                filesDownloaded++;
+                filesDownloadedTotal++;
               }
             }
           }
-
-          const fileInfo = filesDownloaded > 0 ? ` (+${filesDownloaded} files)` : "";
-          lessonSpinner.succeed(`   ${lesson.name}${fileInfo}`);
           contentExtracted++;
-        } catch (error) {
-          lessonSpinner.fail(`   ${lesson.name}`);
-          console.log(chalk.red(`      Error: ${error}`));
+        } catch {
+          // Error extracting content, continue with next lesson
         }
       } else {
         contentSkipped++;
@@ -566,10 +549,21 @@ async function extractContentAndQueueVideos(
           outputPath: getVideoPath(moduleDir, lesson.position, lesson.name),
         });
       }
+
+      processed++;
+      progressBar.update(processed, { status: shortName });
     }
   }
 
-  console.log(chalk.gray(`\n   Content: ${contentExtracted} extracted, ${contentSkipped} cached`));
+  progressBar.stop();
+
+  // Print summary
+  console.log();
+  const parts: string[] = [];
+  if (contentExtracted > 0) parts.push(chalk.green(`${contentExtracted} extracted`));
+  if (contentSkipped > 0) parts.push(chalk.gray(`${contentSkipped} cached`));
+  if (filesDownloadedTotal > 0) parts.push(chalk.blue(`${filesDownloadedTotal} files`));
+  console.log(`   Content: ${parts.join(", ")}`);
 
   return videoTasks;
 }
