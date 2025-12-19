@@ -618,17 +618,25 @@ async function downloadVideos(
   config: { concurrency: number; retryAttempts: number },
   _options?: SyncOptions
 ): Promise<void> {
-  console.log(chalk.blue(`\n🎬 Phase 4: Downloading ${videoTasks.length} videos...\n`));
+  const total = videoTasks.length;
+  console.log(chalk.blue(`\n🎬 Phase 4: Downloading ${total} videos...\n`));
 
-  // Create multi-bar container
+  // Create multi-bar container with auto-clear
   const multibar = new cliProgress.MultiBar({
-    clearOnComplete: false,
+    clearOnComplete: true,
     hideCursor: true,
     format: "   {typeTag} {bar} {percentage}% | {lessonName}",
     barCompleteChar: "█",
     barIncompleteChar: "░",
     barsize: 25,
+    autopadding: true,
   }, cliProgress.Presets.shades_grey);
+
+  // Overall progress bar at the top
+  const overallBar = multibar.create(total, 0, { 
+    typeTag: "[TOTAL]".padEnd(8), 
+    lessonName: `0/${total} completed` 
+  });
 
   // Track results
   const downloadAttempts: DownloadAttempt[] = [];
@@ -645,9 +653,9 @@ async function downloadVideos(
 
   const processTask = async (task: VideoDownloadTask): Promise<void> => {
     const typeTag = task.videoType ? `[${task.videoType.toUpperCase()}]` : "[VIDEO]";
-    const shortName = task.lessonName.length > 35
-      ? task.lessonName.substring(0, 32) + "..."
-      : task.lessonName.padEnd(35);
+    const shortName = task.lessonName.length > 40
+      ? task.lessonName.substring(0, 37) + "..."
+      : task.lessonName;
 
     // Create progress bar for this download
     const bar = multibar.create(100, 0, {
@@ -677,9 +685,6 @@ async function downloadVideos(
 
         db.markLessonError(task.lessonId, downloadResult.error ?? "Download failed", downloadResult.errorCode);
 
-        bar.update(100);
-        bar.stop();
-
         errors.push({
           id: task.lessonName,
           error: downloadResult.error ?? "Download failed",
@@ -693,22 +698,25 @@ async function downloadVideos(
         } catch {
           db.markLessonDownloaded(task.lessonId);
         }
-
-        bar.update(100);
-        bar.stop();
         completed++;
       }
 
       downloadAttempts.push(attempt);
     } catch (error) {
-      bar.stop();
       failed++;
-
       const errorMsg = error instanceof Error ? error.message : String(error);
       errors.push({ id: task.lessonName, error: errorMsg });
       db.markLessonError(task.lessonId, errorMsg);
     } finally {
+      // Remove the bar when done (key fix!)
+      multibar.remove(bar);
       activeBars.delete(task.lessonName);
+      
+      // Update overall progress
+      const done = completed + failed;
+      overallBar.update(done, { 
+        lessonName: `${done}/${total} completed (${failed} failed)` 
+      });
     }
   };
 
