@@ -189,7 +189,7 @@ export class CourseDatabase {
    */
   private runMigrations(): void {
     const tableInfo = this.db.prepare("PRAGMA table_info(lessons)").all() as Array<{ name: string }>;
-    
+
     // Migration: Add is_locked column if it doesn't exist
     const hasIsLocked = tableInfo.some((col) => col.name === "is_locked");
     if (!hasIsLocked) {
@@ -478,7 +478,7 @@ export class CourseDatabase {
       WHERE id = ?
     `);
     stmt.run(lessonId);
-    
+
     // Return the new retry count
     const getStmt = this.db.prepare("SELECT retry_count FROM lessons WHERE id = ?");
     const row = getStmt.get(lessonId) as { retry_count: number } | undefined;
@@ -730,6 +730,27 @@ export class CourseDatabase {
         error_code = NULL,
         updated_at = datetime('now')
       WHERE status = 'error'
+    `);
+    const result = stmt.run();
+    return result.changes;
+  }
+
+  /**
+   * Reset ALL lessons to pending (for --force full rescan).
+   * Preserves locked status.
+   */
+  resetAllLessonsToPending(): number {
+    const stmt = this.db.prepare(`
+      UPDATE lessons SET
+        status = 'pending',
+        video_type = NULL,
+        video_url = NULL,
+        hls_url = NULL,
+        error_message = NULL,
+        error_code = NULL,
+        retry_count = 0,
+        updated_at = datetime('now')
+      WHERE is_locked = 0
     `);
     const result = stmt.run();
     return result.changes;

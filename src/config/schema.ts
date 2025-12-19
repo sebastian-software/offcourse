@@ -21,7 +21,7 @@ export const configSchema = z.object({
   videoQuality: z.enum(["highest", "lowest", "1080p", "720p", "480p"]).default("highest"),
   concurrency: z.number().int().min(1).max(5).default(2),
   retryAttempts: z.number().int().min(0).max(10).default(3),
-  headless: z.boolean().default(false),
+  headless: z.boolean().default(true),
 });
 
 export type Config = z.infer<typeof configSchema>;

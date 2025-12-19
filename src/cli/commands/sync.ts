@@ -104,9 +104,8 @@ interface SyncOptions {
   dryRun?: boolean;
   limit?: number;
   force?: boolean;
-  retryErrors?: boolean;
-  resume?: boolean;
   retryFailed?: boolean;
+  visible?: boolean;
 }
 
 /**
@@ -139,15 +138,11 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
   cleanupResources.db = db;
   console.log(chalk.gray(`   State: ~/.offcourse/cache/${communitySlug}.db`));
 
-  // Reset error lessons if requested (--retry-errors or --force)
-  if (options.retryErrors || options.force) {
-    // In resume mode, reset to 'validated' so they can be downloaded directly
-    // Otherwise reset to 'pending' so they go through validation again
-    const resetCount = options.resume
-      ? db.resetErrorLessonsForResume()
-      : db.resetErrorLessons();
+  // Force mode: reset all lessons to pending for full rescan
+  if (options.force) {
+    const resetCount = db.resetAllLessonsToPending();
     if (resetCount > 0) {
-      console.log(chalk.yellow(`   Reset ${resetCount} error lessons for retry`));
+      console.log(chalk.yellow(`   Force mode: reset ${resetCount} lessons for rescan`));
     }
   }
 
@@ -155,14 +150,16 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
   const existingMeta = db.getCourseMetadata();
   const hasExistingData = existingMeta.totalLessons > 0;
 
-  if (hasExistingData && !options.force) {
+  if (hasExistingData) {
     const summary = db.getStatusSummary();
-    console.log(chalk.gray(`   Existing: ${existingMeta.totalModules} modules, ${existingMeta.totalLessons} lessons`));
+    console.log(chalk.gray(`   Found: ${existingMeta.totalModules} modules, ${existingMeta.totalLessons} lessons`));
     const lockedInfo = summary.locked > 0 ? `, ${summary.locked} locked` : "";
-    console.log(chalk.gray(`   Status: ${summary.downloaded} downloaded, ${summary.validated} ready, ${summary.error} failed, ${summary.pending} not scanned${lockedInfo}`));
+    console.log(chalk.gray(`   Status: ${summary.downloaded} downloaded, ${summary.validated} ready, ${summary.error} failed, ${summary.pending} to scan${lockedInfo}`));
   }
 
   // Get authenticated session
+  // --visible flag overrides headless config
+  const useHeadless = options.visible ? false : config.headless;
   const spinner = ora("Connecting to Skool...").start();
 
   let browser;
@@ -170,7 +167,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
 
   try {
     const result = await getAuthenticatedSession(SKOOL_DOMAIN, SKOOL_LOGIN_URL, {
-      headless: config.headless,
+      headless: useHeadless,
     });
     browser = result.browser;
     session = result.session;
@@ -191,34 +188,6 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
 
     // Create output directory (use URL slug for consistency)
     const courseDir = createCourseDirectory(config.outputDir, communitySlug);
-
-    // Resume mode: skip scanning and validation, just download
-    if (options.resume) {
-      console.log(chalk.yellow("\n⏩ Resume mode: skipping scan and validation\n"));
-      console.log(chalk.gray(`📁 Output: ${courseDir}\n`));
-
-      // Warn about unscanned lessons
-      const summary = db.getStatusSummary();
-      if (summary.pending > 0) {
-        console.log(chalk.yellow(`   ⚠️  ${summary.pending} lessons have not been scanned yet.`));
-        console.log(chalk.gray(`   Run without --resume to scan them first.\n`));
-      }
-
-      // Build download tasks from validated lessons in DB
-      const videoTasks = await buildDownloadTasksFromDb(db, courseDir);
-
-      if (videoTasks.length === 0) {
-        console.log(chalk.gray("   No videos ready for download"));
-        printStatusSummary(db);
-      } else {
-        await downloadVideos(db, videoTasks, courseDir, config);
-        printStatusSummary(db);
-        console.log(chalk.green("\n✅ Resume complete!\n"));
-      }
-
-      console.log(chalk.gray(`   Output: ${courseDir}\n`));
-      return;
-    }
 
     // Retry-failed mode: only process lessons that previously failed
     if (options.retryFailed) {

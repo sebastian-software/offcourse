@@ -32,10 +32,9 @@ program
   .option("--skip-content", "Skip text content (only download videos)")
   .option("--dry-run", "Scan course structure without downloading")
   .option("--limit <n>", "Limit to first N lessons (for testing)", parseInt)
-  .option("-f, --force", "Force full rescan (ignore previous state)")
-  .option("--retry-errors", "Retry previously failed downloads")
-  .option("-r, --resume", "Skip scanning, download ready videos only")
+  .option("-f, --force", "Force full rescan of all lessons")
   .option("--retry-failed", "Retry failed lessons with detailed diagnostics")
+  .option("--visible", "Show browser window (default: headless)")
   .action(syncCommand);
 
 // Status command
