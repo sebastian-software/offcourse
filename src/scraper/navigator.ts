@@ -328,31 +328,31 @@ export async function buildCourseStructure(
 
   for (let i = 0; i < modules.length; i++) {
     const module = modules[i]!;
-    
+
     if (module.isLocked) {
-      onProgress?.({ 
-        phase: "lessons", 
-        currentModule: module.name, 
+      onProgress?.({
+        phase: "lessons",
+        currentModule: module.name,
         currentModuleIndex: i,
-        skippedLocked: true 
+        skippedLocked: true
       });
       continue;
     }
 
-    onProgress?.({ 
-      phase: "lessons", 
-      currentModule: module.name, 
-      currentModuleIndex: i 
+    onProgress?.({
+      phase: "lessons",
+      currentModule: module.name,
+      currentModuleIndex: i
     });
 
     if (module.url) {
       const lessons = await extractLessons(page, module.url);
-      
-      onProgress?.({ 
-        phase: "lessons", 
-        currentModule: module.name, 
+
+      onProgress?.({
+        phase: "lessons",
+        currentModule: module.name,
         currentModuleIndex: i,
-        lessonsFound: lessons.length 
+        lessonsFound: lessons.length
       });
 
       modulesWithLessons.push({

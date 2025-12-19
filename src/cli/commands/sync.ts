@@ -277,12 +277,12 @@ async function scanCourseStructure(
           lockedModules++;
           progressBar?.increment({ status: `🔒 ${progress.currentModule}` });
         } else if (progress.lessonsFound !== undefined) {
-          progressBar?.increment({ 
-            status: `${progress.currentModule} (${progress.lessonsFound} lessons)` 
+          progressBar?.increment({
+            status: `${progress.currentModule} (${progress.lessonsFound} lessons)`
           });
         } else {
-          const shortName = progress.currentModule.length > 35 
-            ? progress.currentModule.substring(0, 32) + "..." 
+          const shortName = progress.currentModule.length > 35
+            ? progress.currentModule.substring(0, 32) + "..."
             : progress.currentModule;
           progressBar?.update(progress.currentModuleIndex ?? 0, { status: shortName });
         }
