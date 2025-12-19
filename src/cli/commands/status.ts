@@ -7,7 +7,7 @@ import {
 } from "../../state/index.js";
 import { existsSync } from "node:fs";
 
-interface StatusOptions {
+export interface StatusOptions {
   errors?: boolean;
   pending?: boolean;
   all?: boolean;
@@ -17,7 +17,7 @@ interface StatusOptions {
  * Handles the status command.
  * Shows the current sync state for a course.
  */
-export async function statusCommand(url: string, options: StatusOptions): Promise<void> {
+export function statusCommand(url: string, options: StatusOptions): void {
   console.log(chalk.blue("\n📊 Course Status\n"));
 
   // Validate URL

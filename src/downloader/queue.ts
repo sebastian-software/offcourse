@@ -16,7 +16,7 @@ export interface QueueOptions {
  * A simple async queue for processing items with concurrency control.
  */
 export class AsyncQueue<T> {
-  private items: QueueItem<T>[] = [];
+  private items: Array<QueueItem<T>> = [];
   private processing = 0;
   private readonly concurrency: number;
   private readonly maxRetries: number;

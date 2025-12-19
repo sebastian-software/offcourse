@@ -48,7 +48,7 @@ export async function downloadVideo(
     case "unknown":
     default:
       // Try direct download as fallback
-      if (videoUrl.match(/\.(mp4|webm|mov)(\?|$)/i)) {
+      if (/\.(mp4|webm|mov)(\?|$)/i.exec(videoUrl)) {
         return downloadFile(videoUrl, outputPath, onProgress);
       }
       return {

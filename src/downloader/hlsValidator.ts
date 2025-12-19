@@ -98,7 +98,7 @@ export async function validateVimeoVideo(
   }
 
   // Extract unlisted hash if present
-  const hashMatch = vimeoUrl.match(/vimeo\.com\/\d+\/([a-f0-9]+)/) ?? vimeoUrl.match(/[?&]h=([a-f0-9]+)/);
+  const hashMatch = (/vimeo\.com\/\d+\/([a-f0-9]+)/.exec(vimeoUrl)) ?? (/[?&]h=([a-f0-9]+)/.exec(vimeoUrl));
   const unlistedHash = hashMatch?.[1] ?? null;
 
   // First try direct fetch (works for public videos)

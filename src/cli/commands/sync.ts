@@ -73,8 +73,8 @@ function setupShutdownHandlers(): void {
     process.exit(0);
   };
 
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
 /**
@@ -272,7 +272,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
       }
 
       // Get new download tasks
-      videoTasks = await buildDownloadTasksFromDb(db, courseDir);
+      videoTasks = buildDownloadTasksFromDb(db, courseDir);
     }
 
     // Summary
@@ -339,7 +339,6 @@ async function scanCourseStructure(
     db.updateCourseMetadata(courseStructure.name, courseStructure.url);
 
     // Track new lessons found
-    let newModules = 0;
     let newLessons = 0;
 
     for (let moduleIndex = 0; moduleIndex < courseStructure.modules.length; moduleIndex++) {
@@ -350,9 +349,8 @@ async function scanCourseStructure(
       const existingModule = db.getModuleBySlug(module.slug);
       const moduleRecord = db.upsertModule(module.slug, module.name, moduleIndex, module.isLocked);
 
-      if (!existingModule) {
-        newModules++;
-      }
+      // Track new modules (existingModule is null for new ones)
+      void existingModule;
 
       for (let lessonIndex = 0; lessonIndex < module.lessons.length; lessonIndex++) {
         const lesson = module.lessons[lessonIndex];
@@ -565,7 +563,7 @@ async function extractContentAndQueueVideos(
     lessonsByModule.get(key)!.push(lesson);
   }
 
-  for (const [_moduleKey, lessons] of lessonsByModule) {
+  for (const [, lessons] of lessonsByModule) {
     // Check for graceful shutdown
     if (!shouldContinue()) {
       progressBar.stop();
@@ -825,10 +823,10 @@ async function downloadVideos(
  * Build download tasks from database (for --resume mode).
  * Skips lessons that are already downloaded.
  */
-async function buildDownloadTasksFromDb(
+function buildDownloadTasksFromDb(
   db: CourseDatabase,
   courseDir: string
-): Promise<VideoDownloadTask[]> {
+): VideoDownloadTask[] {
   const lessons = db.getLessonsToDownload();
   const videoTasks: VideoDownloadTask[] = [];
   let alreadyOnDisk = 0;

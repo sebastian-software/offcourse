@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { AsyncQueue } from "./queue.js";
 
 describe("AsyncQueue", () => {
@@ -128,7 +128,7 @@ describe("AsyncQueue", () => {
   });
 
   it("handles concurrent processing", async () => {
-    const processing: Set<string> = new Set();
+    const processing = new Set<string>();
     let maxConcurrent = 0;
 
     const queue = new AsyncQueue<string>({

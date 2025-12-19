@@ -164,7 +164,7 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
                 btn.click();
               } else {
                 // For SVG, try to click the parent
-                (parent as HTMLElement).click();
+                (parent).click();
               }
               return true;
             }
@@ -195,7 +195,7 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
         if (parent) {
           const hasPLay = parent.querySelector('[class*="play" i], svg');
           if (hasPLay || parent.className.toLowerCase().includes('video')) {
-            (parent as HTMLElement).click();
+            (parent).click();
             return true;
           }
         }
@@ -448,7 +448,7 @@ async function findVideoInPage(
       const attrs = Array.from(el.attributes);
       for (const attr of attrs) {
         if (attr.value.includes('loom.com/share/') || attr.value.includes('loom.com/embed/')) {
-          const match = attr.value.match(/loom\.com\/(share|embed)\/([a-f0-9]+)/);
+          const match = /loom\.com\/(share|embed)\/([a-f0-9]+)/.exec(attr.value);
           if (match?.[2]) {
             return { url: `https://www.loom.com/embed/${match[2]}`, type: "loom" as const };
           }
@@ -473,7 +473,7 @@ async function findVideoInPage(
     // Check for Wistia
     const wistiaVideo = document.querySelector('[class*="wistia"]');
     if (wistiaVideo) {
-      const wistiaId = wistiaVideo.className.match(/wistia_embed wistia_async_(\w+)/);
+      const wistiaId = /wistia_embed wistia_async_(\w+)/.exec(wistiaVideo.className);
       if (wistiaId?.[1]) {
         return {
           url: `https://fast.wistia.net/embed/medias/${wistiaId[1]}`,
@@ -507,7 +507,7 @@ async function findVideoInPage(
 
     // Last resort: search page HTML for loom URLs
     const pageHtml = document.documentElement.outerHTML;
-    const loomMatch = pageHtml.match(/loom\.com\/(share|embed)\/([a-f0-9]{32})/);
+    const loomMatch = /loom\.com\/(share|embed)\/([a-f0-9]{32})/.exec(pageHtml);
     if (loomMatch?.[2]) {
       return { url: `https://www.loom.com/embed/${loomMatch[2]}`, type: "loom" as const };
     }
@@ -518,13 +518,13 @@ async function findVideoInPage(
       const content = script.textContent ?? '';
 
       // Look for explicit loom URL patterns in scripts
-      const loomUrlMatch = content.match(/loom\.com\/(share|embed)\/([a-f0-9]{32})/);
+      const loomUrlMatch = /loom\.com\/(share|embed)\/([a-f0-9]{32})/.exec(content);
       if (loomUrlMatch?.[2]) {
         return { url: `https://www.loom.com/embed/${loomUrlMatch[2]}`, type: "loom" as const };
       }
 
       // Look for loom video ID near "loom" keyword
-      const loomContextMatch = content.match(/["']loom["'][^}]*["']([a-f0-9]{32})["']/i);
+      const loomContextMatch = /["']loom["'][^}]*["']([a-f0-9]{32})["']/i.exec(content);
       if (loomContextMatch?.[1]) {
         return { url: `https://www.loom.com/embed/${loomContextMatch[1]}`, type: "loom" as const };
       }
@@ -562,7 +562,7 @@ export async function extractTextContent(page: Page): Promise<{ html: string; ma
         const unwanted = clone.querySelectorAll(
           "script, style, nav, [class*='video'], [class*='Video'], iframe, [class*='player'], [class*='Player']"
         );
-        unwanted.forEach((el) => el.remove());
+        unwanted.forEach((el) => { el.remove(); });
 
         return clone.innerHTML;
       }
@@ -578,7 +578,7 @@ export async function extractTextContent(page: Page): Promise<{ html: string; ma
       const unwanted = clone.querySelectorAll(
         "script, style, nav, header, [class*='video'], [class*='Video'], iframe, [class*='Sidebar'], [class*='sidebar']"
       );
-      unwanted.forEach((el) => el.remove());
+      unwanted.forEach((el) => { el.remove(); });
 
       // Get remaining text content
       const textContent = clone.innerHTML;
@@ -713,7 +713,7 @@ export async function extractLessonContent(page: Page, lessonUrl: string): Promi
  * Extracts the Loom video ID from an embed URL.
  */
 export function extractLoomVideoId(embedUrl: string): string | null {
-  const match = embedUrl.match(/loom\.com\/embed\/([a-f0-9]+)/);
+  const match = /loom\.com\/embed\/([a-f0-9]+)/.exec(embedUrl);
   return match?.[1] ?? null;
 }
 

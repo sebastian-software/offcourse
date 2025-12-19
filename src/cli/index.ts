@@ -4,7 +4,11 @@ import { Command } from "commander";
 import { configGetCommand, configSetCommand, configShowCommand } from "./commands/config.js";
 import { inspectCommand } from "./commands/inspect.js";
 import { loginCommand, logoutCommand } from "./commands/login.js";
-import { statusCommand, statusListCommand } from "./commands/status.js";
+import {
+  statusCommand,
+  statusListCommand,
+  type StatusOptions,
+} from "./commands/status.js";
 import { syncCommand } from "./commands/sync.js";
 
 const program = new Command();
@@ -44,11 +48,11 @@ program
   .option("--errors", "Show details for failed downloads")
   .option("--pending", "Show not-yet-scanned lessons")
   .option("-a, --all", "Show all details")
-  .action((url, options) => {
+  .action((url: string | undefined, options: StatusOptions) => {
     if (url) {
       statusCommand(url, options);
     } else {
-      statusListCommand();
+      void statusListCommand();
     }
   });
 

@@ -65,12 +65,12 @@ export function extractVimeoId(url: string): string | null {
 function extractUnlistedHash(url: string): string | null {
   // Format: https://vimeo.com/123456789/abcdef1234
   // Or in player: https://player.vimeo.com/video/123456789?h=abcdef1234
-  const pathMatch = url.match(/vimeo\.com\/\d+\/([a-f0-9]+)/);
+  const pathMatch = /vimeo\.com\/\d+\/([a-f0-9]+)/.exec(url);
   if (pathMatch?.[1]) {
     return pathMatch[1];
   }
 
-  const paramMatch = url.match(/[?&]h=([a-f0-9]+)/);
+  const paramMatch = /[?&]h=([a-f0-9]+)/.exec(url);
   if (paramMatch?.[1]) {
     return paramMatch[1];
   }
@@ -101,10 +101,10 @@ export async function getVimeoVideoInfo(
 
   // Try with Skool referer first if provided, otherwise use Vimeo's player
   if (referer) {
-    headers["Referer"] = referer;
-    headers["Origin"] = new URL(referer).origin;
+    headers.Referer = referer;
+    headers.Origin = new URL(referer).origin;
   } else {
-    headers["Referer"] = "https://player.vimeo.com/";
+    headers.Referer = "https://player.vimeo.com/";
   }
 
   try {
@@ -113,8 +113,8 @@ export async function getVimeoVideoInfo(
     // If we got 403 with a custom referer, the video might be strictly domain-locked
     // Try with the embed page URL as referer
     if (response.status === 403 && referer) {
-      headers["Referer"] = `https://player.vimeo.com/video/${videoId}`;
-      headers["Origin"] = "https://player.vimeo.com";
+      headers.Referer = `https://player.vimeo.com/video/${videoId}`;
+      headers.Origin = "https://player.vimeo.com";
       response = await fetch(configUrl, { headers });
     }
 
@@ -510,7 +510,13 @@ async function downloadProgressiveVideo(
     }
 
     await new Promise<void>((resolve, reject) => {
-      fileStream.end((err: Error | null) => (err ? reject(err) : resolve()));
+      fileStream.end((err: Error | null) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
     });
 
     renameSync(tempPath, outputPath);
@@ -565,7 +571,7 @@ async function downloadHlsVideo(
       if (!line) continue;
 
       if (line.startsWith("#EXT-X-STREAM-INF:")) {
-        const bandwidthMatch = line.match(/BANDWIDTH=(\d+)/);
+        const bandwidthMatch = /BANDWIDTH=(\d+)/.exec(line);
         const bandwidth = bandwidthMatch?.[1] ? parseInt(bandwidthMatch[1], 10) : 0;
 
         const nextLine = lines[i + 1]?.trim();
@@ -648,7 +654,13 @@ async function downloadHlsVideo(
     }
 
     await new Promise<void>((resolve, reject) => {
-      fileStream.end((err: Error | null) => (err ? reject(err) : resolve()));
+      fileStream.end((err: Error | null) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
     });
 
     renameSync(tempPath, outputPath);

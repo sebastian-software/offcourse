@@ -32,7 +32,7 @@ export interface DownloadProgress {
  * Extracts the Loom video ID from various URL formats.
  */
 export function extractLoomId(url: string): string | null {
-  const match = url.match(/loom\.com\/(?:embed|share)\/([a-f0-9]+)/);
+  const match = /loom\.com\/(?:embed|share)\/([a-f0-9]+)/.exec(url);
   return match?.[1] ?? null;
 }
 
@@ -273,7 +273,7 @@ async function parseHlsMasterPlaylist(
 
       // Find audio stream
       if (line.startsWith("#EXT-X-MEDIA:") && line.includes("TYPE=AUDIO")) {
-        const uriMatch = line.match(/URI="([^"]+)"/);
+        const uriMatch = /URI="([^"]+)"/.exec(line);
         if (uriMatch?.[1]) {
           const uri = uriMatch[1];
           // Append query params for authentication
@@ -283,7 +283,7 @@ async function parseHlsMasterPlaylist(
 
       // Find best quality video stream
       if (line.startsWith("#EXT-X-STREAM-INF:")) {
-        const bandwidthMatch = line.match(/BANDWIDTH=(\d+)/);
+        const bandwidthMatch = /BANDWIDTH=(\d+)/.exec(line);
         const bandwidth = bandwidthMatch?.[1] ? parseInt(bandwidthMatch[1], 10) : 0;
 
         const nextLine = lines[i + 1]?.trim();
@@ -378,7 +378,13 @@ async function downloadSegmentsToFile(
     }
 
     await new Promise<void>((resolve, reject) => {
-      fileStream.end((err: Error | null) => (err ? reject(err) : resolve()));
+      fileStream.end((err: Error | null) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
     });
 
     renameSync(tempPath, outputPath);
@@ -395,8 +401,8 @@ async function downloadSegmentsToFile(
 async function isFfmpegAvailable(): Promise<boolean> {
   return new Promise((resolve) => {
     const proc = spawn("ffmpeg", ["-version"], { shell: true });
-    proc.on("close", (code) => resolve(code === 0));
-    proc.on("error", () => resolve(false));
+    proc.on("close", (code) => { resolve(code === 0); });
+    proc.on("error", () => { resolve(false); });
   });
 }
 

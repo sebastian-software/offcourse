@@ -27,7 +27,7 @@ export interface CourseStructure {
 export async function extractCourseName(page: Page): Promise<string> {
   const title = await page.title();
   // Title format: "Classroom · Community Name"
-  const match = title.match(/·\s*(.+)$/);
+  const match = /·\s*(.+)$/.exec(title);
   return (match?.[1]?.trim() ?? title.replace("Classroom", "").trim()) || "Unknown Course";
 }
 
@@ -224,7 +224,7 @@ export async function extractModulesFromPage(page: Page): Promise<CourseModule[]
       const href = anchor.href;
 
       // Extract slug from URL (8 character hex string)
-      const slugMatch = href.match(/\/classroom\/([a-f0-9]{8})(?:\?|$)/);
+      const slugMatch = /\/classroom\/([a-f0-9]{8})(?:\?|$)/.exec(href);
       if (!slugMatch?.[1]) return;
 
       const slug = slugMatch[1];
@@ -258,7 +258,7 @@ export async function extractModulesFromPage(page: Page): Promise<CourseModule[]
  * Checks if a URL points to a specific module (has 8-char hex slug).
  */
 function isModuleUrl(url: string): { isModule: boolean; moduleSlug: string | null } {
-  const match = url.match(/\/classroom\/([a-f0-9]{8})(?:\?|$)/);
+  const match = /\/classroom\/([a-f0-9]{8})(?:\?|$)/.exec(url);
   return {
     isModule: !!match,
     moduleSlug: match?.[1] ?? null,

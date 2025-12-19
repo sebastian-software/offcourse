@@ -170,7 +170,7 @@ export async function captureVimeoConfig(
           for (const el of Array.from(allElements)) {
             for (const attr of Array.from(el.attributes)) {
               if (attr.value.includes('vimeocdn.com') && attr.value.includes('.m3u8')) {
-                result.hlsUrl = attr.value.match(/https:\/\/[^\s"']+\.m3u8[^\s"']*/)?.[0] ?? null;
+                result.hlsUrl = (/https:\/\/[^\s"']+\.m3u8[^\s"']*/.exec(attr.value))?.[0] ?? null;
                 if (result.hlsUrl) {
                   result.debug.push('Found HLS in element attribute');
                   break;
@@ -236,7 +236,7 @@ export async function captureLoomHls(
 
     // Set up listener before navigation
     const responsePromise = new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => resolve(), timeoutMs);
+      const timeout = setTimeout(() => { resolve(); }, timeoutMs);
       let hasMasterPlaylist = false;
 
       client.on('Network.responseReceived', (event) => {
@@ -318,7 +318,7 @@ export async function captureLoomHls(
             if (hlsUrl) return hlsUrl;
 
             // Try regex match in full data
-            const videoData = JSON.stringify(data).match(/hls_url['":\s]+['"]([^'"]+)['"]/);
+            const videoData = /hls_url['":\s]+['"]([^'"]+)['"]/.exec(JSON.stringify(data));
             if (videoData?.[1]) return videoData[1];
           } catch { /* ignore parse errors */ }
         }
@@ -326,7 +326,7 @@ export async function captureLoomHls(
         // Scan scripts for HLS URL
         const scripts = Array.from(document.querySelectorAll('script'));
         for (const script of scripts) {
-          const match = script.textContent?.match(/https:\/\/luna\.loom\.com[^"'\s]+\.m3u8[^"'\s]*/);
+          const match = /https:\/\/luna\.loom\.com[^"'\s]+\.m3u8[^"'\s]*/.exec(script.textContent);
           if (match) return match[0];
         }
 

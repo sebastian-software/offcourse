@@ -108,7 +108,7 @@ export function getDbPath(communitySlug: string): string {
  * Extract community slug from a Skool URL.
  */
 export function extractCommunitySlug(url: string): string {
-  const match = url.match(/skool\.com\/([^/]+)/);
+  const match = /skool\.com\/([^/]+)/.exec(url);
   return match?.[1] ?? "unknown";
 }
 
@@ -502,7 +502,7 @@ export class CourseDatabase {
    * Get lessons that failed but can still be retried (retry_count < maxRetries).
    * Only returns retryable errors (not UNSUPPORTED_PROVIDER).
    */
-  getLessonsToRetry(maxRetries: number = 3): LessonWithModule[] {
+  getLessonsToRetry(maxRetries = 3): LessonWithModule[] {
     const stmt = this.db.prepare(`
       SELECT
         l.*,
