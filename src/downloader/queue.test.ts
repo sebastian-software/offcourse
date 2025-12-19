@@ -143,7 +143,7 @@ describe("AsyncQueue", () => {
       { id: "4", data: "d" },
     ]);
 
-    await queue.process(async (item, id) => {
+    await queue.process(async (_item, id) => {
       processing.add(id);
       maxConcurrent = Math.max(maxConcurrent, processing.size);
       // Simulate async work
@@ -197,4 +197,3 @@ describe("AsyncQueue", () => {
     expect(result.errors[0]?.error).toBe("String error");
   });
 });
-
