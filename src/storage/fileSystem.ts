@@ -1,5 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { Readable } from "node:stream";
+import { finished } from "node:stream/promises";
 import { expandPath, getSyncStatePath } from "../config/paths.js";
 import type { CourseSyncState } from "../config/schema.js";
 import { courseSyncStateSchema } from "../config/schema.js";
@@ -120,5 +122,61 @@ export function isLessonSynced(
     video: existsSync(getVideoPath(moduleDir, lessonIndex, lessonName)),
     content: existsSync(getMarkdownPath(moduleDir, lessonIndex, lessonName)),
   };
+}
+
+/**
+ * Gets the path for a downloadable file.
+ * Files are stored in the module directory with lesson prefix.
+ */
+export function getDownloadFilePath(
+  moduleDir: string,
+  lessonIndex: number,
+  lessonName: string,
+  filename: string
+): string {
+  const lessonPrefix = getLessonBasename(lessonIndex, lessonName);
+  // Sanitize filename
+  const safeFilename = filename.replace(/[<>:"/\\|?*]/g, "_");
+  return join(moduleDir, `${lessonPrefix}-${safeFilename}`);
+}
+
+/**
+ * Downloads a file from a URL to the specified path.
+ */
+export async function downloadFile(
+  url: string,
+  outputPath: string
+): Promise<{ success: boolean; error?: string }> {
+  if (existsSync(outputPath)) {
+    return { success: true }; // Already downloaded
+  }
+
+  const dir = dirname(outputPath);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+      },
+    });
+
+    if (!response.ok) {
+      return { success: false, error: `HTTP ${response.status}` };
+    }
+
+    if (!response.body) {
+      return { success: false, error: "No response body" };
+    }
+
+    const fileStream = createWriteStream(outputPath);
+    await finished(Readable.fromWeb(response.body as import("stream/web").ReadableStream).pipe(fileStream));
+
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
 }
 

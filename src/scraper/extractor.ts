@@ -1,12 +1,19 @@
 import type { Page } from "playwright";
 import TurndownService from "turndown";
 
+export interface DownloadableFile {
+  url: string;
+  filename: string;
+  type: "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "zip" | "other";
+}
+
 export interface LessonContent {
   title: string;
   videoUrl: string | null;
   videoType: "loom" | "vimeo" | "youtube" | "wistia" | "native" | "unknown" | null;
   htmlContent: string;
   markdownContent: string;
+  downloadableFiles: DownloadableFile[];
 }
 
 // Initialize Turndown for HTML to Markdown conversion
@@ -589,6 +596,90 @@ export async function extractTextContent(page: Page): Promise<{ html: string; ma
 }
 
 /**
+ * File extensions we want to download.
+ */
+const DOWNLOADABLE_EXTENSIONS = [
+  "pdf",
+  "doc", "docx",
+  "xls", "xlsx",
+  "ppt", "pptx",
+  "zip", "rar", "7z",
+  "txt", "csv",
+  "epub", "mobi",
+] as const;
+
+/**
+ * Gets the file type from extension.
+ */
+function getFileType(ext: string): DownloadableFile["type"] {
+  const lowerExt = ext.toLowerCase();
+  if (lowerExt === "pdf") return "pdf";
+  if (lowerExt === "doc") return "doc";
+  if (lowerExt === "docx") return "docx";
+  if (lowerExt === "xls") return "xls";
+  if (lowerExt === "xlsx") return "xlsx";
+  if (lowerExt === "ppt") return "ppt";
+  if (lowerExt === "pptx") return "pptx";
+  if (["zip", "rar", "7z"].includes(lowerExt)) return "zip";
+  return "other";
+}
+
+/**
+ * Extracts downloadable file links from the page content.
+ */
+export async function extractDownloadableFiles(page: Page): Promise<DownloadableFile[]> {
+  const files = await page.evaluate((extensions) => {
+    const results: Array<{ url: string; filename: string; ext: string }> = [];
+    const seen = new Set<string>();
+
+    // Find all links in the page
+    const links = document.querySelectorAll("a[href]");
+
+    for (const link of Array.from(links)) {
+      const href = (link as HTMLAnchorElement).href;
+      if (!href || seen.has(href)) continue;
+
+      // Check if the URL ends with a downloadable extension
+      const urlWithoutQuery = href.split("?")[0] ?? href;
+      const ext = urlWithoutQuery.split(".").pop()?.toLowerCase() ?? "";
+
+      if (extensions.includes(ext)) {
+        seen.add(href);
+
+        // Try to get filename from link text, download attribute, or URL
+        let filename = (link as HTMLAnchorElement).download;
+        if (!filename) {
+          filename = link.textContent?.trim() ?? "";
+        }
+        if (!filename || filename.length > 100) {
+          // Extract from URL
+          const urlParts = urlWithoutQuery.split("/");
+          filename = urlParts[urlParts.length - 1] ?? `file.${ext}`;
+        }
+
+        // Ensure filename has the correct extension
+        if (!filename.toLowerCase().endsWith(`.${ext}`)) {
+          filename = `${filename}.${ext}`;
+        }
+
+        // Sanitize filename
+        filename = filename.replace(/[<>:"/\\|?*]/g, "_").trim();
+
+        results.push({ url: href, filename, ext });
+      }
+    }
+
+    return results;
+  }, DOWNLOADABLE_EXTENSIONS as unknown as string[]);
+
+  return files.map((f) => ({
+    url: f.url,
+    filename: f.filename,
+    type: getFileType(f.ext),
+  }));
+}
+
+/**
  * Extracts all content from a lesson page.
  */
 export async function extractLessonContent(page: Page, lessonUrl: string): Promise<LessonContent> {
@@ -603,6 +694,7 @@ export async function extractLessonContent(page: Page, lessonUrl: string): Promi
   const title = await page.title();
   const { url: videoUrl, type: videoType } = await extractVideoUrl(page);
   const { html: htmlContent, markdown: markdownContent } = await extractTextContent(page);
+  const downloadableFiles = await extractDownloadableFiles(page);
 
   // Clean up title: "1. Lesson Name - Module Name · Course Name" -> "1. Lesson Name"
   const cleanTitle = title.split(" - ")[0]?.trim() ?? title;
@@ -613,6 +705,7 @@ export async function extractLessonContent(page: Page, lessonUrl: string): Promi
     videoType,
     htmlContent,
     markdownContent,
+    downloadableFiles,
   };
 }
 

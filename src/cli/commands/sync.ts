@@ -15,6 +15,8 @@ import { buildCourseStructure } from "../../scraper/navigator.js";
 import {
   createCourseDirectory,
   createModuleDirectory,
+  downloadFile,
+  getDownloadFilePath,
   getMarkdownPath,
   getVideoPath,
   isLessonSynced,
@@ -525,7 +527,26 @@ async function extractContentAndQueueVideos(
           );
           const mdPath = getMarkdownPath(moduleDir, lesson.position, lesson.name);
           saveMarkdown(dirname(mdPath), basename(mdPath), markdown);
-          lessonSpinner.succeed(`   ${lesson.name}`);
+
+          // Download any linked files (PDFs, Office documents, etc.)
+          let filesDownloaded = 0;
+          if (content.downloadableFiles.length > 0) {
+            for (const file of content.downloadableFiles) {
+              const filePath = getDownloadFilePath(
+                moduleDir,
+                lesson.position,
+                lesson.name,
+                file.filename
+              );
+              const result = await downloadFile(file.url, filePath);
+              if (result.success) {
+                filesDownloaded++;
+              }
+            }
+          }
+
+          const fileInfo = filesDownloaded > 0 ? ` (+${filesDownloaded} files)` : "";
+          lessonSpinner.succeed(`   ${lesson.name}${fileInfo}`);
           contentExtracted++;
         } catch (error) {
           lessonSpinner.fail(`   ${lesson.name}`);
