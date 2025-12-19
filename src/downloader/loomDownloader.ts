@@ -457,7 +457,7 @@ export async function downloadLoomVideo(
   let hlsUrl: string;
 
   // Check if this is already a direct HLS URL (from previous validation)
-  if (urlOrId.includes("luna.loom.com") && urlOrId.includes("playlist.m3u8")) {
+  if (urlOrId.includes("luna.loom.com") && urlOrId.includes(".m3u8")) {
     hlsUrl = urlOrId;
   } else {
     // Extract video ID and fetch HLS URL from Loom API

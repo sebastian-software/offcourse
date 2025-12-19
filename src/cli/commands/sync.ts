@@ -103,6 +103,7 @@ interface SyncOptions {
   limit?: number;
   force?: boolean;
   retryErrors?: boolean;
+  resume?: boolean;
 }
 
 /**
@@ -181,6 +182,30 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
       return;
     }
 
+    // Create output directory (use URL slug for consistency)
+    const courseDir = createCourseDirectory(config.outputDir, communitySlug);
+
+    // Resume mode: skip scanning and validation, just download
+    if (options.resume) {
+      console.log(chalk.yellow("\n⏩ Resume mode: skipping scan and validation\n"));
+      console.log(chalk.gray(`📁 Output: ${courseDir}\n`));
+
+      // Build download tasks from validated lessons in DB
+      const videoTasks = await buildDownloadTasksFromDb(db, courseDir);
+
+      if (videoTasks.length === 0) {
+        console.log(chalk.gray("   No videos ready for download"));
+        printStatusSummary(db);
+      } else {
+        await downloadVideos(db, videoTasks, courseDir, config);
+        printStatusSummary(db);
+        console.log(chalk.green("\n✅ Resume complete!\n"));
+      }
+
+      console.log(chalk.gray(`   Output: ${courseDir}\n`));
+      return;
+    }
+
     // Phase 1: Scan course structure and update database
     await scanCourseStructure(session.page, url, db, options);
 
@@ -191,8 +216,6 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
       return;
     }
 
-    // Create output directory (use URL slug for consistency)
-    const courseDir = createCourseDirectory(config.outputDir, communitySlug);
     console.log(chalk.gray(`\n📁 Output: ${courseDir}\n`));
 
     // Phase 2: Validate videos and get HLS URLs
@@ -515,6 +538,7 @@ async function extractContentAndQueueVideos(
       // Queue video for download if not already downloaded
       if (!options.skipVideos && !syncStatus.video && lesson.videoUrl && lesson.videoType) {
         videoTasks.push({
+          lessonId: lesson.id,
           lessonName: lesson.name,
           videoUrl: lesson.hlsUrl ?? lesson.videoUrl,
           videoType: lesson.videoType as VideoDownloadTask["videoType"],
@@ -576,10 +600,7 @@ async function downloadVideos(
       attempt.details = downloadResult.details;
 
       // Update database with error
-      const lesson = db.getLessonByUrl(task.videoUrl);
-      if (lesson) {
-        db.markLessonError(lesson.id, downloadResult.error ?? "Download failed", downloadResult.errorCode);
-      }
+      db.markLessonError(task.lessonId, downloadResult.error ?? "Download failed", downloadResult.errorCode);
 
       // Build detailed error message
       let errorMsg = downloadResult.error ?? "Download failed";
@@ -591,14 +612,11 @@ async function downloadVideos(
     }
 
     // Update database with success
-    const lesson = db.getLessonByUrl(task.videoUrl);
-    if (lesson) {
-      try {
-        const stats = statSync(task.outputPath);
-        db.markLessonDownloaded(lesson.id, stats.size);
-      } catch {
-        db.markLessonDownloaded(lesson.id);
-      }
+    try {
+      const stats = statSync(task.outputPath);
+      db.markLessonDownloaded(task.lessonId, stats.size);
+    } catch {
+      db.markLessonDownloaded(task.lessonId);
     }
 
     downloadAttempts.push(attempt);
@@ -632,6 +650,49 @@ async function downloadVideos(
       console.log(chalk.gray(`\n   📋 Detailed error log saved: ${logPath}`));
     }
   }
+}
+
+/**
+ * Build download tasks from database (for --resume mode).
+ * Skips lessons that are already downloaded.
+ */
+async function buildDownloadTasksFromDb(
+  db: CourseDatabase,
+  courseDir: string
+): Promise<VideoDownloadTask[]> {
+  const lessons = db.getLessonsToDownload();
+  const videoTasks: VideoDownloadTask[] = [];
+
+  console.log(chalk.blue(`\n📦 Building download list from ${lessons.length} validated lessons...\n`));
+
+  for (const lesson of lessons) {
+    // Create module and lesson directories
+    const moduleDir = createModuleDirectory(
+      courseDir,
+      lesson.modulePosition,
+      lesson.moduleName
+    );
+    const lessonDir = createLessonDirectory(moduleDir, lesson.position, lesson.name);
+
+    // Check if already downloaded
+    const syncStatus = isLessonSynced(lessonDir);
+    if (syncStatus.video) {
+      continue; // Already downloaded
+    }
+
+    if (lesson.hlsUrl && lesson.videoType) {
+      videoTasks.push({
+        lessonId: lesson.id,
+        lessonName: lesson.name,
+        videoUrl: lesson.hlsUrl,
+        videoType: lesson.videoType as VideoDownloadTask["videoType"],
+        outputPath: getVideoPath(lessonDir),
+      });
+    }
+  }
+
+  console.log(chalk.gray(`   Found ${videoTasks.length} videos to download`));
+  return videoTasks;
 }
 
 /**

@@ -385,6 +385,17 @@ export async function downloadVimeoVideo(
     return { success: true };
   }
 
+  // Check if this is already a direct HLS/CDN URL (from previous validation)
+  if (url.includes("vimeocdn.com") && url.includes(".m3u8")) {
+    // Direct HLS download
+    const dir = dirname(outputPath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+
+    return downloadHlsVideo(url, outputPath, onProgress);
+  }
+
   const videoId = extractVimeoId(url);
   if (!videoId) {
     return {

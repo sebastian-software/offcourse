@@ -34,6 +34,7 @@ program
   .option("--limit <n>", "Limit to first N lessons (for testing)", parseInt)
   .option("-f, --force", "Force full rescan even if state exists")
   .option("--retry-errors", "Retry previously failed lessons")
+  .option("-r, --resume", "Resume downloads only (skip scanning and validation)")
   .action(syncCommand);
 
 // Status command

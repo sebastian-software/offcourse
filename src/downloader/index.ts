@@ -2,6 +2,7 @@ import { downloadFile, downloadLoomVideo, type DownloadProgress } from "./loomDo
 import { downloadVimeoVideo } from "./vimeoDownloader.js";
 
 export interface VideoDownloadTask {
+  lessonId: number;
   lessonName: string;
   videoUrl: string;
   videoType: "loom" | "vimeo" | "youtube" | "wistia" | "native" | "unknown" | null;
