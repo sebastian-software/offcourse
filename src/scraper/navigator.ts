@@ -274,14 +274,26 @@ function getClassroomBaseUrl(url: string): string {
 }
 
 /**
+ * Progress callback for buildCourseStructure.
+ */
+export interface ScanProgress {
+  phase: "init" | "modules" | "lessons" | "done";
+  courseName?: string;
+  totalModules?: number;
+  currentModule?: string;
+  currentModuleIndex?: number;
+  lessonsFound?: number;
+  skippedLocked?: boolean;
+}
+
+/**
  * Builds the complete course structure by crawling all modules and lessons.
  */
 export async function buildCourseStructure(
   page: Page,
-  classroomUrl: string
+  classroomUrl: string,
+  onProgress?: (progress: ScanProgress) => void
 ): Promise<CourseStructure> {
-  console.log("📚 Scanning course structure...");
-
   const { isModule, moduleSlug } = isModuleUrl(classroomUrl);
 
   // If URL points to a specific module, get the base classroom URL first
@@ -293,13 +305,12 @@ export async function buildCourseStructure(
   await page.waitForTimeout(2000);
 
   const courseName = await extractCourseName(page);
-  console.log(`   Course: ${courseName}`);
+  onProgress?.({ phase: "init", courseName });
 
   // Try JSON extraction first (more reliable), fall back to page scraping
   let modules = await extractModulesFromJson(page);
 
   if (modules.length === 0) {
-    console.log("   (Using page scraping for modules)");
     modules = await extractModulesFromPage(page);
   }
 
@@ -307,25 +318,42 @@ export async function buildCourseStructure(
   if (isModule && moduleSlug) {
     const targetModule = modules.find((m) => m.slug === moduleSlug);
     if (targetModule) {
-      console.log(`   Filtering to module: ${targetModule.name}`);
       modules = [targetModule];
     }
   }
 
-  console.log(`   Found ${modules.length} modules`);
+  onProgress?.({ phase: "modules", totalModules: modules.length });
 
   const modulesWithLessons: CourseStructure["modules"] = [];
 
-  for (const module of modules) {
+  for (let i = 0; i < modules.length; i++) {
+    const module = modules[i]!;
+    
     if (module.isLocked) {
-      console.log(`   🔒 Skipping locked module: ${module.name}`);
+      onProgress?.({ 
+        phase: "lessons", 
+        currentModule: module.name, 
+        currentModuleIndex: i,
+        skippedLocked: true 
+      });
       continue;
     }
 
-    console.log(`   📖 Scanning: ${module.name}`);
+    onProgress?.({ 
+      phase: "lessons", 
+      currentModule: module.name, 
+      currentModuleIndex: i 
+    });
+
     if (module.url) {
       const lessons = await extractLessons(page, module.url);
-      console.log(`      → ${lessons.length} lessons`);
+      
+      onProgress?.({ 
+        phase: "lessons", 
+        currentModule: module.name, 
+        currentModuleIndex: i,
+        lessonsFound: lessons.length 
+      });
 
       modulesWithLessons.push({
         ...module,
@@ -333,6 +361,8 @@ export async function buildCourseStructure(
       });
     }
   }
+
+  onProgress?.({ phase: "done" });
 
   return {
     name: courseName,

@@ -250,10 +250,46 @@ async function scanCourseStructure(
   db: CourseDatabase,
   options: SyncOptions
 ): Promise<void> {
-  const structureSpinner = ora("Scanning course structure...").start();
+  console.log(chalk.blue("\n📚 Phase 1: Scanning course structure...\n"));
+
+  let progressBar: cliProgress.SingleBar | undefined;
+  let courseName = "";
+  let totalModules = 0;
+  let lockedModules = 0;
 
   try {
-    const courseStructure = await buildCourseStructure(page, url);
+    const courseStructure = await buildCourseStructure(page, url, (progress) => {
+      if (progress.phase === "init" && progress.courseName) {
+        courseName = progress.courseName;
+        console.log(chalk.white(`   Course: ${courseName}\n`));
+      } else if (progress.phase === "modules" && progress.totalModules) {
+        totalModules = progress.totalModules;
+        progressBar = new cliProgress.SingleBar({
+          format: "   {bar} {percentage}% | {value}/{total} | {status}",
+          barCompleteChar: "█",
+          barIncompleteChar: "░",
+          barsize: 30,
+          hideCursor: true,
+        }, cliProgress.Presets.shades_grey);
+        progressBar.start(totalModules, 0, { status: "Starting..." });
+      } else if (progress.phase === "lessons" && progress.currentModule !== undefined) {
+        if (progress.skippedLocked) {
+          lockedModules++;
+          progressBar?.increment({ status: `🔒 ${progress.currentModule}` });
+        } else if (progress.lessonsFound !== undefined) {
+          progressBar?.increment({ 
+            status: `${progress.currentModule} (${progress.lessonsFound} lessons)` 
+          });
+        } else {
+          const shortName = progress.currentModule.length > 35 
+            ? progress.currentModule.substring(0, 32) + "..." 
+            : progress.currentModule;
+          progressBar?.update(progress.currentModuleIndex ?? 0, { status: shortName });
+        }
+      } else if (progress.phase === "done") {
+        progressBar?.stop();
+      }
+    });
 
     // Update metadata
     db.updateCourseMetadata(courseStructure.name, courseStructure.url);
@@ -298,12 +334,16 @@ async function scanCourseStructure(
     }
 
     const meta = db.getCourseMetadata();
-    structureSpinner.succeed(
-      `Found ${meta.totalModules} modules, ${meta.totalLessons} lessons` +
-      (newLessons > 0 ? chalk.green(` (+${newLessons} new)`) : "")
-    );
+    console.log();
+    const parts: string[] = [];
+    parts.push(`${meta.totalModules} modules`);
+    parts.push(`${meta.totalLessons} lessons`);
+    if (lockedModules > 0) parts.push(chalk.yellow(`${lockedModules} locked`));
+    if (newLessons > 0) parts.push(chalk.green(`+${newLessons} new`));
+    console.log(`   Found: ${parts.join(", ")}`);
   } catch (error) {
-    structureSpinner.fail("Failed to scan course structure");
+    progressBar?.stop();
+    console.log(chalk.red("   Failed to scan course structure"));
     throw error;
   }
 }
