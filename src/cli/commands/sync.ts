@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import ora from "ora";
 import { writeFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { loadConfig } from "../../config/configManager.js";
 import {
   downloadVideo,
@@ -14,8 +14,8 @@ import { extractLessonContent, formatMarkdown, extractVideoUrl } from "../../scr
 import { buildCourseStructure } from "../../scraper/navigator.js";
 import {
   createCourseDirectory,
-  createLessonDirectory,
   createModuleDirectory,
+  getMarkdownPath,
   getVideoPath,
   isLessonSynced,
   saveMarkdown,
@@ -509,8 +509,7 @@ async function extractContentAndQueueVideos(
         break;
       }
 
-      const lessonDir = createLessonDirectory(moduleDir, lesson.position, lesson.name);
-      const syncStatus = isLessonSynced(lessonDir);
+      const syncStatus = isLessonSynced(moduleDir, lesson.position, lesson.name);
 
       // Check if content already exists
       if (!options.skipContent && !syncStatus.content) {
@@ -524,7 +523,8 @@ async function extractContentAndQueueVideos(
             lesson.videoUrl,
             lesson.videoType
           );
-          saveMarkdown(lessonDir, "content.md", markdown);
+          const mdPath = getMarkdownPath(moduleDir, lesson.position, lesson.name);
+          saveMarkdown(dirname(mdPath), basename(mdPath), markdown);
           lessonSpinner.succeed(`   ${lesson.name}`);
           contentExtracted++;
         } catch (error) {
@@ -542,7 +542,7 @@ async function extractContentAndQueueVideos(
           lessonName: lesson.name,
           videoUrl: lesson.hlsUrl ?? lesson.videoUrl,
           videoType: lesson.videoType as VideoDownloadTask["videoType"],
-          outputPath: getVideoPath(lessonDir),
+          outputPath: getVideoPath(moduleDir, lesson.position, lesson.name),
         });
       }
     }
@@ -666,16 +666,15 @@ async function buildDownloadTasksFromDb(
   console.log(chalk.blue(`\n📦 Building download list from ${lessons.length} validated lessons...\n`));
 
   for (const lesson of lessons) {
-    // Create module and lesson directories
+    // Create module directory (flat structure - no lesson subdirectories)
     const moduleDir = createModuleDirectory(
       courseDir,
       lesson.modulePosition,
       lesson.moduleName
     );
-    const lessonDir = createLessonDirectory(moduleDir, lesson.position, lesson.name);
 
     // Check if already downloaded
-    const syncStatus = isLessonSynced(lessonDir);
+    const syncStatus = isLessonSynced(moduleDir, lesson.position, lesson.name);
     if (syncStatus.video) {
       continue; // Already downloaded
     }
@@ -686,7 +685,7 @@ async function buildDownloadTasksFromDb(
         lessonName: lesson.name,
         videoUrl: lesson.hlsUrl,
         videoType: lesson.videoType as VideoDownloadTask["videoType"],
-        outputPath: getVideoPath(lessonDir),
+        outputPath: getVideoPath(moduleDir, lesson.position, lesson.name),
       });
     }
   }

@@ -37,20 +37,11 @@ export function createModuleDirectory(
 }
 
 /**
- * Creates a lesson directory within a module.
+ * Gets the base filename for a lesson (without extension).
+ * Format: "01-lesson-name"
  */
-export function createLessonDirectory(
-  moduleDir: string,
-  lessonIndex: number,
-  lessonName: string
-): string {
-  const lessonDir = join(moduleDir, createFolderName(lessonIndex, lessonName));
-
-  if (!existsSync(lessonDir)) {
-    mkdirSync(lessonDir, { recursive: true });
-  }
-
-  return lessonDir;
+export function getLessonBasename(lessonIndex: number, lessonName: string): string {
+  return createFolderName(lessonIndex, lessonName);
 }
 
 /**
@@ -70,16 +61,18 @@ export function saveMarkdown(directory: string, filename: string, content: strin
 
 /**
  * Gets the video file path for a lesson.
+ * Videos are stored directly in the module directory with lesson name.
  */
-export function getVideoPath(lessonDir: string): string {
-  return join(lessonDir, "video.mp4");
+export function getVideoPath(moduleDir: string, lessonIndex: number, lessonName: string): string {
+  return join(moduleDir, `${getLessonBasename(lessonIndex, lessonName)}.mp4`);
 }
 
 /**
  * Gets the markdown file path for a lesson.
+ * Markdown files are stored directly in the module directory with lesson name.
  */
-export function getMarkdownPath(lessonDir: string): string {
-  return join(lessonDir, "content.md");
+export function getMarkdownPath(moduleDir: string, lessonIndex: number, lessonName: string): string {
+  return join(moduleDir, `${getLessonBasename(lessonIndex, lessonName)}.md`);
 }
 
 /**
@@ -118,10 +111,14 @@ export function saveSyncState(courseSlug: string, state: CourseSyncState): void 
 /**
  * Checks if a lesson has been fully synced.
  */
-export function isLessonSynced(lessonDir: string): { video: boolean; content: boolean } {
+export function isLessonSynced(
+  moduleDir: string,
+  lessonIndex: number,
+  lessonName: string
+): { video: boolean; content: boolean } {
   return {
-    video: existsSync(getVideoPath(lessonDir)),
-    content: existsSync(getMarkdownPath(lessonDir)),
+    video: existsSync(getVideoPath(moduleDir, lessonIndex, lessonName)),
+    content: existsSync(getMarkdownPath(moduleDir, lessonIndex, lessonName)),
   };
 }
 
