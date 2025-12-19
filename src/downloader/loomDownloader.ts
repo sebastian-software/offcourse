@@ -461,7 +461,7 @@ export async function downloadLoomVideo(
   // Check if this is already a direct HLS URL (from previous validation)
   if (urlOrId.includes("luna.loom.com") && urlOrId.includes(".m3u8")) {
     hlsUrl = urlOrId;
-    
+
     // Check if this is a media playlist (not master playlist)
     // Media playlists are named: mediaplaylist-video-bitrate*.m3u8 or mediaplaylist-audio.m3u8
     if (hlsUrl.includes("mediaplaylist-video-")) {

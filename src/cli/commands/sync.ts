@@ -106,6 +106,7 @@ interface SyncOptions {
   force?: boolean;
   retryErrors?: boolean;
   resume?: boolean;
+  retryFailed?: boolean;
 }
 
 /**
@@ -216,6 +217,14 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
       }
 
       console.log(chalk.gray(`   Output: ${courseDir}\n`));
+      return;
+    }
+
+    // Retry-failed mode: only process lessons that previously failed
+    if (options.retryFailed) {
+      await retryFailedLessons(session.page, db, courseDir, config, options);
+      await browser.close();
+      db.close();
       return;
     }
 
@@ -835,6 +844,213 @@ async function buildDownloadTasksFromDb(
   }
   console.log(chalk.gray(`   ⬇️  ${videoTasks.length} videos to download`));
   return videoTasks;
+}
+
+/**
+ * Retry failed lessons with detailed diagnostics.
+ */
+async function retryFailedLessons(
+  page: import("playwright").Page,
+  db: CourseDatabase,
+  courseDir: string,
+  _config: { concurrency: number; retryAttempts: number },
+  _options: SyncOptions
+): Promise<void> {
+  const errorLessons = db.getLessonsByStatus(LessonStatus.ERROR);
+
+  if (errorLessons.length === 0) {
+    console.log(chalk.green("\n✅ No failed lessons to retry!\n"));
+    printStatusSummary(db);
+    return;
+  }
+
+  console.log(chalk.yellow(`\n🔄 Retry Failed Mode: ${errorLessons.length} lesson(s) to retry\n`));
+
+  // Group by error type for summary
+  const byErrorCode = new Map<string, typeof errorLessons>();
+  for (const lesson of errorLessons) {
+    const code = lesson.errorCode ?? "UNKNOWN";
+    if (!byErrorCode.has(code)) {
+      byErrorCode.set(code, []);
+    }
+    byErrorCode.get(code)!.push(lesson);
+  }
+
+  console.log(chalk.gray("   Error breakdown:"));
+  for (const [code, lessons] of byErrorCode) {
+    console.log(chalk.gray(`     ${code}: ${lessons.length}`));
+  }
+  console.log();
+
+  // Results tracking
+  const results: Array<{
+    lesson: LessonWithModule;
+    success: boolean;
+    newStatus: string;
+    details: string;
+  }> = [];
+
+  // Progress bar
+  const progressBar = new cliProgress.SingleBar({
+    format: "   {bar} {percentage}% | {value}/{total} | {status}",
+    barCompleteChar: "█",
+    barIncompleteChar: "░",
+    barsize: 30,
+    hideCursor: true,
+  }, cliProgress.Presets.shades_grey);
+
+  progressBar.start(errorLessons.length, 0, { status: "Starting..." });
+
+  for (let i = 0; i < errorLessons.length; i++) {
+    const lesson = errorLessons[i];
+    if (!lesson) continue;
+
+    const shortName = lesson.name.length > 30
+      ? lesson.name.substring(0, 27) + "..."
+      : lesson.name;
+
+    progressBar.update(i, { status: shortName });
+
+    try {
+      // Navigate to the lesson page
+      await page.goto(lesson.url, { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.waitForTimeout(2000);
+
+      // Try to extract video URL
+      const videoInfo = await extractVideoUrl(page);
+
+      if (!videoInfo.url) {
+        // No video found - mark as skipped (no video) or keep error
+        if (lesson.errorCode === "UNSUPPORTED_PROVIDER") {
+          results.push({
+            lesson,
+            success: false,
+            newStatus: "error",
+            details: `Unsupported provider: ${lesson.videoType ?? "unknown"}`,
+          });
+        } else {
+          db.markLessonSkipped(lesson.id, "No video found on retry");
+          results.push({
+            lesson,
+            success: true,
+            newStatus: "skipped",
+            details: "No video on page",
+          });
+        }
+        continue;
+      }
+
+      // Check for unsupported providers
+      if (videoInfo.type === "youtube" || videoInfo.type === "wistia") {
+        db.markLessonError(lesson.id, `${videoInfo.type} videos are not yet supported`, "UNSUPPORTED_PROVIDER");
+        db.updateLessonVideoType(lesson.id, videoInfo.type);
+        results.push({
+          lesson,
+          success: false,
+          newStatus: "error",
+          details: `Unsupported: ${videoInfo.type}`,
+        });
+        continue;
+      }
+
+      // Validate and get HLS URL
+      const validation = await validateVideoHls(videoInfo.url, videoInfo.type ?? "native", page, lesson.url);
+
+      if (!validation.isValid || !validation.hlsUrl) {
+        db.markLessonError(lesson.id, validation.error ?? "Validation failed", validation.errorCode ?? "VALIDATION_FAILED");
+        results.push({
+          lesson,
+          success: false,
+          newStatus: "error",
+          details: validation.error ?? "Could not validate video",
+        });
+        continue;
+      }
+
+      // Update lesson with HLS URL
+      db.updateLessonScan(
+        lesson.id,
+        videoInfo.type ?? null,
+        videoInfo.url,
+        validation.hlsUrl,
+        LessonStatus.VALIDATED
+      );
+
+      // Try to download
+      const moduleDir = createModuleDirectory(
+        courseDir,
+        lesson.modulePosition,
+        lesson.moduleName
+      );
+      const outputPath = getVideoPath(moduleDir, lesson.position, lesson.name);
+
+      const downloadResult = await downloadVideo({
+        lessonId: lesson.id,
+        lessonName: lesson.name,
+        videoUrl: validation.hlsUrl,
+        videoType: videoInfo.type as VideoDownloadTask["videoType"],
+        outputPath,
+      });
+
+      if (downloadResult.success) {
+        const fileSize = statSync(outputPath).size;
+        db.markLessonDownloaded(lesson.id, fileSize);
+        results.push({
+          lesson,
+          success: true,
+          newStatus: "downloaded",
+          details: `Downloaded ${(fileSize / 1024 / 1024).toFixed(1)} MB`,
+        });
+      } else {
+        db.markLessonError(lesson.id, downloadResult.error ?? "Download failed", downloadResult.errorCode ?? "DOWNLOAD_FAILED");
+        results.push({
+          lesson,
+          success: false,
+          newStatus: "error",
+          details: downloadResult.error ?? "Download failed",
+        });
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      db.markLessonError(lesson.id, errorMsg, "RETRY_ERROR");
+      results.push({
+        lesson,
+        success: false,
+        newStatus: "error",
+        details: errorMsg.substring(0, 100),
+      });
+    }
+  }
+
+  progressBar.update(errorLessons.length, { status: "Complete" });
+  progressBar.stop();
+
+  // Detailed results
+  console.log(chalk.cyan("\n📋 Retry Results\n"));
+
+  const successful = results.filter((r) => r.success);
+  const failed = results.filter((r) => !r.success);
+
+  if (successful.length > 0) {
+    console.log(chalk.green(`   ✅ Fixed: ${successful.length}`));
+    for (const r of successful) {
+      console.log(chalk.gray(`      • ${r.lesson.name} → ${r.newStatus} (${r.details})`));
+    }
+  }
+
+  if (failed.length > 0) {
+    console.log(chalk.red(`\n   ❌ Still failing: ${failed.length}\n`));
+    for (const r of failed) {
+      const typeTag = r.lesson.videoType ? `[${r.lesson.videoType.toUpperCase()}]` : "";
+      console.log(chalk.red(`      ${typeTag} ${r.lesson.name}`));
+      console.log(chalk.gray(`         Module: ${r.lesson.moduleName}`));
+      console.log(chalk.gray(`         URL: ${r.lesson.url}`));
+      console.log(chalk.gray(`         Error: ${r.details}`));
+      console.log();
+    }
+  }
+
+  printStatusSummary(db);
 }
 
 /**

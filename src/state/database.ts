@@ -432,6 +432,34 @@ export class CourseDatabase {
   }
 
   /**
+   * Mark lesson as skipped (no video).
+   */
+  markLessonSkipped(lessonId: number, reason?: string): void {
+    const stmt = this.db.prepare(`
+      UPDATE lessons SET
+        status = 'skipped',
+        error_message = ?,
+        error_code = NULL,
+        updated_at = datetime('now')
+      WHERE id = ?
+    `);
+    stmt.run(reason ?? null, lessonId);
+  }
+
+  /**
+   * Update lesson video type.
+   */
+  updateLessonVideoType(lessonId: number, videoType: string): void {
+    const stmt = this.db.prepare(`
+      UPDATE lessons SET
+        video_type = ?,
+        updated_at = datetime('now')
+      WHERE id = ?
+    `);
+    stmt.run(videoType, lessonId);
+  }
+
+  /**
    * Get all lessons.
    */
   getLessons(): LessonRecord[] {

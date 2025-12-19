@@ -35,6 +35,7 @@ program
   .option("-f, --force", "Force full rescan (ignore previous state)")
   .option("--retry-errors", "Retry previously failed downloads")
   .option("-r, --resume", "Skip scanning, download ready videos only")
+  .option("--retry-failed", "Retry failed lessons with detailed diagnostics")
   .action(syncCommand);
 
 // Status command
