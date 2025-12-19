@@ -230,19 +230,27 @@ export async function captureLoomHls(
     await client.send('Network.enable');
 
     // Match HLS playlists from Loom's CDN
-    const hlsPattern = /luna\.loom\.com.*(playlist\.m3u8|master\.m3u8|\.m3u8)/;
+    // Prefer master playlist (playlist.m3u8) over media playlists (mediaplaylist-*.m3u8)
+    const masterPattern = /luna\.loom\.com.*\/playlist\.m3u8/;
+    const anyHlsPattern = /luna\.loom\.com.*\.m3u8/;
 
     // Set up listener before navigation
     const responsePromise = new Promise<void>((resolve) => {
       const timeout = setTimeout(() => resolve(), timeoutMs);
+      let hasMasterPlaylist = false;
 
       client.on('Network.responseReceived', (event) => {
         const url = event.response.url;
 
-        if (hlsPattern.test(url)) {
+        // Always prefer master playlist
+        if (masterPattern.test(url)) {
           capturedUrl = url;
+          hasMasterPlaylist = true;
           clearTimeout(timeout);
           resolve();
+        } else if (!hasMasterPlaylist && anyHlsPattern.test(url)) {
+          // Capture any HLS as fallback, but keep listening for master
+          capturedUrl = url;
         }
       });
     });

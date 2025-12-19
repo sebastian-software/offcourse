@@ -455,10 +455,25 @@ export async function downloadLoomVideo(
   }
 
   let hlsUrl: string;
+  let videoUrl: string | null = null;
+  let audioUrl: string | null = null;
 
   // Check if this is already a direct HLS URL (from previous validation)
   if (urlOrId.includes("luna.loom.com") && urlOrId.includes(".m3u8")) {
     hlsUrl = urlOrId;
+    
+    // Check if this is a media playlist (not master playlist)
+    // Media playlists are named: mediaplaylist-video-bitrate*.m3u8 or mediaplaylist-audio.m3u8
+    if (hlsUrl.includes("mediaplaylist-video-")) {
+      // This is already a video media playlist - use it directly
+      videoUrl = hlsUrl;
+      // Try to get audio URL by replacing video playlist with audio playlist
+      audioUrl = hlsUrl.replace(/mediaplaylist-video-bitrate\d+\.m3u8/, "mediaplaylist-audio.m3u8");
+    } else if (hlsUrl.includes("mediaplaylist-audio")) {
+      // This is an audio-only playlist - convert to master playlist
+      hlsUrl = hlsUrl.replace(/mediaplaylist-audio\.m3u8/, "playlist.m3u8");
+    }
+    // Otherwise it's a master playlist (playlist.m3u8) - parse it below
   } else {
     // Extract video ID and fetch HLS URL from Loom API
     const videoId = urlOrId.includes("loom.com") ? extractLoomId(urlOrId) : urlOrId;
@@ -487,8 +502,12 @@ export async function downloadLoomVideo(
     hlsUrl = fetchResult.info.hlsUrl;
   }
 
-  // Parse master playlist
-  const { videoUrl, audioUrl } = await parseHlsMasterPlaylist(hlsUrl);
+  // Parse master playlist if we don't already have video URL
+  if (!videoUrl) {
+    const parsed = await parseHlsMasterPlaylist(hlsUrl);
+    videoUrl = parsed.videoUrl;
+    audioUrl = parsed.audioUrl;
+  }
 
   if (!videoUrl) {
     return {

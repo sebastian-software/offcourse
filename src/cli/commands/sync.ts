@@ -850,7 +850,7 @@ function printStatusSummary(db: CourseDatabase): void {
   console.log(chalk.gray(`   Modules: ${meta.totalModules}`));
   console.log(chalk.gray(`   Lessons: ${meta.totalLessons}`));
   console.log();
-  
+
   // Clear status labels
   console.log(chalk.green(`   ✅ Downloaded:        ${summary.downloaded}`));
   if (summary.validated > 0) {
