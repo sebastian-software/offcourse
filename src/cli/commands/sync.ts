@@ -1,11 +1,11 @@
 import chalk from "chalk";
+import cliProgress from "cli-progress";
 import ora from "ora";
 import { writeFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { loadConfig } from "../../config/configManager.js";
 import {
   downloadVideo,
-  AsyncQueue,
   type VideoDownloadTask,
   validateVideoHls,
 } from "../../downloader/index.js";
@@ -575,7 +575,7 @@ async function extractContentAndQueueVideos(
 }
 
 /**
- * Phase 4: Download videos.
+ * Phase 4: Download videos with multi-progress display.
  */
 async function downloadVideos(
   db: CourseDatabase,
@@ -586,69 +586,131 @@ async function downloadVideos(
 ): Promise<void> {
   console.log(chalk.blue(`\n🎬 Phase 4: Downloading ${videoTasks.length} videos...\n`));
 
-  const queue = new AsyncQueue<VideoDownloadTask>({
-    concurrency: config.concurrency,
-    maxRetries: config.retryAttempts,
-  });
+  // Create multi-bar container
+  const multibar = new cliProgress.MultiBar({
+    clearOnComplete: false,
+    hideCursor: true,
+    format: "   {typeTag} {bar} {percentage}% | {lessonName}",
+    barCompleteChar: "█",
+    barIncompleteChar: "░",
+    barsize: 25,
+  }, cliProgress.Presets.shades_grey);
 
-  queue.addAll(videoTasks.map((task) => ({ id: task.lessonName, data: task })));
-
-  const videoSpinner = ora("Starting downloads...").start();
-
-  // Track all download attempts for diagnostic log
+  // Track results
   const downloadAttempts: DownloadAttempt[] = [];
+  const errors: Array<{ id: string; error: string }> = [];
+  let completed = 0;
+  let failed = 0;
 
-  const result = await queue.process(async (task, id) => {
-    const typeTag = task.videoType ? `[${task.videoType.toUpperCase()}]` : "";
-    videoSpinner.text = `   ${typeTag} Downloading: ${id}`;
+  // Active downloads map: lessonName -> bar
+  const activeBars = new Map<string, cliProgress.SingleBar>();
 
-    const downloadResult = await downloadVideo(task, (progress) => {
-      videoSpinner.text = `   ${typeTag} ${id} (${Math.round(progress.percent)}%)`;
+  // Process downloads with controlled concurrency
+  const taskQueue = [...videoTasks];
+  const activePromises = new Set<Promise<void>>();
+
+  const processTask = async (task: VideoDownloadTask): Promise<void> => {
+    const typeTag = task.videoType ? `[${task.videoType.toUpperCase()}]` : "[VIDEO]";
+    const shortName = task.lessonName.length > 35
+      ? task.lessonName.substring(0, 32) + "..."
+      : task.lessonName.padEnd(35);
+
+    // Create progress bar for this download
+    const bar = multibar.create(100, 0, {
+      typeTag: typeTag.padEnd(8),
+      lessonName: shortName,
     });
+    activeBars.set(task.lessonName, bar);
 
-    // Record the attempt
-    const attempt: DownloadAttempt = {
-      lessonName: task.lessonName,
-      videoUrl: task.videoUrl,
-      videoType: task.videoType,
-      success: downloadResult.success,
-      timestamp: new Date().toISOString(),
-    };
-
-    if (!downloadResult.success) {
-      attempt.error = downloadResult.error;
-      attempt.errorCode = downloadResult.errorCode;
-      attempt.details = downloadResult.details;
-
-      // Update database with error
-      db.markLessonError(task.lessonId, downloadResult.error ?? "Download failed", downloadResult.errorCode);
-
-      // Build detailed error message
-      let errorMsg = downloadResult.error ?? "Download failed";
-      if (downloadResult.details) {
-        errorMsg += ` [${downloadResult.details}]`;
-      }
-      downloadAttempts.push(attempt);
-      throw new Error(errorMsg);
-    }
-
-    // Update database with success
     try {
-      const stats = statSync(task.outputPath);
-      db.markLessonDownloaded(task.lessonId, stats.size);
-    } catch {
-      db.markLessonDownloaded(task.lessonId);
+      const downloadResult = await downloadVideo(task, (progress) => {
+        bar.update(Math.round(progress.percent));
+      });
+
+      // Record the attempt
+      const attempt: DownloadAttempt = {
+        lessonName: task.lessonName,
+        videoUrl: task.videoUrl,
+        videoType: task.videoType,
+        success: downloadResult.success,
+        timestamp: new Date().toISOString(),
+      };
+
+      if (!downloadResult.success) {
+        attempt.error = downloadResult.error;
+        attempt.errorCode = downloadResult.errorCode;
+        attempt.details = downloadResult.details;
+
+        db.markLessonError(task.lessonId, downloadResult.error ?? "Download failed", downloadResult.errorCode);
+
+        bar.update(100);
+        bar.stop();
+
+        errors.push({
+          id: task.lessonName,
+          error: downloadResult.error ?? "Download failed",
+        });
+        failed++;
+      } else {
+        // Update database with success
+        try {
+          const stats = statSync(task.outputPath);
+          db.markLessonDownloaded(task.lessonId, stats.size);
+        } catch {
+          db.markLessonDownloaded(task.lessonId);
+        }
+
+        bar.update(100);
+        bar.stop();
+        completed++;
+      }
+
+      downloadAttempts.push(attempt);
+    } catch (error) {
+      bar.stop();
+      failed++;
+
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      errors.push({ id: task.lessonName, error: errorMsg });
+      db.markLessonError(task.lessonId, errorMsg);
+    } finally {
+      activeBars.delete(task.lessonName);
+    }
+  };
+
+  // Run downloads with controlled concurrency
+  while (taskQueue.length > 0 || activePromises.size > 0) {
+    // Start new downloads up to concurrency limit
+    while (taskQueue.length > 0 && activePromises.size < config.concurrency) {
+      const task = taskQueue.shift();
+      if (task) {
+        const promise = processTask(task).finally(() => {
+          activePromises.delete(promise);
+        });
+        activePromises.add(promise);
+      }
     }
 
-    downloadAttempts.push(attempt);
-  });
+    // Wait for at least one to complete
+    if (activePromises.size > 0) {
+      await Promise.race(activePromises);
+    }
+  }
 
-  videoSpinner.succeed(`   Videos: ${result.completed} downloaded, ${result.failed} failed`);
+  // Stop multibar
+  multibar.stop();
 
-  if (result.errors.length > 0) {
+  // Print summary
+  console.log();
+  if (failed === 0) {
+    console.log(chalk.green(`   ✓ ${completed} videos downloaded successfully`));
+  } else {
+    console.log(chalk.yellow(`   Videos: ${completed} downloaded, ${failed} failed`));
+  }
+
+  if (errors.length > 0) {
     console.log(chalk.yellow("\n   Failed downloads:"));
-    for (const error of result.errors) {
-      // Find the task to get video type
+    for (const error of errors) {
       const task = videoTasks.find((t) => t.lessonName === error.id);
       const typeTag = task?.videoType ? `[${task.videoType.toUpperCase()}]` : "";
       console.log(chalk.red(`   - ${typeTag} ${error.id}: ${error.error}`));
@@ -661,8 +723,8 @@ async function downloadVideos(
       const logData = {
         timestamp: new Date().toISOString(),
         totalAttempts: videoTasks.length,
-        successful: result.completed,
-        failed: result.failed,
+        successful: completed,
+        failed,
         concurrency: config.concurrency,
         retryAttempts: config.retryAttempts,
         failures: failedAttempts,
