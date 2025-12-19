@@ -197,8 +197,28 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
       return;
     }
 
-    // Phase 1: Scan course structure and update database
-    await scanCourseStructure(session.page, url, db, options);
+    // Check what work needs to be done
+    const initialSummary = db.getStatusSummary();
+    const needsScan = initialSummary.pending > 0 || !hasExistingData;
+    const needsValidation = db.getLessonsToValidate().length > 0;
+    const needsDownload = db.getLessonsToDownload().length > 0 || needsValidation;
+
+    // Quick exit if nothing to do
+    if (!needsScan && !needsValidation && !needsDownload && !options.dryRun) {
+      console.log(chalk.green("\n✅ Already complete! Nothing to do.\n"));
+      printStatusSummary(db);
+      console.log(chalk.gray(`   Output: ${courseDir}\n`));
+      await browser.close();
+      db.close();
+      return;
+    }
+
+    // Phase 1: Scan course structure (only if needed)
+    if (needsScan || options.dryRun) {
+      await scanCourseStructure(session.page, url, db, options);
+    } else {
+      console.log(chalk.gray("\n   ⏭️  Scan skipped (already complete)"));
+    }
 
     if (options.dryRun) {
       printStatusSummary(db);
@@ -209,8 +229,13 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
 
     console.log(chalk.gray(`\n📁 Output: ${courseDir}\n`));
 
-    // Phase 2: Validate videos and get HLS URLs
-    await validateVideos(session.page, db, options);
+    // Phase 2: Validate videos (only lessons that need it)
+    const lessonsToValidate = db.getLessonsToValidate();
+    if (lessonsToValidate.length > 0) {
+      await validateVideos(session.page, db, options);
+    } else {
+      console.log(chalk.gray("   ⏭️  Validation skipped (already complete)"));
+    }
 
     // Phase 3: Extract content and queue downloads
     let videoTasks = await extractContentAndQueueVideos(session.page, db, courseDir, options);

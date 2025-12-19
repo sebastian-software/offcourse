@@ -642,6 +642,37 @@ export class CourseDatabase {
   }
 
   /**
+   * Get lessons that need validation (scanned but not validated, with video).
+   */
+  getLessonsToValidate(): LessonWithModule[] {
+    const stmt = this.db.prepare(`
+      SELECT
+        l.*,
+        m.name as module_name,
+        m.slug as module_slug,
+        m.position as module_position
+      FROM lessons l
+      JOIN modules m ON l.module_id = m.id
+      WHERE l.status = 'scanned'
+        AND l.video_url IS NOT NULL
+        AND l.is_locked = 0
+      ORDER BY m.position, l.position
+    `);
+    const rows = stmt.all() as Array<RawLessonRow & {
+      module_name: string;
+      module_slug: string;
+      module_position: number;
+    }>;
+
+    return rows.map((row) => ({
+      ...this.mapLessonRow(row),
+      moduleName: row.module_name,
+      moduleSlug: row.module_slug,
+      modulePosition: row.module_position,
+    }));
+  }
+
+  /**
    * Get lessons that are ready for download (validated with HLS URL).
    */
   getLessonsToDownload(): LessonWithModule[] {
