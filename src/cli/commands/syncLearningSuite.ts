@@ -10,7 +10,6 @@ import {
   createFolderName,
   extractLearningSuitePostContent,
   getLearningSuiteLessonUrl,
-  markLessonComplete,
   slugify,
   type LearningSuiteCourseStructure,
   type LearningSuiteScanProgress,
@@ -329,51 +328,119 @@ export async function syncLearningSuiteCommand(
       return;
     }
 
-    // Auto-complete mode: attempt to unlock lessons by completing them
-    if (options.autoComplete && lockedLessons > 0) {
+    // Auto-complete mode: batch complete all accessible lessons to unlock more content
+    if (options.autoComplete) {
       console.log(chalk.blue(`\n🔓 Auto-completing lessons to unlock content...\n`));
 
-      let unlockedCount = 0;
+      let totalCompleted = 0;
+      const maxLessons = 100; // Safety limit
 
-      for (const module of courseStructure.modules) {
-        if (module.isLocked) continue;
+      // Navigate to course page and click "Fortsetzen" to start
+      const courseUrl = `https://${courseStructure.domain}/student/course/${courseStructure.courseSlug ?? courseStructure.course.id}/${courseStructure.course.id}`;
+      await session.page.goto(courseUrl);
 
-        for (const lesson of module.lessons) {
-          if (lesson.isLocked || lesson.isCompleted) continue;
+      // Wait for Fortsetzen button
+      const fortsetzenButton = session.page.locator('button:has-text("Fortsetzen")').first();
+      const hasFortsetzen = await fortsetzenButton
+        .waitFor({ state: "visible", timeout: 5000 })
+        .then(() => true)
+        .catch(() => false);
 
-          const lessonUrl = getLearningSuiteLessonUrl(
-            courseStructure.domain,
-            courseStructure.courseSlug ?? courseStructure.course.id,
-            courseStructure.course.id,
-            module.id,
-            lesson.id
-          );
+      if (!hasFortsetzen) {
+        console.log(chalk.gray(`   No lessons to complete.`));
+      } else {
+        await fortsetzenButton.click();
 
-          const spinner = ora(`Completing: ${lesson.title}`).start();
+        // Wait for lesson page to load (breadcrumb appears)
+        await session.page.waitForSelector("nav li:last-child", { timeout: 10000 });
 
-          try {
-            const completed = await markLessonComplete(session.page, lessonUrl);
-            if (completed) {
-              unlockedCount++;
-              spinner.succeed(`Completed: ${lesson.title}`);
-            } else {
-              spinner.warn(`Could not complete: ${lesson.title}`);
-            }
-          } catch {
-            spinner.fail(`Failed: ${lesson.title}`);
+        let lastUrl = "";
+
+        while (totalCompleted < maxLessons) {
+          const currentUrl = session.page.url();
+
+          // Loop detection
+          if (currentUrl === lastUrl) {
+            console.log(chalk.gray(`   Detected loop, stopping.`));
+            break;
+          }
+          lastUrl = currentUrl;
+
+          // Get lesson title from breadcrumb
+          const lessonTitle =
+            (await session.page.locator("nav li:last-child").textContent()) ?? "Unknown";
+          const shortName =
+            lessonTitle.length > 50 ? lessonTitle.substring(0, 47) + "..." : lessonTitle;
+          process.stdout.write(chalk.gray(`   ⏳ ${shortName}...`));
+
+          // First, try to check any checkboxes (AGBs, etc.)
+          await session.page.evaluate(() => {
+            const checkboxes = document.querySelectorAll('input[type="checkbox"]:not(:checked)');
+            checkboxes.forEach((cb) => {
+              (cb as HTMLInputElement).click();
+            });
+          });
+
+          // Wait for the complete button to be visible AND enabled
+          const completeButton = session.page
+            .locator("button:not([disabled])")
+            .filter({ hasText: /abschließen|complete/i })
+            .first();
+          const hasButton = await completeButton
+            .waitFor({ state: "visible", timeout: 3000 })
+            .then(() => true)
+            .catch(() => false);
+
+          if (!hasButton) {
+            // Button might be disabled (video not watched, etc.) - skip this lesson
+            process.stdout.write(chalk.yellow(` locked/disabled\n`));
+            break;
+          }
+
+          // Click and wait for URL to change (navigation to next lesson)
+          const urlBefore = session.page.url();
+          await completeButton.click();
+
+          // Wait for URL to change or timeout
+          const urlChanged = await session.page
+            .waitForURL((url) => url.href !== urlBefore, { timeout: 5000 })
+            .then(() => true)
+            .catch(() => false);
+
+          if (urlChanged) {
+            totalCompleted++;
+            process.stdout.write(chalk.green(` ✓\n`));
+          } else {
+            process.stdout.write(chalk.yellow(` no navigation\n`));
+            break;
           }
         }
       }
 
-      if (unlockedCount > 0) {
-        console.log(chalk.green(`\n   ✓ Completed ${unlockedCount} lessons\n`));
+      if (totalCompleted > 0) {
+        console.log(chalk.green(`\n   ✓ Total: ${totalCompleted} lessons completed\n`));
 
-        // Re-scan to get updated structure
+        // Final re-scan to get updated structure
         console.log(chalk.gray(`   Re-scanning course structure...\n`));
         const updatedStructure = await buildLearningSuiteCourseStructure(session.page, url);
         if (updatedStructure) {
           courseStructure.modules = updatedStructure.modules;
+
+          // Update counts
+          const newLockedLessons = courseStructure.modules.reduce(
+            (sum, mod) => sum + mod.lessons.filter((l) => l.isLocked).length,
+            0
+          );
+          const newTotalLessons = courseStructure.modules.reduce(
+            (sum, mod) => sum + mod.lessons.length,
+            0
+          );
+          console.log(
+            chalk.gray(`   Updated: ${newTotalLessons} lessons, ${newLockedLessons} still locked`)
+          );
         }
+      } else {
+        console.log(chalk.gray(`   No lessons needed completion.`));
       }
     }
 
@@ -453,7 +520,7 @@ export async function syncLearningSuiteCommand(
               courseStructure.domain,
               courseStructure.courseSlug ?? courseStructure.course.id,
               courseStructure.course.id,
-              module.id,
+              lesson.moduleId, // Use lesson's own moduleId (topicId) for correct URL
               lesson.id
             );
 
@@ -519,7 +586,7 @@ export async function syncLearningSuiteCommand(
                 courseStructure.domain,
                 courseStructure.courseSlug ?? courseStructure.course.id,
                 courseStructure.course.id,
-                module.id,
+                lesson.moduleId, // Use lesson's own moduleId (topicId) for correct URL
                 lesson.id
               );
 

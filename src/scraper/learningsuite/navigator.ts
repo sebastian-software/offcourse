@@ -875,7 +875,8 @@ async function extractModulesAndLessonsFromDOM(
         id: l.lessonId ?? `lesson-${idx}`,
         title: l.title,
         position: idx,
-        moduleId: moduleId,
+        // Use the lesson's own moduleId (topicId) for URL generation
+        moduleId: l.moduleId ?? moduleId,
         isLocked: l.isLocked,
         isCompleted: l.isCompleted,
       })),
@@ -1086,27 +1087,40 @@ export async function markLessonComplete(page: Page, lessonUrl: string): Promise
       await page.waitForTimeout(2000);
     }
 
-    // Look for the "Abschließen" (Complete) button
-    const completeButton = page
-      .locator(
-        'button:has-text("Abschließen"), button:has-text("Complete"), button:has-text("Mark as complete")'
-      )
-      .first();
+    // Find and click the complete button using evaluate
+    // (handles font rendering issues where "Abschließen" might appear as "Ab chließen")
+    const clicked = await page.evaluate(() => {
+      // Look for buttons with text containing variations of "Abschließen" or "Complete"
+      const buttons = Array.from(document.querySelectorAll("button"));
 
-    if (await completeButton.isVisible().catch(() => false)) {
-      await completeButton.click();
-      await page.waitForTimeout(1500);
+      for (const button of buttons) {
+        const text = button.textContent?.toLowerCase().replace(/\s+/g, "") ?? "";
+        // Match: abschließen, abschliessen, complete, markascomplete
+        if (
+          text.includes("abschließen") ||
+          text.includes("abschliessen") ||
+          text.includes("complete")
+        ) {
+          // Check if this is not already a "completed" state button
+          if (!text.includes("abgeschlossen") && !text.includes("completed")) {
+            button.click();
+            return true;
+          }
+        }
+      }
+      return false;
+    });
 
-      // Verify completion by checking if a success indicator appears
-      // or if the button changed state
-      const isCompleted =
-        (await page.locator('[class*="completed"], [class*="done"], [class*="success"]').count()) >
-          0 || (await page.locator('button:has-text("Abgeschlossen")').count()) > 0;
-
-      return isCompleted;
+    if (!clicked) {
+      return false;
     }
 
-    return false;
+    // Wait for the API call to complete
+    await page.waitForTimeout(1500);
+
+    // If we clicked the button, consider it successful
+    // The server tracks completion via submitEventsNew GraphQL mutation
+    return true;
   } catch (error) {
     console.error("Error marking lesson as complete:", error);
     return false;
