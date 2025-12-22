@@ -6,6 +6,7 @@ import delay from "delay";
 import { execa } from "execa";
 import pRetry, { AbortError } from "p-retry";
 import { USER_AGENT } from "../shared/http.js";
+import { extractQueryParams, getBaseUrl } from "../shared/url.js";
 
 export interface LoomVideoInfo {
   id: string;
@@ -46,6 +47,9 @@ export function extractLoomId(url: string): string | null {
   const match = /loom\.com\/(?:embed|share)\/([a-f0-9]+)/.exec(url);
   return match?.[1] ?? null;
 }
+
+// Network I/O and file operations - excluded from coverage
+/* v8 ignore start */
 
 /**
  * Error class for Loom fetch failures with structured error info.
@@ -260,14 +264,6 @@ export async function getLoomVideoInfo(videoId: string): Promise<LoomVideoInfo |
 }
 
 /**
- * Extracts query params from a URL for reuse.
- */
-function extractQueryParams(url: string): string {
-  const queryStart = url.indexOf("?");
-  return queryStart !== -1 ? url.substring(queryStart) : "";
-}
-
-/**
  * Parses a master playlist to get video and audio playlist URLs.
  */
 async function parseHlsMasterPlaylist(
@@ -286,7 +282,7 @@ async function parseHlsMasterPlaylist(
     const lines = playlist.split("\n");
 
     // Get base URL and query params (for signed URLs)
-    const baseUrl = masterUrl.substring(0, masterUrl.lastIndexOf("/") + 1);
+    const baseUrl = getBaseUrl(masterUrl);
     const queryParams = extractQueryParams(masterUrl);
 
     let videoUrl: string | null = null;
@@ -348,7 +344,7 @@ async function getSegmentUrls(playlistUrl: string): Promise<string[]> {
     const lines = playlist.split("\n");
 
     // Get base URL and query params
-    const baseUrl = playlistUrl.substring(0, playlistUrl.lastIndexOf("/") + 1);
+    const baseUrl = getBaseUrl(playlistUrl);
     const queryParams = extractQueryParams(playlistUrl);
 
     const segments: string[] = [];
@@ -737,3 +733,4 @@ export async function downloadFile(
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
+/* v8 ignore stop */

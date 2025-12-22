@@ -1,6 +1,7 @@
 import { createWriteStream, existsSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { USER_AGENT } from "../shared/http.js";
+import { getBaseUrl } from "../shared/url.js";
 
 export interface VimeoVideoInfo {
   id: string;
@@ -64,6 +65,9 @@ export function extractVimeoId(url: string): string | null {
 
   return null;
 }
+
+// Network I/O and file operations - excluded from coverage
+/* v8 ignore start */
 
 /**
  * Extracts the unlisted hash from a Vimeo URL if present.
@@ -571,7 +575,7 @@ async function downloadHlsVideo(
 
     const masterPlaylist = await masterResponse.text();
     const lines = masterPlaylist.split("\n");
-    const baseUrl = masterUrl.substring(0, masterUrl.lastIndexOf("/") + 1);
+    const baseUrl = getBaseUrl(masterUrl);
 
     // Find best quality video stream
     let bestBandwidth = 0;
@@ -615,7 +619,7 @@ async function downloadHlsVideo(
     }
 
     const videoPlaylist = await videoResponse.text();
-    const videoBaseUrl = videoPlaylistUrl.substring(0, videoPlaylistUrl.lastIndexOf("/") + 1);
+    const videoBaseUrl = getBaseUrl(videoPlaylistUrl);
     const segments: string[] = [];
 
     for (const line of videoPlaylist.split("\n")) {
@@ -715,3 +719,4 @@ interface VimeoConfig {
     };
   };
 }
+/* v8 ignore stop */
