@@ -15,17 +15,19 @@ Saves video content and lesson text as Markdown files, organized by module struc
 
 - 🔐 **Browser-based authentication** – Log in once, sessions are cached
 - 📚 **Course structure preservation** – Maintains module/lesson hierarchy
-- 🎬 **Video downloads** – Supports Loom, native video (Vimeo, YouTube, Wistia planned)
+- 🎬 **Video downloads** – Supports Loom, Vimeo, HLS streams (native HighLevel videos)
 - 📝 **Content extraction** – Converts lesson text to clean Markdown
 - ⏸️ **Resumable syncs** – Skips already downloaded content
 - ⚡ **Concurrent downloads** – Configurable parallelism
+- 🔍 **Auto-detection** – Automatically detects platform from URL
 
 ## Supported Platforms
 
-| Platform | Status |
-|----------|--------|
-| [Skool.com](https://skool.com) | ✅ Supported |
-| [LearningSuite.io](https://learningsuite.io) | 🚧 Planned |
+| Platform | Status | Notes |
+|----------|--------|-------|
+| [Skool.com](https://skool.com) | ✅ Supported | Community courses |
+| [HighLevel (GoHighLevel)](https://gohighlevel.com) | ✅ Supported | Membership portals, ClientClub |
+| [LearningSuite.io](https://learningsuite.io) | 🚧 Planned | |
 
 ## Installation
 
@@ -41,6 +43,19 @@ npx offcourse <command>
 
 Requires Node.js 22+.
 
+For HLS video downloads (HighLevel native videos), [ffmpeg](https://ffmpeg.org/) must be installed:
+
+```bash
+# macOS
+brew install ffmpeg
+
+# Ubuntu/Debian
+sudo apt install ffmpeg
+
+# Windows (via Chocolatey)
+choco install ffmpeg
+```
+
 ## Usage
 
 ### Login
@@ -55,9 +70,11 @@ offcourse login --force
 
 ### Sync a Course
 
+The `sync` command auto-detects the platform from the URL:
+
 ```bash
-# Download entire course
-offcourse sync https://www.skool.com/your-community/classroom
+# Auto-detect platform and download
+offcourse sync <url>
 
 # Skip video downloads
 offcourse sync <url> --skip-videos
@@ -70,6 +87,23 @@ offcourse sync <url> --dry-run
 
 # Limit to first N lessons (for testing)
 offcourse sync <url> --limit 5
+
+# Override course name (useful when auto-detection fails)
+offcourse sync <url> --course-name "My Course Name"
+
+# Prefer specific video quality
+offcourse sync <url> --quality 720p
+```
+
+### Platform-Specific Commands
+
+```bash
+# Skool courses
+offcourse sync-skool https://www.skool.com/your-community/classroom
+
+# HighLevel/GoHighLevel membership portals
+offcourse sync-highlevel https://member.example.com/courses/products/<id>
+offcourse sync-highlevel <url> --course-name "Course Name"
 ```
 
 ### Configuration
@@ -119,6 +153,22 @@ offcourse inspect <url> --full
     └── 02-next-module/
         └── ...
 ```
+
+## Platform Notes
+
+### HighLevel (GoHighLevel)
+
+HighLevel is an all-in-one marketing platform with a "Memberships" feature for hosting courses. Offcourse supports:
+
+- **Authentication**: Firebase-based login via browser
+- **Course structure**: Extracts products, categories, and posts via API
+- **Video downloads**: Native HLS videos with quality selection (requires ffmpeg)
+- **Embedded videos**: Vimeo, Loom, and other embedded players
+
+Common HighLevel portal URLs:
+- `https://member.yourdomain.com/courses/...`
+- `https://portal.yourdomain.com/courses/...`
+- `https://courses.yourdomain.com/...`
 
 ## Development
 

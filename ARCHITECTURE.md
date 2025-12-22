@@ -7,7 +7,7 @@ Offcourse is a modular CLI tool for downloading online courses. The architecture
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                         CLI Layer                           │
-│  (commands: login, sync, inspect, config)                   │
+│  (commands: login, sync, sync-skool, sync-highlevel, etc.) │
 └─────────────────────────────────────────────────────────────┘
                               │
           ┌───────────────────┼───────────────────┐
@@ -35,7 +35,8 @@ src/
 │       ├── config.ts       # Configuration management
 │       ├── inspect.ts      # Page analysis for debugging
 │       ├── login.ts        # Authentication flow
-│       └── sync.ts         # Main download orchestration
+│       ├── sync.ts         # Skool download orchestration
+│       └── syncHighLevel.ts # HighLevel download orchestration
 │
 ├── config/                 # Configuration management
 │   ├── schema.ts           # Zod schemas for all config types
@@ -43,16 +44,22 @@ src/
 │   └── paths.ts            # Path resolution utilities
 │
 ├── scraper/                # Platform-specific extraction
-│   ├── auth.ts             # Session management (Playwright)
-│   ├── navigator.ts        # Course structure discovery
-│   ├── extractor.ts        # Content extraction (video URLs, text)
-│   └── videoInterceptor.ts # Network interception for video URLs
+│   ├── auth.ts             # Session management (Playwright) - Skool
+│   ├── navigator.ts        # Course structure discovery - Skool
+│   ├── extractor.ts        # Content extraction - Skool
+│   ├── videoInterceptor.ts # Network interception for video URLs
+│   └── highlevel/          # HighLevel (GoHighLevel) scraper
+│       ├── auth.ts         # Firebase auth, session management
+│       ├── navigator.ts    # Course structure via API
+│       ├── extractor.ts    # Video/content extraction
+│       └── index.ts        # Exports
 │
 ├── downloader/             # Video download handlers
 │   ├── index.ts            # Download dispatcher by video type
 │   ├── queue.ts            # Async queue with concurrency control
 │   ├── loomDownloader.ts   # Loom-specific HLS download
-│   └── vimeoDownloader.ts  # Vimeo-specific download
+│   ├── vimeoDownloader.ts  # Vimeo-specific download
+│   └── hlsDownloader.ts    # Generic HLS download (ffmpeg-based)
 │
 ├── state/                  # State management
 │   ├── index.ts            # State exports
@@ -69,28 +76,39 @@ src/
 Handles user interaction via Commander.js. Each command is a separate module.
 
 - **login**: Opens browser for interactive authentication, saves session
-- **sync**: Orchestrates the full download process
+- **sync**: Auto-detects platform and delegates to appropriate handler
+- **sync-skool**: Skool-specific sync (uses `sync.ts`)
+- **sync-highlevel**: HighLevel-specific sync (uses `syncHighLevel.ts`)
 - **inspect**: Debug tool for analyzing page structure
 - **config**: Read/write configuration values
 
 ### Scraper (`src/scraper/`)
 
-Platform-specific logic for extracting course content. Currently supports Skool.com.
+Platform-specific logic for extracting course content.
+
+#### Skool Scraper (root level)
 
 - **auth.ts**: Manages Playwright browser sessions, session persistence
 - **navigator.ts**: Discovers course structure (modules, lessons, URLs)
 - **extractor.ts**: Extracts video URLs and text content from lesson pages
 - **videoInterceptor.ts**: Intercepts network requests to capture video URLs
 
-To add a new platform, implement the same interfaces with platform-specific selectors.
+#### HighLevel Scraper (`src/scraper/highlevel/`)
+
+- **auth.ts**: Firebase authentication, session management with token refresh
+- **navigator.ts**: Extracts course structure via API interception
+- **extractor.ts**: Extracts HLS video URLs, embedded videos (Vimeo, Loom), and content
+
+To add a new platform, create a new directory under `src/scraper/` with the same interfaces.
 
 ### Downloader (`src/downloader/`)
 
-Video download handlers. Each video host (Loom, Vimeo, etc.) needs its own implementation.
+Video download handlers. Each video host needs its own implementation.
 
 - **queue.ts**: Generic async queue with concurrency control and retry logic
 - **loomDownloader.ts**: Handles Loom's HLS streaming format
 - **vimeoDownloader.ts**: Handles Vimeo video downloads
+- **hlsDownloader.ts**: Generic HLS download using ffmpeg (used for HighLevel native videos)
 - **index.ts**: Dispatcher that routes downloads by video type
 
 ### State (`src/state/`)
@@ -121,33 +139,57 @@ Centralized configuration with Zod validation.
 ```
 1. User runs: offcourse sync <url>
                     │
-2. Load config      │
+2. Auto-detect      │
+   platform ────────────► Skool? HighLevel? Unknown?
+                    │
+3. Load config      │
                     ▼
-3. Authenticate ─────────► Browser session (cached or interactive)
+4. Authenticate ─────────► Browser session (cached or interactive)
                     │
-4. Navigate ────────────► Extract course structure (modules, lessons)
+5. Navigate ────────────► Extract course structure (modules, lessons)
                     │
-5. For each lesson: │
+6. For each lesson: │
    ├─► Extract ─────────► Get video URL + text content
    ├─► Save content ────► Write Markdown to disk
    └─► Queue video ─────► Add to download queue
                     │
-6. Process queue ───────► Download videos with concurrency control
+7. Process queue ───────► Download videos with concurrency control
                     │
-7. Done ────────────────► Summary output
+8. Done ────────────────► Summary output
 ```
+
+## Platform-Specific Details
+
+### Skool
+
+- **Auth**: Standard session-based, browser login
+- **Structure**: DOM-based extraction via Playwright selectors
+- **Videos**: Loom, Vimeo, native video elements
+
+### HighLevel (GoHighLevel)
+
+- **Auth**: Firebase authentication via `sso.clientclub.net`
+- **Structure**: API-based extraction (`services.leadconnectorhq.com`)
+- **Videos**: Native HLS streams, Vimeo, Loom embeds
+- **Special**: Requires ffmpeg for native video downloads
 
 ## Adding a New Platform
 
-1. **Create scraper**: Implement `navigator.ts` and `extractor.ts` equivalents
-2. **Register in CLI**: Add platform detection in `sync.ts`
-3. **Reuse infrastructure**: Use existing `downloader/`, `storage/`, `config/`
+1. **Create scraper directory**: `src/scraper/<platform>/`
+2. **Implement modules**:
+   - `auth.ts` - Authentication flow
+   - `navigator.ts` - Course structure extraction
+   - `extractor.ts` - Content/video extraction
+   - `index.ts` - Exports
+3. **Create CLI command**: `src/cli/commands/sync<Platform>.ts`
+4. **Register in CLI**: Add to `src/cli/index.ts`
+5. **Add auto-detection**: Update `sync` command's platform detection
 
 ## Adding a New Video Host
 
 1. **Create downloader**: Implement in `src/downloader/<host>Downloader.ts`
 2. **Export from index**: Add to `src/downloader/index.ts` dispatcher
-3. **Update extractor**: Add detection in `extractVideoUrl()`
+3. **Update extractor**: Add detection in platform-specific `extractVideoUrl()`
 
 ## Technology Choices
 
@@ -159,6 +201,7 @@ Centralized configuration with Zod validation.
 | HTML → Markdown | Turndown | Mature, configurable |
 | Styling | Chalk + Ora | Clean terminal output with spinners |
 | Database | better-sqlite3 | Fast, embedded SQLite for state management |
+| HLS downloads | ffmpeg | Industry standard for HLS stream processing |
 
 ## Development Tooling
 
