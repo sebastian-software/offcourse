@@ -211,10 +211,9 @@ export async function syncHighLevelCommand(
                 status: `${progress.currentCategory ?? "Category"} (${progress.postsFound} lessons)`,
               });
             } else {
+              const categoryName = progress.currentCategory ?? "";
               const shortName =
-                (progress.currentCategory ?? "").length > 35
-                  ? progress.currentCategory?.substring(0, 32) + "..."
-                  : (progress.currentCategory ?? "");
+                categoryName.length > 35 ? categoryName.substring(0, 32) + "..." : categoryName;
               progressBar?.update(progress.currentCategoryIndex ?? 0, { status: shortName });
             }
           } else if (progress.phase === "done") {
@@ -275,7 +274,7 @@ export async function syncHighLevelCommand(
     let processed = 0;
 
     // Apply limit
-    let lessonLimit = options.limit;
+    const lessonLimit = options.limit;
     let totalToProcess = totalLessons;
     if (lessonLimit) {
       totalToProcess = Math.min(totalLessons, lessonLimit);
