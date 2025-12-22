@@ -17,15 +17,23 @@ export interface LoomFetchResult {
   success: boolean;
   info?: LoomVideoInfo;
   error?: string;
-  errorCode?: "EMBED_FETCH_FAILED" | "HLS_NOT_FOUND" | "RATE_LIMITED" | "NETWORK_ERROR" | "PARSE_ERROR";
+  errorCode?:
+    | "EMBED_FETCH_FAILED"
+    | "HLS_NOT_FOUND"
+    | "RATE_LIMITED"
+    | "NETWORK_ERROR"
+    | "PARSE_ERROR";
   statusCode?: number;
   details?: string;
 }
 
 export interface DownloadProgress {
   percent: number;
-  downloaded: number;
-  total: number;
+  downloaded?: number | undefined;
+  total?: number | undefined;
+  phase?: "preparing" | "downloading" | "complete" | undefined;
+  currentBytes?: number | undefined;
+  totalBytes?: number | undefined;
 }
 
 /**
@@ -50,8 +58,9 @@ export async function getLoomVideoInfoDetailed(
     try {
       const embedResponse = await fetch(embedUrl, {
         headers: {
-          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
           "Accept-Language": "en-US,en;q=0.5",
           "Cache-Control": "no-cache",
         },
@@ -78,7 +87,11 @@ export async function getLoomVideoInfoDetailed(
 
       if (!embedResponse.ok) {
         // For 4xx errors, don't retry
-        if (embedResponse.status >= 400 && embedResponse.status < 500 && embedResponse.status !== 429) {
+        if (
+          embedResponse.status >= 400 &&
+          embedResponse.status < 500 &&
+          embedResponse.status !== 429
+        ) {
           return {
             success: false,
             error: `Loom returned HTTP ${embedResponse.status}`,
@@ -151,7 +164,8 @@ export async function getLoomVideoInfoDetailed(
         // Try to extract useful debug info from the HTML
         const hasVideoTag = embedHtml.includes("<video");
         const hasLoomPlayer = embedHtml.includes("loom-player") || embedHtml.includes("LoomPlayer");
-        const hasEmbedData = embedHtml.includes("__NEXT_DATA__") || embedHtml.includes("window.__LOOM__");
+        const hasEmbedData =
+          embedHtml.includes("__NEXT_DATA__") || embedHtml.includes("window.__LOOM__");
         const pageLength = embedHtml.length;
 
         return {
@@ -195,7 +209,6 @@ export async function getLoomVideoInfoDetailed(
         success: true,
         info: { id: videoId, title, duration, width, height, hlsUrl },
       };
-
     } catch (error) {
       if (attempt < retryCount) {
         await sleep(retryDelayMs * attempt);
@@ -226,7 +239,7 @@ export async function getLoomVideoInfoDetailed(
  */
 export async function getLoomVideoInfo(videoId: string): Promise<LoomVideoInfo | null> {
   const result = await getLoomVideoInfoDetailed(videoId);
-  return result.success ? result.info ?? null : null;
+  return result.success ? (result.info ?? null) : null;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -312,7 +325,9 @@ async function getSegmentUrls(playlistUrl: string): Promise<string[]> {
     });
 
     if (!response.ok) {
-      console.error(`Failed to fetch playlist: ${response.status} - ${playlistUrl.substring(0, 100)}...`);
+      console.error(
+        `Failed to fetch playlist: ${response.status} - ${playlistUrl.substring(0, 100)}...`
+      );
       return [];
     }
 
@@ -327,7 +342,11 @@ async function getSegmentUrls(playlistUrl: string): Promise<string[]> {
 
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith("#") && (trimmed.endsWith(".ts") || trimmed.includes(".ts?"))) {
+      if (
+        trimmed &&
+        !trimmed.startsWith("#") &&
+        (trimmed.endsWith(".ts") || trimmed.includes(".ts?"))
+      ) {
         // Construct full URL with auth params
         const segmentUrl = trimmed.startsWith("http") ? trimmed : baseUrl + trimmed;
         // Add query params if segment URL doesn't have them
@@ -401,8 +420,12 @@ async function downloadSegmentsToFile(
 async function isFfmpegAvailable(): Promise<boolean> {
   return new Promise((resolve) => {
     const proc = spawn("ffmpeg", ["-version"], { shell: true });
-    proc.on("close", (code) => { resolve(code === 0); });
-    proc.on("error", () => { resolve(false); });
+    proc.on("close", (code) => {
+      resolve(code === 0);
+    });
+    proc.on("error", () => {
+      resolve(false);
+    });
   });
 }
 
@@ -417,14 +440,7 @@ async function mergeWithFfmpeg(
   return new Promise((resolve) => {
     const proc = spawn(
       "ffmpeg",
-      [
-        "-i", videoPath,
-        "-i", audioPath,
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-y",
-        outputPath,
-      ],
+      ["-i", videoPath, "-i", audioPath, "-c:v", "copy", "-c:a", "aac", "-y", outputPath],
       { shell: true, stdio: "ignore" }
     );
 
@@ -444,7 +460,13 @@ async function mergeWithFfmpeg(
 export interface LoomDownloadResult {
   success: boolean;
   error?: string;
-  errorCode?: LoomFetchResult["errorCode"] | "INVALID_URL" | "NO_VIDEO_STREAM" | "NO_SEGMENTS" | "DOWNLOAD_FAILED" | "MERGE_FAILED";
+  errorCode?:
+    | LoomFetchResult["errorCode"]
+    | "INVALID_URL"
+    | "NO_VIDEO_STREAM"
+    | "NO_SEGMENTS"
+    | "DOWNLOAD_FAILED"
+    | "MERGE_FAILED";
   details?: string;
 }
 
@@ -554,12 +576,20 @@ export async function downloadLoomVideo(
       const totalSegments = videoSegments.length + audioSegments.length;
       let completed = 0;
 
-      const videoSuccess = await downloadSegmentsToFile(videoSegments, tempVideoPath, (curr, _total) => {
-        completed = curr;
-        if (onProgress) {
-          onProgress({ percent: (completed / totalSegments) * 100, downloaded: completed, total: totalSegments });
+      const videoSuccess = await downloadSegmentsToFile(
+        videoSegments,
+        tempVideoPath,
+        (curr, _total) => {
+          completed = curr;
+          if (onProgress) {
+            onProgress({
+              percent: (completed / totalSegments) * 100,
+              downloaded: completed,
+              total: totalSegments,
+            });
+          }
         }
-      });
+      );
 
       if (!videoSuccess) {
         return {
@@ -571,12 +601,20 @@ export async function downloadLoomVideo(
       }
 
       // Download audio segments
-      const audioSuccess = await downloadSegmentsToFile(audioSegments, tempAudioPath, (curr, _total) => {
-        completed = videoSegments.length + curr;
-        if (onProgress) {
-          onProgress({ percent: (completed / totalSegments) * 100, downloaded: completed, total: totalSegments });
+      const audioSuccess = await downloadSegmentsToFile(
+        audioSegments,
+        tempAudioPath,
+        (curr, _total) => {
+          completed = videoSegments.length + curr;
+          if (onProgress) {
+            onProgress({
+              percent: (completed / totalSegments) * 100,
+              downloaded: completed,
+              total: totalSegments,
+            });
+          }
         }
-      });
+      );
 
       if (!audioSuccess) {
         if (existsSync(tempVideoPath)) unlinkSync(tempVideoPath);

@@ -4,12 +4,9 @@ import { Command } from "commander";
 import { configGetCommand, configSetCommand, configShowCommand } from "./commands/config.js";
 import { inspectCommand } from "./commands/inspect.js";
 import { loginCommand, logoutCommand } from "./commands/login.js";
-import {
-  statusCommand,
-  statusListCommand,
-  type StatusOptions,
-} from "./commands/status.js";
+import { statusCommand, statusListCommand, type StatusOptions } from "./commands/status.js";
 import { syncCommand } from "./commands/sync.js";
+import { syncHighLevelCommand, isHighLevelPortal } from "./commands/syncHighLevel.js";
 
 const program = new Command();
 
@@ -28,10 +25,36 @@ program
 // Logout command
 program.command("logout").description("Clear saved session").action(logoutCommand);
 
-// Sync command
+// Sync command - auto-detects platform
 program
   .command("sync <url>")
-  .description("Download a course for offline access")
+  .description("Download a course for offline access (auto-detects platform)")
+  .option("--skip-videos", "Skip video downloads (only save text content)")
+  .option("--skip-content", "Skip text content (only download videos)")
+  .option("--dry-run", "Scan course structure without downloading")
+  .option("--limit <n>", "Limit to first N lessons (for testing)", parseInt)
+  .option("-f, --force", "Force full rescan of all lessons")
+  .option("--retry-failed", "Retry failed lessons with detailed diagnostics")
+  .option("--visible", "Show browser window (default: headless)")
+  .option("-q, --quality <quality>", "Preferred video quality (e.g., 720p, 1080p)")
+  .option("--course-name <name>", "Override detected course name")
+  .action((url: string, options) => {
+    // Auto-detect platform
+    if (url.includes("skool.com")) {
+      return syncCommand(url, options);
+    } else if (isHighLevelPortal(url)) {
+      return syncHighLevelCommand(url, options);
+    } else {
+      // Default: try HighLevel (most generic)
+      console.log("Platform not recognized, trying as HighLevel portal...");
+      return syncHighLevelCommand(url, options);
+    }
+  });
+
+// Explicit Skool sync command
+program
+  .command("sync-skool <url>")
+  .description("Download a Skool course for offline access")
   .option("--skip-videos", "Skip video downloads (only save text content)")
   .option("--skip-content", "Skip text content (only download videos)")
   .option("--dry-run", "Scan course structure without downloading")
@@ -40,6 +63,19 @@ program
   .option("--retry-failed", "Retry failed lessons with detailed diagnostics")
   .option("--visible", "Show browser window (default: headless)")
   .action(syncCommand);
+
+// Explicit HighLevel sync command
+program
+  .command("sync-highlevel <url>")
+  .description("Download a HighLevel (GoHighLevel) course for offline access")
+  .option("--skip-videos", "Skip video downloads (only save text content)")
+  .option("--skip-content", "Skip text content (only download videos)")
+  .option("--dry-run", "Scan course structure without downloading")
+  .option("--limit <n>", "Limit to first N lessons (for testing)", parseInt)
+  .option("--visible", "Show browser window (default: headless)")
+  .option("-q, --quality <quality>", "Preferred video quality (e.g., 720p, 1080p)")
+  .option("--course-name <name>", "Override detected course name")
+  .action(syncHighLevelCommand);
 
 // Status command
 program
@@ -68,15 +104,9 @@ program
 // Config commands
 const configCmd = program.command("config").description("Manage configuration");
 
-configCmd
-  .command("show")
-  .description("Show all configuration values")
-  .action(configShowCommand);
+configCmd.command("show").description("Show all configuration values").action(configShowCommand);
 
-configCmd
-  .command("get <key>")
-  .description("Get a configuration value")
-  .action(configGetCommand);
+configCmd.command("get <key>").description("Get a configuration value").action(configGetCommand);
 
 configCmd
   .command("set <key> <value>")
@@ -85,4 +115,3 @@ configCmd
 
 // Parse and run
 program.parse();
-

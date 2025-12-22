@@ -1,12 +1,24 @@
 import { downloadFile, downloadLoomVideo, type DownloadProgress } from "./loomDownloader.js";
 import { downloadVimeoVideo } from "./vimeoDownloader.js";
+import { downloadHighLevelVideo, downloadHLSVideo } from "./hlsDownloader.js";
 
 export interface VideoDownloadTask {
   lessonId: number;
   lessonName: string;
   videoUrl: string;
-  videoType: "loom" | "vimeo" | "youtube" | "wistia" | "native" | "unknown" | null;
+  videoType:
+    | "loom"
+    | "vimeo"
+    | "youtube"
+    | "wistia"
+    | "native"
+    | "hls"
+    | "highlevel"
+    | "unknown"
+    | null;
   outputPath: string;
+  /** Optional preferred quality (e.g., "720p", "1080p") */
+  preferredQuality?: string | undefined;
 }
 
 export interface DownloadResult {
@@ -23,7 +35,7 @@ export async function downloadVideo(
   task: VideoDownloadTask,
   onProgress?: (progress: DownloadProgress) => void
 ): Promise<DownloadResult> {
-  const { videoUrl, videoType, outputPath } = task;
+  const { videoUrl, videoType, outputPath, preferredQuality } = task;
 
   switch (videoType) {
     case "loom":
@@ -35,6 +47,14 @@ export async function downloadVideo(
     case "native":
       // Direct MP4/WebM URL - download directly
       return downloadFile(videoUrl, outputPath, onProgress);
+
+    case "hls":
+      // Generic HLS stream
+      return downloadHLSVideo(videoUrl, outputPath, onProgress);
+
+    case "highlevel":
+      // HighLevel HLS video with quality selection
+      return downloadHighLevelVideo(videoUrl, outputPath, preferredQuality, onProgress);
 
     case "youtube":
     case "wistia":
@@ -51,6 +71,10 @@ export async function downloadVideo(
       if (/\.(mp4|webm|mov)(\?|$)/i.exec(videoUrl)) {
         return downloadFile(videoUrl, outputPath, onProgress);
       }
+      // Try HLS if it looks like a playlist
+      if (/\.m3u8(\?|$)/i.exec(videoUrl)) {
+        return downloadHLSVideo(videoUrl, outputPath, onProgress);
+      }
       return {
         success: false,
         error: `Unknown video type. URL: ${videoUrl}`,
@@ -58,8 +82,38 @@ export async function downloadVideo(
   }
 }
 
-export { downloadFile, downloadLoomVideo, extractLoomId, getLoomVideoInfoDetailed, type DownloadProgress, type LoomFetchResult } from "./loomDownloader.js";
-export { downloadVimeoVideo, extractVimeoId, getVimeoVideoInfo, getVimeoVideoInfoFromBrowser, type VimeoDownloadResult, type VimeoFetchResult, type VimeoVideoInfo } from "./vimeoDownloader.js";
+export {
+  downloadFile,
+  downloadLoomVideo,
+  extractLoomId,
+  getLoomVideoInfoDetailed,
+  type DownloadProgress,
+  type LoomFetchResult,
+} from "./loomDownloader.js";
+export {
+  downloadVimeoVideo,
+  extractVimeoId,
+  getVimeoVideoInfo,
+  getVimeoVideoInfoFromBrowser,
+  type VimeoDownloadResult,
+  type VimeoFetchResult,
+  type VimeoVideoInfo,
+} from "./vimeoDownloader.js";
 export { AsyncQueue, type QueueItem, type QueueOptions } from "./queue.js";
-export { validateLoomHls, validateVideoHls, validateVimeoVideo, type HlsValidationResult } from "./hlsValidator.js";
-
+export {
+  validateLoomHls,
+  validateVideoHls,
+  validateVimeoVideo,
+  type HlsValidationResult,
+} from "./hlsValidator.js";
+export {
+  checkFfmpeg,
+  downloadHighLevelVideo,
+  downloadHLSVideo,
+  fetchHLSQualities,
+  getBestQualityUrl,
+  parseHighLevelVideoUrl,
+  parseHLSPlaylist,
+  type HLSDownloadResult,
+  type HLSQuality,
+} from "./hlsDownloader.js";
