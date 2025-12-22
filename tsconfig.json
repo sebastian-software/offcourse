@@ -23,6 +23,6 @@
     "isolatedModules": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/__fixtures__"]
+  "exclude": ["node_modules", "dist"]
 }
 

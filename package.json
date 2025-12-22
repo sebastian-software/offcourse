@@ -18,7 +18,7 @@
   },
   "homepage": "https://offcourse.app",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "dev": "tsc --watch",
     "start": "node dist/cli/index.js",
     "lint": "eslint src",
