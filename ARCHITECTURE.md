@@ -7,7 +7,8 @@ Offcourse is a modular CLI tool for downloading online courses. The architecture
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                         CLI Layer                           │
-│  (commands: login, sync, sync-skool, sync-highlevel, etc.) │
+│  (commands: login, sync, sync-skool, sync-highlevel,       │
+│   sync-learningsuite, etc.)                                 │
 └─────────────────────────────────────────────────────────────┘
                               │
           ┌───────────────────┼───────────────────┐
@@ -36,7 +37,8 @@ src/
 │       ├── inspect.ts      # Page analysis for debugging
 │       ├── login.ts        # Authentication flow
 │       ├── sync.ts         # Skool download orchestration
-│       └── syncHighLevel.ts # HighLevel download orchestration
+│       ├── syncHighLevel.ts # HighLevel download orchestration
+│       └── syncLearningSuite.ts # LearningSuite download orchestration
 │
 ├── config/                 # Configuration management
 │   ├── schema.ts           # Zod schemas for all config types
@@ -79,6 +81,7 @@ Handles user interaction via Commander.js. Each command is a separate module.
 - **sync**: Auto-detects platform and delegates to appropriate handler
 - **sync-skool**: Skool-specific sync (uses `sync.ts`)
 - **sync-highlevel**: HighLevel-specific sync (uses `syncHighLevel.ts`)
+- **sync-learningsuite**: LearningSuite-specific sync (uses `syncLearningSuite.ts`)
 - **inspect**: Debug tool for analyzing page structure
 - **config**: Read/write configuration values
 
@@ -98,6 +101,12 @@ Platform-specific logic for extracting course content.
 - **auth.ts**: Firebase authentication, session management with token refresh
 - **navigator.ts**: Extracts course structure via API interception
 - **extractor.ts**: Extracts HLS video URLs, embedded videos (Vimeo, Loom), and content
+
+#### LearningSuite Scraper (`src/scraper/learningsuite/`)
+
+- **navigator.ts**: Course structure extraction via GraphQL API
+- **extractor.ts**: Video/content extraction (HLS, Vimeo, Loom, native)
+- **schemas.ts**: Zod schemas for GraphQL responses
 
 To add a new platform, create a new directory under `src/scraper/` with the same interfaces.
 
@@ -140,7 +149,7 @@ Centralized configuration with Zod validation.
 1. User runs: offcourse sync <url>
                     │
 2. Auto-detect      │
-   platform ────────────► Skool? HighLevel? Unknown?
+   platform ────────────► Skool? LearningSuite? HighLevel? Unknown?
                     │
 3. Load config      │
                     ▼
@@ -172,6 +181,14 @@ Centralized configuration with Zod validation.
 - **Structure**: API-based extraction (`services.leadconnectorhq.com`)
 - **Videos**: Native HLS streams, Vimeo, Loom embeds
 - **Special**: Requires ffmpeg for native video downloads
+
+### LearningSuite
+
+- **Auth**: Custom session-based, browser login
+- **Structure**: GraphQL API (`api.learningsuite.io/{tenantId}/graphql`)
+- **Videos**: HLS streams, Vimeo, Loom, native video elements
+- **URL Pattern**: `{subdomain}.learningsuite.io/student/course/{courseId}`
+- **Tenant ID**: Extracted from subdomain or API responses
 
 ## Adding a New Platform
 

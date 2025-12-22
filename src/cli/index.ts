@@ -11,6 +11,11 @@ import {
   isHighLevelPortal,
   type SyncHighLevelOptions,
 } from "./commands/syncHighLevel.js";
+import {
+  syncLearningSuiteCommand,
+  isLearningSuitePortal,
+  type SyncLearningSuiteOptions,
+} from "./commands/syncLearningSuite.js";
 
 const program = new Command();
 
@@ -42,10 +47,12 @@ program
   .option("--visible", "Show browser window (default: headless)")
   .option("-q, --quality <quality>", "Preferred video quality (e.g., 720p, 1080p)")
   .option("--course-name <name>", "Override detected course name")
-  .action((url: string, options: SyncOptions & SyncHighLevelOptions) => {
+  .action((url: string, options: SyncOptions & SyncHighLevelOptions & SyncLearningSuiteOptions) => {
     // Auto-detect platform
     if (url.includes("skool.com")) {
       return syncCommand(url, options);
+    } else if (isLearningSuitePortal(url)) {
+      return syncLearningSuiteCommand(url, options);
     } else if (isHighLevelPortal(url)) {
       return syncHighLevelCommand(url, options);
     } else {
@@ -80,6 +87,19 @@ program
   .option("-q, --quality <quality>", "Preferred video quality (e.g., 720p, 1080p)")
   .option("--course-name <name>", "Override detected course name")
   .action(syncHighLevelCommand);
+
+// Explicit LearningSuite sync command
+program
+  .command("sync-learningsuite <url>")
+  .description("Download a LearningSuite course for offline access")
+  .option("--skip-videos", "Skip video downloads (only save text content)")
+  .option("--skip-content", "Skip text content (only download videos)")
+  .option("--dry-run", "Scan course structure without downloading")
+  .option("--limit <n>", "Limit to first N lessons (for testing)", parseInt)
+  .option("--visible", "Show browser window (default: headless)")
+  .option("-q, --quality <quality>", "Preferred video quality (e.g., 720p, 1080p)")
+  .option("--course-name <name>", "Override detected course name")
+  .action(syncLearningSuiteCommand);
 
 // Status command
 program

@@ -27,7 +27,7 @@ Saves video content and lesson text as Markdown files, organized by module struc
 |----------|--------|-------|
 | [Skool.com](https://skool.com) | ✅ Supported | Community courses |
 | [HighLevel (GoHighLevel)](https://gohighlevel.com) | ✅ Supported | Membership portals, ClientClub |
-| [LearningSuite.io](https://learningsuite.io) | 🚧 Planned | |
+| [LearningSuite.io](https://learningsuite.io) | ✅ Supported | German LMS platform |
 
 ## Installation
 
@@ -104,6 +104,9 @@ offcourse sync-skool https://www.skool.com/your-community/classroom
 # HighLevel/GoHighLevel membership portals
 offcourse sync-highlevel https://member.example.com/courses/products/<id>
 offcourse sync-highlevel <url> --course-name "Course Name"
+
+# LearningSuite courses
+offcourse sync-learningsuite https://subdomain.learningsuite.io/student/course/<id>
 ```
 
 ### Configuration
@@ -169,6 +172,17 @@ Common HighLevel portal URLs:
 - `https://member.yourdomain.com/courses/...`
 - `https://portal.yourdomain.com/courses/...`
 - `https://courses.yourdomain.com/...`
+
+### LearningSuite
+
+LearningSuite is a German LMS platform popular with coaches and course creators. Offcourse supports:
+
+- **Authentication**: Browser-based login
+- **Course structure**: Extracts courses, modules, and lessons via GraphQL API
+- **Video downloads**: HLS streams, embedded videos (Vimeo, Loom)
+- **Attachments**: Downloads PDFs and other course materials
+
+URL format: `https://{subdomain}.learningsuite.io/student/course/{courseId}`
 
 ## Development
 
