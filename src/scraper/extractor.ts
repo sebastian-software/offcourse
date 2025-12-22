@@ -47,7 +47,6 @@ turndown.addRule("links", {
   },
 });
 
-
 /**
  * Checks if there's a video preview/thumbnail that needs to be clicked to load the video.
  */
@@ -63,7 +62,7 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
       const rect = playbackButton.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
         playbackButton.click();
-        return { clicked: true, selector: 'PlaybackButton' };
+        return { clicked: true, selector: "PlaybackButton" };
       }
     }
 
@@ -73,7 +72,7 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
       const rect = videoWrapper.getBoundingClientRect();
       if (rect.width > 200 && rect.height > 100) {
         videoWrapper.click();
-        return { clicked: true, selector: 'VideoPlayerWrapper' };
+        return { clicked: true, selector: "VideoPlayerWrapper" };
       }
     }
 
@@ -81,7 +80,7 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
     const styledVideo = document.querySelector('[class*="styled__Video"]');
     if (styledVideo && styledVideo instanceof HTMLElement) {
       styledVideo.click();
-      return { clicked: true, selector: 'styled__Video' };
+      return { clicked: true, selector: "styled__Video" };
     }
 
     return { clicked: false };
@@ -90,9 +89,12 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
   if (skoolClicked.clicked) {
     // Wait for iframe to appear after click
     try {
-      await page.waitForSelector('iframe[src*="loom.com"], iframe[src*="vimeo"], iframe[src*="youtube"], video', {
-        timeout: 5000,
-      });
+      await page.waitForSelector(
+        'iframe[src*="loom.com"], iframe[src*="vimeo"], iframe[src*="youtube"], video',
+        {
+          timeout: 5000,
+        }
+      );
     } catch {
       // Timeout is fine, we'll check for video anyway
     }
@@ -121,9 +123,9 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
     }
 
     // Look for elements with loom-related classes or data
-    const loomElements = Array.from(document.querySelectorAll(
-      '[class*="loom"], [data-loom], [data-video-provider="loom"]'
-    ));
+    const loomElements = Array.from(
+      document.querySelectorAll('[class*="loom"], [data-loom], [data-video-provider="loom"]')
+    );
     for (const el of loomElements) {
       if (el instanceof HTMLElement) {
         const rect = el.getBoundingClientRect();
@@ -145,9 +147,11 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
   // Strategy 2: Look for play button overlays on large elements
   const playClicked = await page.evaluate(() => {
     // Find all elements that look like play buttons (including styled-components patterns)
-    const playButtons = Array.from(document.querySelectorAll(
-      '[class*="play" i], [class*="Play"], [class*="Playback"], svg[class*="play" i], [aria-label*="play" i]'
-    ));
+    const playButtons = Array.from(
+      document.querySelectorAll(
+        '[class*="play" i], [class*="Play"], [class*="Playback"], svg[class*="play" i], [aria-label*="play" i]'
+      )
+    );
 
     for (const btn of playButtons) {
       if (btn instanceof HTMLElement || btn instanceof SVGElement) {
@@ -164,7 +168,7 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
                 btn.click();
               } else {
                 // For SVG, try to click the parent
-                (parent).click();
+                parent.click();
               }
               return true;
             }
@@ -184,7 +188,7 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
   // Strategy 3: Look for large clickable images/thumbnails
   const thumbnailClicked = await page.evaluate(() => {
     // Find large images that might be video thumbnails
-    const images = Array.from(document.querySelectorAll('img'));
+    const images = Array.from(document.querySelectorAll("img"));
 
     for (const img of images) {
       const rect = img.getBoundingClientRect();
@@ -194,8 +198,8 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
         const parent = img.parentElement;
         if (parent) {
           const hasPLay = parent.querySelector('[class*="play" i], svg');
-          if (hasPLay || parent.className.toLowerCase().includes('video')) {
-            (parent).click();
+          if (hasPLay || parent.className.toLowerCase().includes("video")) {
+            parent.click();
             return true;
           }
         }
@@ -225,9 +229,9 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
     '[class*="video-thumbnail"]',
     '[class*="poster"]',
     // Data attribute patterns
-    '[data-video-id]',
-    '[data-video-url]',
-    '[data-embed]',
+    "[data-video-id]",
+    "[data-video-url]",
+    "[data-embed]",
   ];
 
   for (const selector of previewSelectors) {
@@ -346,7 +350,7 @@ async function extractVideoFromNextData(
   page: Page
 ): Promise<{ url: string | null; type: LessonContent["videoType"] }> {
   const videoInfo = await page.evaluate(() => {
-    const nextDataScript = document.querySelector('#__NEXT_DATA__');
+    const nextDataScript = document.querySelector("#__NEXT_DATA__");
     if (!nextDataScript?.textContent) {
       return { url: null, type: null };
     }
@@ -362,7 +366,7 @@ async function extractVideoFromNextData(
 
       // Verify this matches the current URL (detect stale __NEXT_DATA__ from SPA navigation)
       const urlParams = new URLSearchParams(window.location.search);
-      const urlModuleId = urlParams.get('md');
+      const urlModuleId = urlParams.get("md");
       if (urlModuleId && urlModuleId !== selectedModule) {
         // __NEXT_DATA__ is stale (SPA navigation happened), don't trust it
         return { url: null, type: null };
@@ -379,18 +383,18 @@ async function extractVideoFromNextData(
 
           if (videoLink) {
             // Determine video type from URL
-            if (videoLink.includes('loom.com')) {
+            if (videoLink.includes("loom.com")) {
               // Convert share URL to embed URL if needed
-              const embedUrl = videoLink.replace('/share/', '/embed/').split('?')[0];
+              const embedUrl = videoLink.replace("/share/", "/embed/").split("?")[0];
               return { url: embedUrl, type: "loom" as const };
             }
-            if (videoLink.includes('vimeo.com')) {
+            if (videoLink.includes("vimeo.com")) {
               return { url: videoLink, type: "vimeo" as const };
             }
-            if (videoLink.includes('youtube.com') || videoLink.includes('youtu.be')) {
+            if (videoLink.includes("youtube.com") || videoLink.includes("youtu.be")) {
               return { url: videoLink, type: "youtube" as const };
             }
-            if (videoLink.includes('wistia')) {
+            if (videoLink.includes("wistia")) {
               return { url: videoLink, type: "wistia" as const };
             }
             // Unknown but has video link
@@ -433,7 +437,7 @@ async function findVideoInPage(
     }
 
     // Check for Loom data attributes
-    const loomEmbed = document.querySelector('[data-loom-id]');
+    const loomEmbed = document.querySelector("[data-loom-id]");
     if (loomEmbed) {
       const loomId = loomEmbed.getAttribute("data-loom-id");
       if (loomId) {
@@ -442,12 +446,12 @@ async function findVideoInPage(
     }
 
     // Check for Loom URLs in any element's attributes or content
-    const allElements = Array.from(document.querySelectorAll('*'));
+    const allElements = Array.from(document.querySelectorAll("*"));
     for (const el of allElements) {
       // Check data attributes
       const attrs = Array.from(el.attributes);
       for (const attr of attrs) {
-        if (attr.value.includes('loom.com/share/') || attr.value.includes('loom.com/embed/')) {
+        if (attr.value.includes("loom.com/share/") || attr.value.includes("loom.com/embed/")) {
           const match = /loom\.com\/(share|embed)\/([a-f0-9]+)/.exec(attr.value);
           if (match?.[2]) {
             return { url: `https://www.loom.com/embed/${match[2]}`, type: "loom" as const };
@@ -513,9 +517,9 @@ async function findVideoInPage(
     }
 
     // Try to find explicit Loom video IDs in script tags
-    const scripts = Array.from(document.querySelectorAll('script'));
+    const scripts = Array.from(document.querySelectorAll("script"));
     for (const script of scripts) {
-      const content = script.textContent ?? '';
+      const content = script.textContent ?? "";
 
       // Look for explicit loom URL patterns in scripts
       const loomUrlMatch = /loom\.com\/(share|embed)\/([a-f0-9]{32})/.exec(content);
@@ -562,7 +566,9 @@ export async function extractTextContent(page: Page): Promise<{ html: string; ma
         const unwanted = clone.querySelectorAll(
           "script, style, nav, [class*='video'], [class*='Video'], iframe, [class*='player'], [class*='Player']"
         );
-        unwanted.forEach((el) => { el.remove(); });
+        unwanted.forEach((el) => {
+          el.remove();
+        });
 
         return clone.innerHTML;
       }
@@ -578,7 +584,9 @@ export async function extractTextContent(page: Page): Promise<{ html: string; ma
       const unwanted = clone.querySelectorAll(
         "script, style, nav, header, [class*='video'], [class*='Video'], iframe, [class*='Sidebar'], [class*='sidebar']"
       );
-      unwanted.forEach((el) => { el.remove(); });
+      unwanted.forEach((el) => {
+        el.remove();
+      });
 
       // Get remaining text content
       const textContent = clone.innerHTML;
@@ -600,18 +608,25 @@ export async function extractTextContent(page: Page): Promise<{ html: string; ma
  */
 const DOWNLOADABLE_EXTENSIONS = [
   "pdf",
-  "doc", "docx",
-  "xls", "xlsx",
-  "ppt", "pptx",
-  "zip", "rar", "7z",
-  "txt", "csv",
-  "epub", "mobi",
+  "doc",
+  "docx",
+  "xls",
+  "xlsx",
+  "ppt",
+  "pptx",
+  "zip",
+  "rar",
+  "7z",
+  "txt",
+  "csv",
+  "epub",
+  "mobi",
 ] as const;
 
 /**
  * Gets the file type from extension.
  */
-function getFileType(ext: string): DownloadableFile["type"] {
+export function getFileType(ext: string): DownloadableFile["type"] {
   const lowerExt = ext.toLowerCase();
   if (lowerExt === "pdf") return "pdf";
   if (lowerExt === "doc") return "doc";
@@ -628,49 +643,52 @@ function getFileType(ext: string): DownloadableFile["type"] {
  * Extracts downloadable file links from the page content.
  */
 export async function extractDownloadableFiles(page: Page): Promise<DownloadableFile[]> {
-  const files = await page.evaluate((extensions) => {
-    const results: Array<{ url: string; filename: string; ext: string }> = [];
-    const seen = new Set<string>();
+  const files = await page.evaluate(
+    (extensions) => {
+      const results: Array<{ url: string; filename: string; ext: string }> = [];
+      const seen = new Set<string>();
 
-    // Find all links in the page
-    const links = document.querySelectorAll("a[href]");
+      // Find all links in the page
+      const links = document.querySelectorAll("a[href]");
 
-    for (const link of Array.from(links)) {
-      const href = (link as HTMLAnchorElement).href;
-      if (!href || seen.has(href)) continue;
+      for (const link of Array.from(links)) {
+        const href = (link as HTMLAnchorElement).href;
+        if (!href || seen.has(href)) continue;
 
-      // Check if the URL ends with a downloadable extension
-      const urlWithoutQuery = href.split("?")[0] ?? href;
-      const ext = urlWithoutQuery.split(".").pop()?.toLowerCase() ?? "";
+        // Check if the URL ends with a downloadable extension
+        const urlWithoutQuery = href.split("?")[0] ?? href;
+        const ext = urlWithoutQuery.split(".").pop()?.toLowerCase() ?? "";
 
-      if (extensions.includes(ext)) {
-        seen.add(href);
+        if (extensions.includes(ext)) {
+          seen.add(href);
 
-        // Try to get filename from link text, download attribute, or URL
-        let filename = (link as HTMLAnchorElement).download;
-        if (!filename) {
-          filename = link.textContent?.trim() ?? "";
+          // Try to get filename from link text, download attribute, or URL
+          let filename = (link as HTMLAnchorElement).download;
+          if (!filename) {
+            filename = link.textContent?.trim() ?? "";
+          }
+          if (!filename || filename.length > 100) {
+            // Extract from URL
+            const urlParts = urlWithoutQuery.split("/");
+            filename = urlParts[urlParts.length - 1] ?? `file.${ext}`;
+          }
+
+          // Ensure filename has the correct extension
+          if (!filename.toLowerCase().endsWith(`.${ext}`)) {
+            filename = `${filename}.${ext}`;
+          }
+
+          // Sanitize filename
+          filename = filename.replace(/[<>:"/\\|?*]/g, "_").trim();
+
+          results.push({ url: href, filename, ext });
         }
-        if (!filename || filename.length > 100) {
-          // Extract from URL
-          const urlParts = urlWithoutQuery.split("/");
-          filename = urlParts[urlParts.length - 1] ?? `file.${ext}`;
-        }
-
-        // Ensure filename has the correct extension
-        if (!filename.toLowerCase().endsWith(`.${ext}`)) {
-          filename = `${filename}.${ext}`;
-        }
-
-        // Sanitize filename
-        filename = filename.replace(/[<>:"/\\|?*]/g, "_").trim();
-
-        results.push({ url: href, filename, ext });
       }
-    }
 
-    return results;
-  }, DOWNLOADABLE_EXTENSIONS as unknown as string[]);
+      return results;
+    },
+    DOWNLOADABLE_EXTENSIONS as unknown as string[]
+  );
 
   return files.map((f) => ({
     url: f.url,
@@ -729,7 +747,9 @@ export function formatMarkdown(
   const lines = [`# ${title}`, ""];
 
   if (videoUrl) {
-    const videoLabel = videoType ? `${videoType.charAt(0).toUpperCase()}${videoType.slice(1)}` : "Video";
+    const videoLabel = videoType
+      ? `${videoType.charAt(0).toUpperCase()}${videoType.slice(1)}`
+      : "Video";
     lines.push(`> 📺 ${videoLabel}: ${videoUrl}`, "");
   }
 

@@ -262,7 +262,7 @@ export async function extractModulesFromPage(page: Page): Promise<CourseModule[]
 /**
  * Checks if a URL points to a specific module (has 8-char hex slug).
  */
-function isModuleUrl(url: string): { isModule: boolean; moduleSlug: string | null } {
+export function isModuleUrl(url: string): { isModule: boolean; moduleSlug: string | null } {
   const match = /\/classroom\/([a-f0-9]{8})(?:\?|$)/.exec(url);
   return {
     isModule: !!match,
@@ -273,7 +273,7 @@ function isModuleUrl(url: string): { isModule: boolean; moduleSlug: string | nul
 /**
  * Gets the classroom base URL (without module slug).
  */
-function getClassroomBaseUrl(url: string): string {
+export function getClassroomBaseUrl(url: string): string {
   // Remove module slug and query params
   return url.replace(/\/classroom\/[a-f0-9]{8}.*$/, "/classroom");
 }

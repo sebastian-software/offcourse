@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createFolderName, slugify } from "./navigator.js";
+import { createFolderName, slugify, isModuleUrl, getClassroomBaseUrl } from "./navigator.js";
 
 describe("slugify", () => {
   it("converts to lowercase", () => {
@@ -73,5 +73,50 @@ describe("createFolderName", () => {
 
   it("handles empty name", () => {
     expect(createFolderName(0, "")).toBe("01-");
+  });
+});
+
+describe("isModuleUrl", () => {
+  it("detects module URL with 8-char hex slug", () => {
+    const result = isModuleUrl("https://www.skool.com/community/classroom/a1b2c3d4");
+    expect(result).toEqual({ isModule: true, moduleSlug: "a1b2c3d4" });
+  });
+
+  it("detects module URL with query params", () => {
+    const result = isModuleUrl("https://www.skool.com/community/classroom/deadbeef?md=abc");
+    expect(result).toEqual({ isModule: true, moduleSlug: "deadbeef" });
+  });
+
+  it("returns false for classroom root", () => {
+    const result = isModuleUrl("https://www.skool.com/community/classroom");
+    expect(result).toEqual({ isModule: false, moduleSlug: null });
+  });
+
+  it("returns false for non-classroom URLs", () => {
+    const result = isModuleUrl("https://www.skool.com/community/about");
+    expect(result).toEqual({ isModule: false, moduleSlug: null });
+  });
+
+  it("only matches valid hex slugs", () => {
+    // "zzzzzzzz" is not hex
+    const result = isModuleUrl("https://www.skool.com/community/classroom/zzzzzzzz");
+    expect(result).toEqual({ isModule: false, moduleSlug: null });
+  });
+});
+
+describe("getClassroomBaseUrl", () => {
+  it("removes module slug from URL", () => {
+    const result = getClassroomBaseUrl("https://www.skool.com/community/classroom/a1b2c3d4");
+    expect(result).toBe("https://www.skool.com/community/classroom");
+  });
+
+  it("removes module slug and query params", () => {
+    const result = getClassroomBaseUrl("https://www.skool.com/community/classroom/a1b2c3d4?md=xyz");
+    expect(result).toBe("https://www.skool.com/community/classroom");
+  });
+
+  it("keeps URL unchanged if no module slug", () => {
+    const result = getClassroomBaseUrl("https://www.skool.com/community/classroom");
+    expect(result).toBe("https://www.skool.com/community/classroom");
   });
 });

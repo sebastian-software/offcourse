@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractLoomVideoId, formatMarkdown } from "./extractor.js";
+import { extractLoomVideoId, formatMarkdown, getFileType } from "./extractor.js";
 
 describe("extractLoomVideoId", () => {
   it("extracts ID from embed URL", () => {
@@ -80,5 +80,45 @@ describe("formatMarkdown", () => {
   it("trims final result", () => {
     const result = formatMarkdown("Test", "Content   ", null, null);
     expect(result).not.toMatch(/\s+$/);
+  });
+});
+
+describe("getFileType", () => {
+  it("identifies PDF files", () => {
+    expect(getFileType("pdf")).toBe("pdf");
+    expect(getFileType("PDF")).toBe("pdf");
+  });
+
+  it("identifies Word documents", () => {
+    expect(getFileType("doc")).toBe("doc");
+    expect(getFileType("docx")).toBe("docx");
+  });
+
+  it("identifies Excel files", () => {
+    expect(getFileType("xls")).toBe("xls");
+    expect(getFileType("xlsx")).toBe("xlsx");
+  });
+
+  it("identifies PowerPoint files", () => {
+    expect(getFileType("ppt")).toBe("ppt");
+    expect(getFileType("pptx")).toBe("pptx");
+  });
+
+  it("identifies archive files", () => {
+    expect(getFileType("zip")).toBe("zip");
+    expect(getFileType("rar")).toBe("zip");
+    expect(getFileType("7z")).toBe("zip");
+  });
+
+  it("returns other for unknown extensions", () => {
+    expect(getFileType("txt")).toBe("other");
+    expect(getFileType("jpg")).toBe("other");
+    expect(getFileType("mp4")).toBe("other");
+  });
+
+  it("is case-insensitive", () => {
+    expect(getFileType("PDF")).toBe("pdf");
+    expect(getFileType("DOCX")).toBe("docx");
+    expect(getFileType("ZIP")).toBe("zip");
   });
 });
