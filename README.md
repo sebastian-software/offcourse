@@ -273,6 +273,20 @@ npm run release -- --minor
 npm run release -- --major
 ```
 
+## Acknowledgments
+
+A huge thank you to [Sindre Sorhus](https://github.com/sindresorhus) 🙏 for creating and maintaining so many excellent packages that power this project:
+
+- [`@sindresorhus/slugify`](https://github.com/sindresorhus/slugify) – Slugify a string
+- [`conf`](https://github.com/sindresorhus/conf) – Simple config handling
+- [`delay`](https://github.com/sindresorhus/delay) – Delay a promise
+- [`execa`](https://github.com/sindresorhus/execa) – Process execution for humans
+- [`ky`](https://github.com/sindresorhus/ky) – Tiny & elegant HTTP client
+- [`p-queue`](https://github.com/sindresorhus/p-queue) – Promise queue with concurrency control
+- [`p-retry`](https://github.com/sindresorhus/p-retry) – Retry a promise-returning function
+
+His commitment to high-quality, well-documented, and beautifully designed open source software is truly inspiring. If you find his work useful, consider [sponsoring him](https://github.com/sponsors/sindresorhus).
+
 ## License
 
 MIT
