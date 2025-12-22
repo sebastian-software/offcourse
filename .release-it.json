@@ -13,19 +13,7 @@
   },
   "plugins": {
     "@release-it/conventional-changelog": {
-      "preset": {
-        "name": "conventionalcommits",
-        "types": [
-          { "type": "feat", "section": "Features" },
-          { "type": "fix", "section": "Bug Fixes" },
-          { "type": "perf", "section": "Performance" },
-          { "type": "refactor", "section": "Refactoring" },
-          { "type": "docs", "section": "Documentation" },
-          { "type": "chore", "section": "Maintenance" },
-          { "type": "test", "section": "Tests" },
-          { "type": "ci", "section": "CI/CD" }
-        ]
-      },
+      "preset": "conventionalcommits",
       "infile": "CHANGELOG.md"
     }
   },
@@ -33,4 +21,3 @@
     "before:init": ["npm run lint", "npm run typecheck", "npm test run"]
   }
 }
-
