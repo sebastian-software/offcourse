@@ -43,6 +43,28 @@ export function createLoginChecker(
 }
 
 /**
+ * Skool-specific login page checker.
+ */
+export const isSkoolLoginPage = createLoginChecker([/\/login/, /accounts\.google\.com/]);
+
+/**
+ * HighLevel-specific login page checker.
+ */
+export const isHighLevelLoginPage = createLoginChecker([
+  /sso\.clientclub\.net/,
+  /\/login/,
+  /\/signin/,
+  /\/auth/,
+  /accounts\.google\.com/,
+  /firebaseapp\.com/,
+]);
+
+// ============================================
+// Browser automation - not unit testable
+// ============================================
+/* v8 ignore start */
+
+/**
  * Checks if a valid session exists for the given domain.
  */
 export async function hasValidSession(domain: string): Promise<boolean> {
@@ -219,10 +241,6 @@ export async function clearSession(domain: string): Promise<boolean> {
   return removeFile(sessionPath);
 }
 
-// ============================================
-// Platform-specific helpers
-// ============================================
-
 /**
  * Checks if the page has a valid Firebase auth token.
  * Used by HighLevel/GoHighLevel portals.
@@ -247,19 +265,4 @@ export async function hasValidFirebaseToken(page: Page): Promise<boolean> {
   }
 }
 
-/**
- * Skool-specific login page checker.
- */
-export const isSkoolLoginPage = createLoginChecker([/\/login/, /accounts\.google\.com/]);
-
-/**
- * HighLevel-specific login page checker.
- */
-export const isHighLevelLoginPage = createLoginChecker([
-  /sso\.clientclub\.net/,
-  /\/login/,
-  /\/signin/,
-  /\/auth/,
-  /accounts\.google\.com/,
-  /firebaseapp\.com/,
-]);
+/* v8 ignore stop */

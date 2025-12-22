@@ -9,6 +9,59 @@ import { createFolderName } from "../scraper/navigator.js";
 import { ensureDir, outputFile, pathExists, readJson, outputJson } from "../shared/fs.js";
 import { http } from "../shared/http.js";
 
+// ============================================
+// Pure functions - testable without mocking
+// ============================================
+
+/**
+ * Gets the base filename for a lesson (without extension).
+ * Format: "01-lesson-name"
+ */
+export function getLessonBasename(lessonIndex: number, lessonName: string): string {
+  return createFolderName(lessonIndex, lessonName);
+}
+
+/**
+ * Gets the video file path for a lesson.
+ * Videos are stored directly in the module directory with lesson name.
+ */
+export function getVideoPath(moduleDir: string, lessonIndex: number, lessonName: string): string {
+  return join(moduleDir, `${getLessonBasename(lessonIndex, lessonName)}.mp4`);
+}
+
+/**
+ * Gets the markdown file path for a lesson.
+ * Markdown files are stored directly in the module directory with lesson name.
+ */
+export function getMarkdownPath(
+  moduleDir: string,
+  lessonIndex: number,
+  lessonName: string
+): string {
+  return join(moduleDir, `${getLessonBasename(lessonIndex, lessonName)}.md`);
+}
+
+/**
+ * Gets the path for a downloadable file.
+ * Files are stored in the module directory with lesson prefix.
+ */
+export function getDownloadFilePath(
+  moduleDir: string,
+  lessonIndex: number,
+  lessonName: string,
+  filename: string
+): string {
+  const lessonPrefix = getLessonBasename(lessonIndex, lessonName);
+  // Sanitize filename
+  const safeFilename = filename.replace(/[<>:"/\\|?*]/g, "_");
+  return join(moduleDir, `${lessonPrefix}-${safeFilename}`);
+}
+
+// ============================================
+// I/O functions - require filesystem access
+// ============================================
+/* v8 ignore start */
+
 /**
  * Creates the output directory structure for a course.
  */
@@ -36,14 +89,6 @@ export async function createModuleDirectory(
 }
 
 /**
- * Gets the base filename for a lesson (without extension).
- * Format: "01-lesson-name"
- */
-export function getLessonBasename(lessonIndex: number, lessonName: string): string {
-  return createFolderName(lessonIndex, lessonName);
-}
-
-/**
  * Saves markdown content to a file.
  */
 export async function saveMarkdown(
@@ -54,26 +99,6 @@ export async function saveMarkdown(
   const filePath = join(directory, filename);
   await outputFile(filePath, content);
   return filePath;
-}
-
-/**
- * Gets the video file path for a lesson.
- * Videos are stored directly in the module directory with lesson name.
- */
-export function getVideoPath(moduleDir: string, lessonIndex: number, lessonName: string): string {
-  return join(moduleDir, `${getLessonBasename(lessonIndex, lessonName)}.mp4`);
-}
-
-/**
- * Gets the markdown file path for a lesson.
- * Markdown files are stored directly in the module directory with lesson name.
- */
-export function getMarkdownPath(
-  moduleDir: string,
-  lessonIndex: number,
-  lessonName: string
-): string {
-  return join(moduleDir, `${getLessonBasename(lessonIndex, lessonName)}.md`);
 }
 
 /**
@@ -118,22 +143,6 @@ export async function isLessonSynced(
 }
 
 /**
- * Gets the path for a downloadable file.
- * Files are stored in the module directory with lesson prefix.
- */
-export function getDownloadFilePath(
-  moduleDir: string,
-  lessonIndex: number,
-  lessonName: string,
-  filename: string
-): string {
-  const lessonPrefix = getLessonBasename(lessonIndex, lessonName);
-  // Sanitize filename
-  const safeFilename = filename.replace(/[<>:"/\\|?*]/g, "_");
-  return join(moduleDir, `${lessonPrefix}-${safeFilename}`);
-}
-
-/**
  * Downloads a file from a URL to the specified path.
  */
 export async function downloadFile(
@@ -162,3 +171,5 @@ export async function downloadFile(
     return { success: false, error: String(error) };
   }
 }
+
+/* v8 ignore stop */
