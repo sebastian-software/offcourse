@@ -1,4 +1,9 @@
 import type { Page } from "playwright";
+import {
+  parseNextData,
+  extractModulesFromNextData,
+  extractLessonAccessFromNextData,
+} from "./schemas.js";
 
 export interface CourseModule {
   name: string;
@@ -18,7 +23,7 @@ export interface Lesson {
 export interface CourseStructure {
   name: string;
   url: string;
-  modules: Array<CourseModule & { lessons: Lesson[] }>;
+  modules: (CourseModule & { lessons: Lesson[] })[];
 }
 
 // Browser automation - requires Playwright
@@ -39,44 +44,31 @@ export async function extractCourseName(page: Page): Promise<string> {
  * Skool embeds course structure as JSON in a script tag.
  */
 export async function extractModulesFromJson(page: Page): Promise<CourseModule[]> {
-  const modules = await page.evaluate(() => {
-    // Try to get module data from __NEXT_DATA__
+  // Get the raw JSON from the page
+  const nextDataJson = await page.evaluate(() => {
     const nextDataScript = document.getElementById("__NEXT_DATA__");
-    if (nextDataScript?.textContent) {
-      try {
-        const json = JSON.parse(nextDataScript.textContent);
-        const courseChildren = json?.props?.pageProps?.course?.children;
+    return nextDataScript?.textContent ?? null;
+  });
 
-        if (Array.isArray(courseChildren)) {
-          const results: CourseModule[] = [];
-
-          for (const child of courseChildren) {
-            const course = child?.course;
-            if (!course?.name || !/^[a-f0-9]{8}$/.test(course.name)) continue;
-
-            const slug = course.name;
-            const title = course.metadata?.title ?? `Module ${results.length + 1}`;
-            // Check hasAccess field - if false, the module/lesson is locked
-            const hasAccess = child?.hasAccess !== false;
-
-            if (!results.some((m) => m.slug === slug)) {
-              results.push({
-                name: title,
-                slug,
-                url: "",
-                isLocked: !hasAccess,
-              });
-            }
-          }
-
-          if (results.length > 0) return results;
-        }
-      } catch {
-        // Fall through to regex approach
+  // Parse and validate with Zod schema (in Node context)
+  if (nextDataJson) {
+    const parsed = parseNextData(nextDataJson);
+    if (parsed) {
+      const skoolModules = extractModulesFromNextData(parsed);
+      if (skoolModules.length > 0) {
+        const baseUrl = page.url().split("/classroom")[0];
+        return skoolModules.map((m) => ({
+          name: m.title,
+          slug: m.slug,
+          url: `${baseUrl}/classroom/${m.slug}`,
+          isLocked: !m.hasAccess,
+        }));
       }
     }
+  }
 
-    // Fallback: Find script tags that contain course data
+  // Fallback: Find script tags that contain course data (regex approach)
+  const modules = await page.evaluate(() => {
     const scripts = Array.from(document.querySelectorAll("script"));
     const results: CourseModule[] = [];
 
@@ -136,30 +128,24 @@ export async function extractLessons(page: Page, moduleUrl: string): Promise<Les
     await page.waitForTimeout(2000);
   }
 
-  const lessons = await page.evaluate(() => {
-    const results: Lesson[] = [];
-
-    // First try to get hasAccess from __NEXT_DATA__
-    const accessMap = new Map<string, boolean>();
+  // Get __NEXT_DATA__ and parse it in Node context
+  const nextDataJson = await page.evaluate(() => {
     const nextDataScript = document.getElementById("__NEXT_DATA__");
-    if (nextDataScript?.textContent) {
-      try {
-        const json = JSON.parse(nextDataScript.textContent);
-        const courseChildren = json?.props?.pageProps?.course?.children;
+    return nextDataScript?.textContent ?? null;
+  });
 
-        if (Array.isArray(courseChildren)) {
-          for (const child of courseChildren) {
-            const lessonId = child?.course?.id;
-            const hasAccess = child?.hasAccess;
-            if (lessonId && typeof hasAccess === "boolean") {
-              accessMap.set(lessonId, hasAccess);
-            }
-          }
-        }
-      } catch {
-        // Ignore parse errors
-      }
+  // Build access map from validated data
+  let accessMap = new Map<string, boolean>();
+  if (nextDataJson) {
+    const parsed = parseNextData(nextDataJson);
+    if (parsed) {
+      accessMap = extractLessonAccessFromNextData(parsed);
     }
+  }
+
+  // Extract lesson links from DOM
+  const lessonData = await page.evaluate(() => {
+    const results: { name: string; slug: string; href: string }[] = [];
 
     // Skool uses styled-components with "ChildrenLink" in the class name
     const lessonLinks = document.querySelectorAll('a[class*="ChildrenLink"]');
@@ -173,45 +159,31 @@ export async function extractLessons(page: Page, moduleUrl: string): Promise<Les
       const urlParams = new URL(href).searchParams;
       const lessonId = urlParams.get("md") ?? "";
 
-      // Check hasAccess from JSON data first
-      let isLocked = false;
-      if (accessMap.has(lessonId)) {
-        isLocked = !accessMap.get(lessonId);
-      } else {
-        // Fallback: Check for lock icon in DOM
-        let parent: Element | null = anchor;
-        for (let i = 0; i < 3 && parent; i++) {
-          if (
-            parent.querySelector(
-              '[class*="lock"], [class*="Lock"], svg[class*="lock"], svg[class*="Lock"]'
-            )
-          ) {
-            isLocked = true;
-            break;
-          }
-          parent = parent.parentElement;
-        }
-        // Also check if the link itself has a lock indicator
-        if (anchor.querySelector('[class*="lock"], [class*="Lock"]')) {
-          isLocked = true;
-        }
-      }
-
       if (lessonId && !results.some((l) => l.slug === lessonId)) {
-        results.push({
-          name,
-          slug: lessonId,
-          url: href,
-          index: results.length,
-          isLocked,
-        });
+        results.push({ name, slug: lessonId, href });
       }
     });
 
     return results;
   });
 
-  return lessons;
+  // Build final lesson list with access info
+  return lessonData.map((lesson, index) => {
+    let isLocked = false;
+
+    // Check access map from __NEXT_DATA__
+    if (accessMap.has(lesson.slug)) {
+      isLocked = !accessMap.get(lesson.slug);
+    }
+
+    return {
+      name: lesson.name,
+      slug: lesson.slug,
+      url: lesson.href,
+      index,
+      isLocked,
+    };
+  });
 }
 
 /**

@@ -1,5 +1,9 @@
 import type { Page } from "playwright";
 import TurndownService from "turndown";
+import {
+  parseNextData,
+  extractVideoFromNextData as extractVideoFromNextDataSchema,
+} from "./schemas.js";
 
 export interface DownloadableFile {
   url: string;
@@ -352,67 +356,49 @@ async function extractVideoFromIframe(
 async function extractVideoFromNextData(
   page: Page
 ): Promise<{ url: string | null; type: LessonContent["videoType"] }> {
-  const videoInfo = await page.evaluate(() => {
+  // Get raw data from browser
+  const { nextDataJson, urlModuleId } = await page.evaluate(() => {
     const nextDataScript = document.querySelector("#__NEXT_DATA__");
-    if (!nextDataScript?.textContent) {
-      return { url: null, type: null };
-    }
+    const json = nextDataScript?.textContent ?? null;
 
-    try {
-      const data = JSON.parse(nextDataScript.textContent);
+    // Get URL module ID to verify freshness
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlMd = urlParams.get("md");
 
-      // Get the selected module ID from __NEXT_DATA__
-      const selectedModule = data?.props?.pageProps?.selectedModule;
-      if (!selectedModule) {
-        return { url: null, type: null };
-      }
-
-      // Verify this matches the current URL (detect stale __NEXT_DATA__ from SPA navigation)
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlModuleId = urlParams.get("md");
-      if (urlModuleId && urlModuleId !== selectedModule) {
-        // __NEXT_DATA__ is stale (SPA navigation happened), don't trust it
-        return { url: null, type: null };
-      }
-
-      // Find the module in the course children
-      const courseData = data?.props?.pageProps?.course;
-      const children = courseData?.children ?? [];
-
-      for (const child of children) {
-        if (child?.course?.id === selectedModule) {
-          const metadata = child.course.metadata;
-          const videoLink = metadata?.videoLink;
-
-          if (videoLink) {
-            // Determine video type from URL
-            if (videoLink.includes("loom.com")) {
-              // Convert share URL to embed URL if needed
-              const embedUrl = videoLink.replace("/share/", "/embed/").split("?")[0];
-              return { url: embedUrl, type: "loom" as const };
-            }
-            if (videoLink.includes("vimeo.com")) {
-              return { url: videoLink, type: "vimeo" as const };
-            }
-            if (videoLink.includes("youtube.com") || videoLink.includes("youtu.be")) {
-              return { url: videoLink, type: "youtube" as const };
-            }
-            if (videoLink.includes("wistia")) {
-              return { url: videoLink, type: "wistia" as const };
-            }
-            // Unknown but has video link
-            return { url: videoLink, type: "unknown" as const };
-          }
-        }
-      }
-    } catch {
-      // JSON parse failed
-    }
-
-    return { url: null, type: null };
+    return {
+      nextDataJson: json,
+      urlModuleId: urlMd,
+    };
   });
 
-  return videoInfo;
+  if (!nextDataJson) {
+    return { url: null, type: null };
+  }
+
+  // Parse and validate in Node context
+  const parsed = parseNextData(nextDataJson);
+  if (!parsed) {
+    return { url: null, type: null };
+  }
+
+  const selectedModuleId = parsed.props?.pageProps?.selectedModule;
+  if (!selectedModuleId) {
+    return { url: null, type: null };
+  }
+
+  // Verify this matches the current URL (detect stale __NEXT_DATA__ from SPA navigation)
+  if (urlModuleId && urlModuleId !== selectedModuleId) {
+    // __NEXT_DATA__ is stale (SPA navigation happened), don't trust it
+    return { url: null, type: null };
+  }
+
+  // Extract video using validated data
+  const videoInfo = extractVideoFromNextDataSchema(parsed, selectedModuleId);
+  if (videoInfo) {
+    return { url: videoInfo.url, type: videoInfo.type };
+  }
+
+  return { url: null, type: null };
 }
 
 /**
@@ -650,7 +636,7 @@ export function getFileType(ext: string): DownloadableFile["type"] {
 export async function extractDownloadableFiles(page: Page): Promise<DownloadableFile[]> {
   const files = await page.evaluate(
     (extensions) => {
-      const results: Array<{ url: string; filename: string; ext: string }> = [];
+      const results: { url: string; filename: string; ext: string }[] = [];
       const seen = new Set<string>();
 
       // Find all links in the page

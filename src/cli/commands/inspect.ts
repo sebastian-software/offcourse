@@ -47,7 +47,7 @@ export async function inspectCommand(url: string, options: InspectOptions): Prom
 
   try {
     // Collect network requests to find video URLs
-    const videoRequests: Array<{ url: string; resourceType: string }> = [];
+    const videoRequests: { url: string; resourceType: string }[] = [];
     session.page.on("request", (request) => {
       const reqUrl = request.url();
       const resourceType = request.resourceType();
@@ -80,11 +80,11 @@ export async function inspectCommand(url: string, options: InspectOptions): Prom
 
     // Look for video preview/placeholder elements
     const previewInfo = await session.page.evaluate(() => {
-      const previews: Array<{
+      const previews: {
         selector: string;
         description: string;
         element: string;
-      }> = [];
+      }[] = [];
 
       // Common video preview patterns
       const previewSelectors = [
@@ -326,19 +326,19 @@ export async function inspectCommand(url: string, options: InspectOptions): Prom
 
     // Output analysis
     console.log(chalk.cyan("\n🎬 Video Sources:\n"));
-    if ((analysis.iframes as Array<{ src: string }>).length > 0) {
+    if ((analysis.iframes as { src: string }[]).length > 0) {
       console.log(chalk.yellow("   Iframes:"));
-      for (const iframe of analysis.iframes as Array<{ src: string; className: string }>) {
+      for (const iframe of analysis.iframes as { src: string; className: string }[]) {
         console.log(`   - ${iframe.src}`);
         console.log(chalk.gray(`     class: ${iframe.className}`));
       }
     }
-    if ((analysis.videos as Array<{ src: string }>).length > 0) {
+    if ((analysis.videos as { src: string }[]).length > 0) {
       console.log(chalk.yellow("\n   Video elements:"));
-      for (const video of analysis.videos as Array<{
+      for (const video of analysis.videos as {
         src: string;
-        sources: Array<{ src: string }>;
-      }>) {
+        sources: { src: string }[];
+      }[]) {
         console.log(`   - ${video.src || "(no src)"}`);
         for (const source of video.sources) {
           console.log(`     source: ${source.src}`);
@@ -355,15 +355,15 @@ export async function inspectCommand(url: string, options: InspectOptions): Prom
       }
     }
 
-    if ((analysis.videoRelatedElements as Array<{ className: string }>).length > 0) {
+    if ((analysis.videoRelatedElements as { className: string }[]).length > 0) {
       console.log(chalk.yellow("\n   Video-related elements:"));
       for (const el of (
-        analysis.videoRelatedElements as Array<{
+        analysis.videoRelatedElements as {
           tagName: string;
           className: string;
           dataAttributes: Record<string, string>;
           src?: string;
-        }>
+        }[]
       ).slice(0, 10)) {
         console.log(`   - <${el.tagName.toLowerCase()}> class="${el.className}"`);
         if (el.src) {
@@ -377,7 +377,7 @@ export async function inspectCommand(url: string, options: InspectOptions): Prom
 
     console.log(chalk.cyan("\n📚 Classroom Links:\n"));
     for (const link of (
-      analysis.classroomLinks as Array<{ href: string; text: string; className: string }>
+      analysis.classroomLinks as { href: string; text: string; className: string }[]
     ).slice(0, 15)) {
       console.log(`   - ${link.text || "(no text)"}`);
       console.log(chalk.gray(`     ${link.href}`));
@@ -385,11 +385,11 @@ export async function inspectCommand(url: string, options: InspectOptions): Prom
     }
 
     console.log(chalk.cyan("\n🧭 Navigation Elements:\n"));
-    for (const nav of analysis.navigationElements as Array<{
+    for (const nav of analysis.navigationElements as {
       tagName: string;
       className: string;
-      links: Array<{ href: string; text: string }>;
-    }>) {
+      links: { href: string; text: string }[];
+    }[]) {
       console.log(`   <${nav.tagName.toLowerCase()}> class="${nav.className}"`);
       if (nav.links.length > 0) {
         console.log(chalk.gray(`     Links: ${nav.links.length}`));

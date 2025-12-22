@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/offcourse?color=3b82f6&label=npm)](https://www.npmjs.com/package/offcourse)
 [![npm downloads](https://img.shields.io/npm/dm/offcourse?color=3b82f6)](https://www.npmjs.com/package/offcourse)
 [![license](https://img.shields.io/npm/l/offcourse?color=3b82f6)](https://github.com/sebastian-software/offcourse/blob/main/LICENSE)
-[![node](https://img.shields.io/node/v/offcourse?color=3b82f6)](https://nodejs.org)
+[![node](https://img.shields.io/badge/node-%3E%3D22-3b82f6)](https://nodejs.org)
 [![codecov](https://codecov.io/gh/sebastian-software/offcourse/graph/badge.svg)](https://codecov.io/gh/sebastian-software/offcourse)
 [![CI](https://github.com/sebastian-software/offcourse/actions/workflows/ci.yml/badge.svg)](https://github.com/sebastian-software/offcourse/actions/workflows/ci.yml)
 
@@ -15,7 +15,7 @@ Saves video content and lesson text as Markdown files, organized by module struc
 
 - 🔐 **Browser-based authentication** – Log in once, sessions are cached
 - 📚 **Course structure preservation** – Maintains module/lesson hierarchy
-- 🎬 **Video downloads** – Supports Loom, Vimeo, HLS streams (native HighLevel videos)
+- 🎬 **Video downloads** – Supports HLS streams, Loom and Vimeo
 - 📝 **Content extraction** – Converts lesson text to clean Markdown
 - ⏸️ **Resumable syncs** – Skips already downloaded content
 - ⚡ **Concurrent downloads** – Configurable parallelism

@@ -190,9 +190,9 @@ export class CourseDatabase {
    * Run database migrations for schema updates.
    */
   private runMigrations(): void {
-    const tableInfo = this.db.prepare("PRAGMA table_info(lessons)").all() as Array<{
+    const tableInfo = this.db.prepare("PRAGMA table_info(lessons)").all() as {
       name: string;
-    }>;
+    }[];
 
     // Migration: Add is_locked column if it doesn't exist
     const hasIsLocked = tableInfo.some((col) => col.name === "is_locked");
@@ -296,7 +296,7 @@ export class CourseDatabase {
    */
   getModules(): ModuleRecord[] {
     const stmt = this.db.prepare("SELECT * FROM modules ORDER BY position");
-    const rows = stmt.all() as Array<{
+    const rows = stmt.all() as {
       id: number;
       slug: string;
       name: string;
@@ -304,7 +304,7 @@ export class CourseDatabase {
       is_locked: number;
       created_at: string;
       updated_at: string;
-    }>;
+    }[];
     return rows.map((row) => this.mapModuleRow(row));
   }
 
@@ -530,13 +530,11 @@ export class CourseDatabase {
         AND (l.error_code IS NULL OR l.error_code NOT IN ('UNSUPPORTED_PROVIDER'))
       ORDER BY m.position, l.position
     `);
-    const rows = stmt.all(maxRetries) as Array<
-      RawLessonRow & {
-        module_name: string;
-        module_slug: string;
-        module_position: number;
-      }
-    >;
+    const rows = stmt.all(maxRetries) as (RawLessonRow & {
+      module_name: string;
+      module_slug: string;
+      module_position: number;
+    })[];
 
     return rows.map((row) => ({
       ...this.mapLessonRow(row),
@@ -584,13 +582,11 @@ export class CourseDatabase {
       JOIN modules m ON l.module_id = m.id
       ORDER BY m.position, l.position
     `);
-    const rows = stmt.all() as Array<
-      RawLessonRow & {
-        module_name: string;
-        module_slug: string;
-        module_position: number;
-      }
-    >;
+    const rows = stmt.all() as (RawLessonRow & {
+      module_name: string;
+      module_slug: string;
+      module_position: number;
+    })[];
 
     return rows.map((row) => ({
       ...this.mapLessonRow(row),
@@ -615,13 +611,11 @@ export class CourseDatabase {
       WHERE l.status = ?
       ORDER BY m.position, l.position
     `);
-    const rows = stmt.all(status) as Array<
-      RawLessonRow & {
-        module_name: string;
-        module_slug: string;
-        module_position: number;
-      }
-    >;
+    const rows = stmt.all(status) as (RawLessonRow & {
+      module_name: string;
+      module_slug: string;
+      module_position: number;
+    })[];
 
     return rows.map((row) => ({
       ...this.mapLessonRow(row),
@@ -647,13 +641,11 @@ export class CourseDatabase {
         AND l.is_locked = 0
       ORDER BY m.position, l.position
     `);
-    const rows = stmt.all() as Array<
-      RawLessonRow & {
-        module_name: string;
-        module_slug: string;
-        module_position: number;
-      }
-    >;
+    const rows = stmt.all() as (RawLessonRow & {
+      module_name: string;
+      module_slug: string;
+      module_position: number;
+    })[];
 
     return rows.map((row) => ({
       ...this.mapLessonRow(row),
@@ -680,13 +672,11 @@ export class CourseDatabase {
         AND l.is_locked = 0
       ORDER BY m.position, l.position
     `);
-    const rows = stmt.all() as Array<
-      RawLessonRow & {
-        module_name: string;
-        module_slug: string;
-        module_position: number;
-      }
-    >;
+    const rows = stmt.all() as (RawLessonRow & {
+      module_name: string;
+      module_slug: string;
+      module_position: number;
+    })[];
 
     return rows.map((row) => ({
       ...this.mapLessonRow(row),
@@ -711,13 +701,11 @@ export class CourseDatabase {
       WHERE l.status = 'validated' AND l.hls_url IS NOT NULL
       ORDER BY m.position, l.position
     `);
-    const rows = stmt.all() as Array<
-      RawLessonRow & {
-        module_name: string;
-        module_slug: string;
-        module_position: number;
-      }
-    >;
+    const rows = stmt.all() as (RawLessonRow & {
+      module_name: string;
+      module_slug: string;
+      module_position: number;
+    })[];
 
     return rows.map((row) => ({
       ...this.mapLessonRow(row),
@@ -752,7 +740,7 @@ export class CourseDatabase {
     const stmt = this.db.prepare(`
       SELECT status, COUNT(*) as count FROM lessons GROUP BY status
     `);
-    const rows = stmt.all() as Array<{ status: LessonStatusType; count: number }>;
+    const rows = stmt.all() as { status: LessonStatusType; count: number }[];
 
     const summary: Record<LessonStatusType, number> & { locked: number } = {
       pending: 0,
@@ -845,13 +833,11 @@ export class CourseDatabase {
       WHERE l.error_code = ?
       ORDER BY m.position, l.position
     `);
-    const rows = stmt.all(errorCode) as Array<
-      RawLessonRow & {
-        module_name: string;
-        module_slug: string;
-        module_position: number;
-      }
-    >;
+    const rows = stmt.all(errorCode) as (RawLessonRow & {
+      module_name: string;
+      module_slug: string;
+      module_position: number;
+    })[];
 
     return rows.map((row) => ({
       ...this.mapLessonRow(row),
@@ -871,7 +857,7 @@ export class CourseDatabase {
       WHERE video_type IS NOT NULL
       GROUP BY video_type
     `);
-    const rows = stmt.all() as Array<{ video_type: string; count: number }>;
+    const rows = stmt.all() as { video_type: string; count: number }[];
 
     const summary: Record<string, number> = {};
     for (const row of rows) {

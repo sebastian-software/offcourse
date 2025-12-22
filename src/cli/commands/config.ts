@@ -23,7 +23,7 @@ export function configShowCommand(): void {
  * Sets a configuration value.
  */
 export function configSetCommand(key: string, value: string): void {
-  const validKeys = Object.keys(configSchema.shape) as Array<keyof Config>;
+  const validKeys = Object.keys(configSchema.shape) as (keyof Config)[];
 
   if (!validKeys.includes(key as keyof Config)) {
     console.log(chalk.red(`\n❌ Unknown config key: ${key}`));
@@ -61,7 +61,7 @@ export function configSetCommand(key: string, value: string): void {
  * Gets a specific configuration value.
  */
 export function configGetCommand(key: string): void {
-  const validKeys = Object.keys(configSchema.shape) as Array<keyof Config>;
+  const validKeys = Object.keys(configSchema.shape) as (keyof Config)[];
 
   if (!validKeys.includes(key as keyof Config)) {
     console.log(chalk.red(`\n❌ Unknown config key: ${key}`));
@@ -72,4 +72,3 @@ export function configGetCommand(key: string): void {
   const value = getConfigValue(key as keyof Config);
   console.log(String(value));
 }
-

@@ -488,7 +488,7 @@ async function downloadVideos(
 
   let completed = 0;
   let failed = 0;
-  const errors: Array<{ name: string; error: string }> = [];
+  const errors: { name: string; error: string }[] = [];
 
   const activeBars = new Map<string, cliProgress.SingleBar>();
   const taskQueue = [...videoTasks];

@@ -1,5 +1,11 @@
 import type { Page } from "playwright";
 import { parseHLSPlaylist } from "../../downloader/hlsDownloader.js";
+import {
+  FirebaseAuthTokenSchema,
+  PostDetailsResponseSchema,
+  VideoLicenseResponseSchema,
+  safeParse,
+} from "./schemas.js";
 
 // Alias for backwards compatibility and internal use
 const parseHLSMasterPlaylist = parseHLSPlaylist;
@@ -8,12 +14,12 @@ export interface HighLevelVideoInfo {
   type: "hls" | "vimeo" | "loom" | "youtube" | "custom";
   url: string;
   masterPlaylistUrl?: string;
-  qualities?: Array<{
+  qualities?: {
     label: string;
     url: string;
     width?: number;
     height?: number;
-  }>;
+  }[];
   duration?: number;
   thumbnailUrl?: string;
   token?: string;
@@ -25,13 +31,13 @@ export interface HighLevelPostContent {
   description: string | null;
   htmlContent: string | null;
   video: HighLevelVideoInfo | null;
-  attachments: Array<{
+  attachments: {
     id: string;
     name: string;
     url: string;
     type: string;
     size?: number;
-  }>;
+  }[];
   categoryId: string;
   productId: string;
 }
@@ -43,13 +49,21 @@ export interface HighLevelPostContent {
  * Extracts the Firebase auth token from the page.
  */
 export async function getAuthToken(page: Page): Promise<string | null> {
-  return page.evaluate(() => {
+  const rawData = await page.evaluate(() => {
     const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
     if (!tokenKey) return null;
 
-    const tokenData = JSON.parse(localStorage.getItem(tokenKey) ?? "{}");
-    return tokenData?.stsTokenManager?.accessToken ?? null;
+    try {
+      return JSON.parse(localStorage.getItem(tokenKey) ?? "{}");
+    } catch {
+      return null;
+    }
   });
+
+  if (!rawData) return null;
+
+  const parsed = safeParse(FirebaseAuthTokenSchema, rawData, "getAuthToken");
+  return parsed?.stsTokenManager.accessToken ?? null;
 }
 
 /**
@@ -204,12 +218,12 @@ export async function fetchPostDetails(
     assetId: string;
     url: string;
   } | null;
-  materials: Array<{
+  materials: {
     id: string;
     name: string;
     url: string;
     type: string;
-  }>;
+  }[];
 } | null> {
   // Fetch raw data from browser context
   const rawData = await page.evaluate(
@@ -257,9 +271,16 @@ export async function fetchPostDetails(
     return null;
   }
 
+  // Validate response with Zod schema
+  const parsed = safeParse(PostDetailsResponseSchema, data, "fetchPostDetails");
+  if (!parsed) {
+    console.log("[DEBUG] Response validation failed");
+    return null;
+  }
+
   // The API returns data directly (not nested under .post)
   // Check both for backwards compatibility
-  const post = data.post ?? data;
+  const post = parsed.post ?? parsed;
 
   let video: { assetId: string; url: string } | null = null;
 
@@ -299,24 +320,22 @@ export async function fetchPostDetails(
     }
   }
 
-  const materials: Array<{
+  const materials: {
     id: string;
     name: string;
     url: string;
     type: string;
-  }> = [];
+  }[] = [];
 
   // Materials can be under 'materials' or 'post_materials'
   const materialsList = post.materials ?? post.post_materials ?? [];
-  if (Array.isArray(materialsList)) {
-    for (const material of materialsList) {
-      materials.push({
-        id: material.id ?? crypto.randomUUID(),
-        name: material.name ?? "Attachment",
-        url: material.url ?? "",
-        type: material.type ?? "file",
-      });
-    }
+  for (const material of materialsList) {
+    materials.push({
+      id: material.id ?? crypto.randomUUID(),
+      name: material.name ?? "Attachment",
+      url: material.url ?? "",
+      type: material.type ?? "file",
+    });
   }
 
   return {
@@ -334,40 +353,43 @@ export async function fetchVideoLicense(
   page: Page,
   assetId: string
 ): Promise<{ url: string; token: string } | null> {
-  return page.evaluate(async (assetId) => {
-    try {
-      const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
-      const tokenData = tokenKey ? JSON.parse(localStorage.getItem(tokenKey) ?? "{}") : null;
-      const token = tokenData?.stsTokenManager?.accessToken;
+  // Get auth token first
+  const authToken = await getAuthToken(page);
+  if (!authToken) {
+    return null;
+  }
 
-      if (!token) {
-        return null;
+  try {
+    // Use page.request to make the API call (bypasses CORS)
+    const response = await page.request.get(
+      `https://backend.leadconnectorhq.com/assets-drm/assets-license/${assetId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
       }
+    );
 
-      const res = await fetch(
-        `https://backend.leadconnectorhq.com/assets-drm/assets-license/${assetId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (!res.ok) {
-        return null;
-      }
-
-      const data = await res.json();
-
-      return {
-        url: data.url ?? "",
-        token: data.token ?? "",
-      };
-    } catch (error) {
-      console.error("Failed to fetch video license:", error);
+    if (!response.ok()) {
       return null;
     }
-  }, assetId);
+
+    const data = await response.json();
+
+    // Validate response with Zod schema
+    const parsed = safeParse(VideoLicenseResponseSchema, data, "fetchVideoLicense");
+    if (!parsed) {
+      return null;
+    }
+
+    return {
+      url: parsed.url,
+      token: parsed.token,
+    };
+  } catch (error) {
+    console.error("Failed to fetch video license:", error);
+    return null;
+  }
 }
 
 /**
@@ -470,13 +492,13 @@ export async function getHLSQualities(
   page: Page,
   masterPlaylistUrl: string
 ): Promise<
-  Array<{
+  {
     label: string;
     url: string;
     bandwidth: number;
     width?: number | undefined;
     height?: number | undefined;
-  }>
+  }[]
 > {
   try {
     const content = await page.evaluate(async (url) => {

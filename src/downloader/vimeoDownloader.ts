@@ -710,12 +710,12 @@ interface VimeoConfig {
       dash?: {
         cdns?: Record<string, { url?: string }>;
       };
-      progressive?: Array<{
+      progressive?: {
         url?: string;
         quality?: string;
         width?: number;
         height?: number;
-      }>;
+      }[];
     };
   };
 }

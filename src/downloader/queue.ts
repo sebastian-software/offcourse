@@ -19,7 +19,7 @@ export interface QueueOptions {
  * Uses p-queue internally for battle-tested concurrency handling.
  */
 export class AsyncQueue<T> {
-  private items: Array<QueueItem<T>> = [];
+  private items: QueueItem<T>[] = [];
   private readonly queue: PQueue;
   private readonly maxRetries: number;
   private readonly onProgress:
@@ -47,7 +47,7 @@ export class AsyncQueue<T> {
   /**
    * Adds multiple items to the queue.
    */
-  addAll(items: Array<{ id: string; data: T }>): void {
+  addAll(items: { id: string; data: T }[]): void {
     for (const item of items) {
       this.add(item.id, item.data);
     }
@@ -58,8 +58,8 @@ export class AsyncQueue<T> {
    */
   async process(
     handler: (item: T, id: string) => Promise<void>
-  ): Promise<{ completed: number; failed: number; errors: Array<{ id: string; error: string }> }> {
-    const errors: Array<{ id: string; error: string }> = [];
+  ): Promise<{ completed: number; failed: number; errors: { id: string; error: string }[] }> {
+    const errors: { id: string; error: string }[] = [];
 
     const processItem = async (item: QueueItem<T>): Promise<void> => {
       item.status = "processing";

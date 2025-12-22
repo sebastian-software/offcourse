@@ -82,7 +82,7 @@ describe("AsyncQueue", () => {
   });
 
   it("reports progress during processing", async () => {
-    const progressCalls: Array<{ completed: number; total: number }> = [];
+    const progressCalls: { completed: number; total: number }[] = [];
 
     const queue = new AsyncQueue<string>({
       concurrency: 1,

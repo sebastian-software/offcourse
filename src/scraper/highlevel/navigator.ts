@@ -1,4 +1,12 @@
 import type { Page } from "playwright";
+import {
+  FirebaseAuthTokenSchema,
+  PortalSettingsResponseSchema,
+  ProductResponseSchema,
+  CategoriesResponseSchema,
+  PostsResponseSchema,
+  safeParse,
+} from "./schemas.js";
 
 export interface HighLevelCourse {
   id: string;
@@ -31,7 +39,7 @@ export interface HighLevelPost {
 
 export interface HighLevelCourseStructure {
   course: HighLevelCourse;
-  categories: Array<HighLevelCategory & { posts: HighLevelPost[] }>;
+  categories: (HighLevelCategory & { posts: HighLevelPost[] })[];
   locationId: string;
   domain: string;
 }
@@ -95,21 +103,23 @@ export async function extractPortalSettings(
   domain: string
 ): Promise<{ locationId: string; portalName: string } | null> {
   try {
-    // Intercept the portal-settings API call
-    const response = await page.evaluate(async (domain) => {
-      const res = await fetch(
-        `https://services.leadconnectorhq.com/clientclub/portal-settings?domain=${domain}`
-      );
-      if (!res.ok) return null;
-      return res.json();
-    }, domain);
+    // Use page.request to make the API call
+    const response = await page.request.get(
+      `https://services.leadconnectorhq.com/clientclub/portal-settings?domain=${domain}`
+    );
 
-    if (response?.locationId) {
-      return {
-        locationId: response.locationId,
-        portalName: response.portalName ?? response.name ?? "HighLevel Course",
-      };
-    }
+    if (!response.ok()) return null;
+
+    const data = await response.json();
+
+    // Validate response with Zod schema
+    const parsed = safeParse(PortalSettingsResponseSchema, data, "extractPortalSettings");
+    if (!parsed) return null;
+
+    return {
+      locationId: parsed.locationId,
+      portalName: parsed.portalName ?? parsed.name ?? "HighLevel Course",
+    };
   } catch {
     // Fall through
   }
@@ -200,11 +210,20 @@ export async function extractCourseDetails(
       const apiUrl = `https://services.leadconnectorhq.com/membership/locations/${locationId}/products/${productId}`;
 
       // Get auth token from the page context
-      const authToken = await page.evaluate(() => {
+      const rawTokenData = await page.evaluate(() => {
         const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
-        const tokenData = tokenKey ? JSON.parse(localStorage.getItem(tokenKey) ?? "{}") : null;
-        return tokenData?.stsTokenManager?.accessToken ?? null;
+        if (!tokenKey) return null;
+        try {
+          return JSON.parse(localStorage.getItem(tokenKey) ?? "{}");
+        } catch {
+          return null;
+        }
       });
+
+      const tokenParsed = rawTokenData
+        ? safeParse(FirebaseAuthTokenSchema, rawTokenData, "extractCourseDetails.token")
+        : null;
+      const authToken = tokenParsed?.stsTokenManager.accessToken;
 
       if (authToken) {
         // Use page.request to make the API call (bypasses CORS)
@@ -216,20 +235,25 @@ export async function extractCourseDetails(
 
         if (response.ok()) {
           const data = await response.json();
-          // The API returns the product directly, not wrapped in a "product" property
-          const product = data.product ?? data;
-          const title = product.title;
-          if (title && title !== "Unknown Course") {
-            return {
-              id: product.id ?? productId,
-              title,
-              description: product.description ?? "",
-              slug: product.id ?? productId,
-              thumbnailUrl: product.posterImage ?? null,
-              instructor: product.instructor ?? null,
-              totalLessons: product.postCount ?? 0,
-              progress: 0,
-            };
+
+          // Validate response with Zod schema
+          const parsed = safeParse(ProductResponseSchema, data, "extractCourseDetails");
+          if (parsed) {
+            // The API returns the product directly, not wrapped in a "product" property
+            const product = parsed.product ?? parsed;
+            const title = product.title;
+            if (title && title !== "Unknown Course") {
+              return {
+                id: product.id ?? productId,
+                title,
+                description: product.description ?? "",
+                slug: product.id ?? productId,
+                thumbnailUrl: product.posterImage ?? null,
+                instructor: product.instructor ?? null,
+                totalLessons: product.postCount ?? 0,
+                progress: 0,
+              };
+            }
           }
         }
       }
@@ -310,66 +334,61 @@ export async function extractCategories(
   productId: string,
   locationId: string
 ): Promise<HighLevelCategory[]> {
-  // Try to get categories via API
-  const categories = await page.evaluate(
-    async ({ productId, locationId }) => {
+  try {
+    // Get auth token from the page context
+    const rawTokenData = await page.evaluate(() => {
+      const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
+      if (!tokenKey) return null;
       try {
-        // Get auth token from Firebase
-        const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
-        const tokenData = tokenKey ? JSON.parse(localStorage.getItem(tokenKey) ?? "{}") : null;
-        const token = tokenData?.stsTokenManager?.accessToken;
-
-        if (!token) {
-          console.warn("No auth token found");
-          return [];
-        }
-
-        const res = await fetch(
-          `https://services.leadconnectorhq.com/membership/locations/${locationId}/user-purchase/categories?product_id=${productId}&source=courses`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-
-        if (!res.ok) {
-          console.warn("Categories API returned", res.status);
-          return [];
-        }
-
-        const data = await res.json();
-
-        if (Array.isArray(data.categories)) {
-          return data.categories.map(
-            (cat: {
-              id: string;
-              title: string;
-              description?: string;
-              position?: number;
-              postCount?: number;
-              visibility?: string;
-            }) => ({
-              id: cat.id,
-              title: cat.title,
-              description: cat.description ?? null,
-              position: cat.position ?? 0,
-              postCount: cat.postCount ?? 0,
-              isLocked: cat.visibility === "locked",
-            })
-          );
-        }
-
-        return [];
-      } catch (error) {
-        console.error("Failed to fetch categories:", error);
-        return [];
+        return JSON.parse(localStorage.getItem(tokenKey) ?? "{}");
+      } catch {
+        return null;
       }
-    },
-    { productId, locationId }
-  );
+    });
 
-  return categories;
+    const tokenParsed = rawTokenData
+      ? safeParse(FirebaseAuthTokenSchema, rawTokenData, "extractCategories.token")
+      : null;
+    const authToken = tokenParsed?.stsTokenManager.accessToken;
+
+    if (!authToken) {
+      console.warn("No auth token found");
+      return [];
+    }
+
+    // Use page.request to make the API call
+    const response = await page.request.get(
+      `https://services.leadconnectorhq.com/membership/locations/${locationId}/user-purchase/categories?product_id=${productId}&source=courses`,
+      {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      }
+    );
+
+    if (!response.ok()) {
+      console.warn("Categories API returned", response.status());
+      return [];
+    }
+
+    const data = await response.json();
+
+    // Validate response with Zod schema
+    const parsed = safeParse(CategoriesResponseSchema, data, "extractCategories");
+    if (!parsed) return [];
+
+    return parsed.categories.map((cat) => ({
+      id: cat.id,
+      title: cat.title,
+      description: cat.description ?? null,
+      position: cat.position ?? 0,
+      postCount: cat.postCount ?? 0,
+      isLocked: cat.visibility === "locked",
+    }));
+  } catch (error) {
+    console.error("Failed to fetch categories:", error);
+    return [];
+  }
 }
 
 /**
@@ -381,64 +400,59 @@ export async function extractPosts(
   categoryId: string,
   locationId: string
 ): Promise<HighLevelPost[]> {
-  const posts = await page.evaluate(
-    async ({ productId, categoryId, locationId }) => {
+  try {
+    // Get auth token from the page context
+    const rawTokenData = await page.evaluate(() => {
+      const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
+      if (!tokenKey) return null;
       try {
-        // Get auth token
-        const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
-        const tokenData = tokenKey ? JSON.parse(localStorage.getItem(tokenKey) ?? "{}") : null;
-        const token = tokenData?.stsTokenManager?.accessToken;
-
-        if (!token) {
-          return [];
-        }
-
-        const res = await fetch(
-          `https://services.leadconnectorhq.com/membership/locations/${locationId}/user-purchase/categories/${categoryId}?product_id=${productId}&visibility=published&published_posts=true&source=courses`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-
-        if (!res.ok) {
-          return [];
-        }
-
-        const data = await res.json();
-
-        if (data.category?.posts && Array.isArray(data.category.posts)) {
-          return data.category.posts.map(
-            (
-              post: {
-                id: string;
-                title: string;
-                indexPosition?: number;
-                visibility?: string;
-              },
-              index: number
-            ) => ({
-              id: post.id,
-              title: post.title,
-              position: post.indexPosition ?? index,
-              categoryId,
-              isLocked: post.visibility === "locked",
-              isCompleted: false,
-            })
-          );
-        }
-
-        return [];
-      } catch (error) {
-        console.error("Failed to fetch posts:", error);
-        return [];
+        return JSON.parse(localStorage.getItem(tokenKey) ?? "{}");
+      } catch {
+        return null;
       }
-    },
-    { productId, categoryId, locationId }
-  );
+    });
 
-  return posts;
+    const tokenParsed = rawTokenData
+      ? safeParse(FirebaseAuthTokenSchema, rawTokenData, "extractPosts.token")
+      : null;
+    const authToken = tokenParsed?.stsTokenManager.accessToken;
+
+    if (!authToken) {
+      return [];
+    }
+
+    // Use page.request to make the API call
+    const response = await page.request.get(
+      `https://services.leadconnectorhq.com/membership/locations/${locationId}/user-purchase/categories/${categoryId}?product_id=${productId}&visibility=published&published_posts=true&source=courses`,
+      {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      }
+    );
+
+    if (!response.ok()) {
+      return [];
+    }
+
+    const data = await response.json();
+
+    // Validate response with Zod schema
+    const parsed = safeParse(PostsResponseSchema, data, "extractPosts");
+    if (!parsed?.category?.posts) return [];
+
+    return parsed.category.posts.map((post, index) => ({
+      id: post.id,
+      title: post.title,
+      position: post.indexPosition ?? index,
+      categoryId,
+      isLocked: post.visibility === "locked",
+      isCompleted: false,
+    }));
+  } catch (error) {
+    console.error("Failed to fetch posts:", error);
+    return [];
+  }
 }
 
 /**
@@ -488,8 +502,10 @@ export async function buildHighLevelCourseStructure(
     ) {
       try {
         const data = await response.json();
-        if (data.product?.title) {
-          capturedCourseTitle = data.product.title;
+        const parsed = safeParse(ProductResponseSchema, data, "responseHandler");
+        const title = parsed?.product?.title ?? parsed?.title;
+        if (title) {
+          capturedCourseTitle = title;
         }
       } catch {
         // Ignore JSON parse errors

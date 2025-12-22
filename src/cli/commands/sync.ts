@@ -754,7 +754,7 @@ async function downloadVideos(
 
   // Track results
   const downloadAttempts: DownloadAttempt[] = [];
-  const errors: Array<{ id: string; error: string }> = [];
+  const errors: { id: string; error: string }[] = [];
   let completed = 0;
   let failed = 0;
 
@@ -976,12 +976,12 @@ async function retryFailedLessons(
   console.log();
 
   // Results tracking
-  const results: Array<{
+  const results: {
     lesson: LessonWithModule;
     success: boolean;
     newStatus: string;
     details: string;
-  }> = [];
+  }[] = [];
 
   // Progress bar
   const progressBar = new cliProgress.SingleBar(
