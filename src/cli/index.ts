@@ -47,6 +47,7 @@ program
   .option("--visible", "Show browser window (default: headless)")
   .option("-q, --quality <quality>", "Preferred video quality (e.g., 720p, 1080p)")
   .option("--course-name <name>", "Override detected course name")
+  .option("--auto-complete", "Auto-complete lessons to unlock sequential content (LearningSuite)")
   .action((url: string, options: SyncOptions & SyncHighLevelOptions & SyncLearningSuiteOptions) => {
     // Auto-detect platform
     if (url.includes("skool.com")) {
@@ -99,6 +100,7 @@ program
   .option("--visible", "Show browser window (default: headless)")
   .option("-q, --quality <quality>", "Preferred video quality (e.g., 720p, 1080p)")
   .option("--course-name <name>", "Override detected course name")
+  .option("--auto-complete", "Auto-complete lessons to unlock sequential content")
   .action(syncLearningSuiteCommand);
 
 // Status command

@@ -684,6 +684,7 @@ export async function buildLearningSuiteCourseStructure(
  * The dialog shows:
  * - Header with module title + "X LEKTIONEN"
  * - Clickable lesson cards with thumbnails and titles
+ * - Locked lessons show "GESPERRT" label
  */
 async function extractModulesAndLessonsFromDOM(
   page: Page,
@@ -742,12 +743,13 @@ async function extractModulesAndLessonsFromDOM(
     }
 
     // Find lesson cards - each card has an image (thumbnail) and title
-    // We identify cards by looking for elements that contain exactly one image
-    // and have reasonable dimensions
+    // Locked lessons show "GESPERRT" text on the thumbnail
     const lessons: Array<{
       title: string;
       lessonId: string | null;
       moduleId: string | null;
+      isLocked: boolean;
+      isCompleted: boolean;
     }> = [];
 
     // Get all images in the dialog (each lesson has a thumbnail)
@@ -770,6 +772,16 @@ async function extractModulesAndLessonsFromDOM(
 
       if (!card || card === dialog) continue;
 
+      // Check if the lesson is locked (has "GESPERRT" text)
+      const cardText = card.textContent ?? "";
+      const isLocked = /GESPERRT/i.test(cardText);
+
+      // Check if the lesson is completed (has checkmark icon or completed indicator)
+      // Completed lessons typically have a check/tick icon or specific styling
+      const hasCheckmark =
+        card.querySelector('svg[class*="check"], [class*="complete"], [class*="done"]') !== null;
+      const isCompleted = hasCheckmark || card.classList.contains("completed");
+
       // Get the text content of the card, excluding nested card text
       // The title is usually in a sibling element to the image
       let title = "";
@@ -789,6 +801,9 @@ async function extractModulesAndLessonsFromDOM(
         if (text.includes("LEKTION")) continue;
         if (text === moduleTitle) continue;
 
+        // Skip "GESPERRT" label
+        if (/^GESPERRT$/i.test(text)) continue;
+
         // This is likely the title
         title = text;
         break;
@@ -796,11 +811,10 @@ async function extractModulesAndLessonsFromDOM(
 
       // If no title found in children, use card's direct text
       if (!title) {
-        const cardText = card.textContent?.trim() ?? "";
-        // Extract just the title part (remove any "X LEKTIONEN" or module title)
         const cleaned = cardText
           .replace(moduleTitle, "")
           .replace(/\d+\s*(?:LEKTION|Lektion)(?:EN)?/gi, "")
+          .replace(/GESPERRT/gi, "")
           .trim();
         if (cleaned.length >= 5 && cleaned.length <= 80) {
           title = cleaned;
@@ -834,6 +848,8 @@ async function extractModulesAndLessonsFromDOM(
         title,
         lessonId: lessonId ?? `lesson-${lessons.length}`,
         moduleId: cardModuleId,
+        isLocked,
+        isCompleted,
       });
     }
 
@@ -860,8 +876,8 @@ async function extractModulesAndLessonsFromDOM(
         title: l.title,
         position: idx,
         moduleId: moduleId,
-        isLocked: false,
-        isCompleted: false,
+        isLocked: l.isLocked,
+        isCompleted: l.isCompleted,
       })),
     },
   ];
@@ -869,7 +885,9 @@ async function extractModulesAndLessonsFromDOM(
 
 /**
  * Extracts modules from the course page by analyzing module cards.
- * Module cards have a specific structure with title and "X LEKTIONEN | Y MIN."
+ * Module cards have a specific structure:
+ * - Available modules: card with thumbnail, title, and "X LEKTIONEN | Y MIN."
+ * - Locked modules: card with thumbnail, title, and "Erscheint bald" label
  */
 async function extractModulesFromCoursePage(
   page: Page,
@@ -880,7 +898,7 @@ async function extractModulesFromCoursePage(
   // Wait for modules section to load
   await page.waitForTimeout(1000);
 
-  // Extract module cards from the page using a more targeted approach
+  // Extract module cards from the page
   const modulesData = await page.evaluate(() => {
     const modules: Array<{
       title: string;
@@ -888,42 +906,87 @@ async function extractModulesFromCoursePage(
       duration: string;
       href: string | null;
       moduleId: string | null;
+      isLocked: boolean;
+      lockReason: string | null;
     }> = [];
 
-    // Find elements that contain the module pattern "X LEKTIONEN | Y MIN."
-    // These are typically card-like elements
-    const pattern = /^(.+?)\s*(\d+)\s*(?:LEKTION|Lektion)(?:EN)?\s*\|\s*(\d+)\s*MIN\.*$/i;
-
-    // Look for cards with this pattern
-    const candidates = document.querySelectorAll("div, a");
     const seen = new Set<string>();
 
-    for (const el of Array.from(candidates)) {
-      // Get the element's text content
-      const textContent = el.textContent?.trim() ?? "";
+    // Find all images on the page (module cards typically have thumbnails)
+    // Then check the surrounding text for module info
+    const images = document.querySelectorAll("img");
 
-      // The element must contain "LEKTIONEN" and "MIN" pattern
-      if (!textContent.includes("LEKTION") || !textContent.includes("MIN")) continue;
+    for (const img of Array.from(images)) {
+      // Skip small images (icons)
+      const rect = img.getBoundingClientRect();
+      if (rect.width < 80 || rect.height < 50) continue;
 
-      // Element should be reasonably sized (a card)
-      const rect = el.getBoundingClientRect();
-      if (rect.width < 100 || rect.height < 50) continue;
-      if (rect.width > 800) continue; // Skip if too wide (probably a container)
+      // Find the card container
+      let card = img.parentElement;
+      let level = 0;
 
-      // Extract info using regex
-      const match = pattern.exec(textContent);
-      if (!match) continue;
+      // Walk up to find a reasonable card container (but not too far)
+      while (card && level < 6) {
+        const cardRect = card.getBoundingClientRect();
+        // A card should be at least 200px wide
+        if (cardRect.width >= 200 && cardRect.height >= 60) {
+          break;
+        }
+        card = card.parentElement;
+        level++;
+      }
 
-      const title = match[1]?.trim() ?? "";
-      const lessonCount = parseInt(match[2] ?? "0", 10);
-      const duration = match[3] + " Min.";
+      if (!card) continue;
 
-      // Skip if title is too short or already seen
-      if (title.length < 3 || seen.has(title)) continue;
+      const cardText = card.textContent ?? "";
+
+      // Check if it's a module card (has lesson count or "Erscheint bald")
+      const lessonCountMatch = /(\d+)\s*(?:LEKTION|Lektion)(?:EN)?\s*\|\s*(\d+)\s*MIN/i.exec(
+        cardText
+      );
+      const isLocked = /Erscheint\s*bald/i.test(cardText);
+
+      if (!lessonCountMatch && !isLocked) continue;
+
+      // Extract title from card
+      // Look for text that is NOT the lesson count or "Erscheint bald"
+      let title = "";
+
+      // Get all text nodes and find potential titles
+      const textParts = cardText
+        .split(/\n/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+
+      for (const part of textParts) {
+        // Skip lesson count patterns
+        if (/\d+\s*(?:LEKTION|Lektion)/i.test(part)) continue;
+        // Skip "Erscheint bald"
+        if (/Erscheint\s*bald/i.test(part)) continue;
+        // Skip common UI elements
+        if (/^(Start|Fortsetzen|Module|Kurs)$/i.test(part)) continue;
+        // Skip very short or very long text
+        if (part.length < 3 || part.length > 80) continue;
+
+        // This could be the title
+        title = part;
+        break;
+      }
+
+      if (!title || seen.has(title)) continue;
       seen.add(title);
 
-      // Get href
-      const linkEl = el.closest("a") ?? el.querySelector("a");
+      // Get lesson count and duration for available modules
+      let lessonCount = 0;
+      let duration = "";
+
+      if (lessonCountMatch) {
+        lessonCount = parseInt(lessonCountMatch[1] ?? "0", 10);
+        duration = (lessonCountMatch[2] ?? "0") + " Min.";
+      }
+
+      // Try to find href
+      const linkEl = card.closest("a") ?? card.querySelector("a");
       const href = linkEl?.getAttribute("href") ?? null;
 
       // Extract module ID from href
@@ -935,7 +998,15 @@ async function extractModulesFromCoursePage(
         }
       }
 
-      modules.push({ title, lessonCount, duration, href, moduleId });
+      modules.push({
+        title,
+        lessonCount,
+        duration,
+        href,
+        moduleId,
+        isLocked,
+        lockReason: isLocked ? "Erscheint bald" : null,
+      });
     }
 
     return modules;
@@ -947,12 +1018,16 @@ async function extractModulesFromCoursePage(
     const mod = modulesData[i];
     if (!mod) continue;
 
+    const description = mod.isLocked
+      ? (mod.lockReason ?? "Gesperrt")
+      : `${mod.lessonCount} Lektionen, ${mod.duration}`;
+
     modules.push({
       id: mod.moduleId ?? `module-${i}`,
       title: mod.title,
-      description: `${mod.lessonCount} Lektionen, ${mod.duration}`,
+      description,
       position: i,
-      isLocked: false,
+      isLocked: mod.isLocked,
       lessons: [], // Will be populated when we enter the module
     });
   }
@@ -989,6 +1064,122 @@ export function getLearningSuiteLessonUrl(
 ): string {
   return `https://${domain}/student/course/${courseSlug}/${courseId}/${moduleId}/${lessonId}`;
 }
+
+// ============================================================================
+// Lesson Completion
+// ============================================================================
+/* v8 ignore start */
+
+/**
+ * Marks a lesson as completed by clicking the "Abschließen" button.
+ * This unlocks the next lesson in sequence.
+ *
+ * @returns true if successfully completed, false otherwise
+ */
+export async function markLessonComplete(page: Page, lessonUrl: string): Promise<boolean> {
+  try {
+    // Navigate to the lesson if not already there
+    const currentUrl = page.url();
+    if (!currentUrl.includes(lessonUrl)) {
+      await page.goto(lessonUrl, { timeout: 30000 });
+      await page.waitForLoadState("networkidle").catch(() => {});
+      await page.waitForTimeout(2000);
+    }
+
+    // Look for the "Abschließen" (Complete) button
+    const completeButton = page
+      .locator(
+        'button:has-text("Abschließen"), button:has-text("Complete"), button:has-text("Mark as complete")'
+      )
+      .first();
+
+    if (await completeButton.isVisible().catch(() => false)) {
+      await completeButton.click();
+      await page.waitForTimeout(1500);
+
+      // Verify completion by checking if a success indicator appears
+      // or if the button changed state
+      const isCompleted =
+        (await page.locator('[class*="completed"], [class*="done"], [class*="success"]').count()) >
+          0 || (await page.locator('button:has-text("Abgeschlossen")').count()) > 0;
+
+      return isCompleted;
+    }
+
+    return false;
+  } catch (error) {
+    console.error("Error marking lesson as complete:", error);
+    return false;
+  }
+}
+
+/**
+ * Auto-completes all accessible lessons in sequence to unlock subsequent content.
+ * This is useful when lessons are sequentially locked.
+ *
+ * @param page - Playwright page
+ * @param lessons - List of lessons to complete
+ * @param onProgress - Callback for progress updates
+ * @returns Number of lessons successfully completed
+ */
+export async function autoCompleteLessons(
+  page: Page,
+  lessons: Array<{ url: string; title: string; isLocked: boolean }>,
+  onProgress?: (completed: number, total: number, currentLesson: string) => void
+): Promise<number> {
+  let completedCount = 0;
+  const unlocked = lessons.filter((l) => !l.isLocked);
+
+  for (let i = 0; i < unlocked.length; i++) {
+    const lesson = unlocked[i];
+    if (!lesson) continue;
+
+    onProgress?.(completedCount, unlocked.length, lesson.title);
+
+    const success = await markLessonComplete(page, lesson.url);
+    if (success) {
+      completedCount++;
+    } else {
+      // If we can't complete a lesson, subsequent ones might still be locked
+      console.warn(`Could not complete lesson: ${lesson.title}`);
+    }
+
+    // Small delay between lessons
+    await page.waitForTimeout(500);
+  }
+
+  return completedCount;
+}
+
+/**
+ * Checks if a lesson page shows the lesson as completed.
+ */
+export async function isLessonCompleted(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    // Look for completion indicators
+    const indicators = [
+      '[class*="completed"]',
+      '[class*="done"]',
+      '[data-completed="true"]',
+      'button:has-text("Abgeschlossen")',
+    ];
+
+    for (const selector of indicators) {
+      if (document.querySelector(selector)) return true;
+    }
+
+    // Check if "Abschließen" button is gone or disabled
+    const completeButton = document.querySelector(
+      'button:has-text("Abschließen"), button:has-text("Complete")'
+    );
+    if (completeButton) {
+      return (completeButton as HTMLButtonElement).disabled;
+    }
+
+    return false;
+  });
+}
+/* v8 ignore stop */
 
 // Re-export shared utilities
 export { slugify, createFolderName } from "../../shared/slug.js";

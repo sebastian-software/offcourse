@@ -10,6 +10,7 @@ import {
   createFolderName,
   extractLearningSuitePostContent,
   getLearningSuiteLessonUrl,
+  markLessonComplete,
   slugify,
   type LearningSuiteCourseStructure,
   type LearningSuiteScanProgress,
@@ -81,6 +82,7 @@ export interface SyncLearningSuiteOptions {
   visible?: boolean;
   quality?: string;
   courseName?: string;
+  autoComplete?: boolean;
 }
 
 /**
@@ -302,18 +304,77 @@ export async function syncLearningSuiteCommand(
     // Print summary
     const totalLessons = courseStructure.modules.reduce((sum, mod) => sum + mod.lessons.length, 0);
     const lockedModules = courseStructure.modules.filter((m) => m.isLocked).length;
+    const lockedLessons = courseStructure.modules.reduce(
+      (sum, mod) => sum + mod.lessons.filter((l) => l.isLocked).length,
+      0
+    );
 
     console.log();
     const parts: string[] = [];
     parts.push(`${courseStructure.modules.length} modules`);
     parts.push(`${totalLessons} lessons`);
-    if (lockedModules > 0) parts.push(chalk.yellow(`${lockedModules} locked`));
+    if (lockedModules > 0) parts.push(chalk.yellow(`${lockedModules} modules locked`));
+    if (lockedLessons > 0) parts.push(chalk.yellow(`${lockedLessons} lessons locked`));
     console.log(`   Found: ${parts.join(", ")}`);
+
+    if (lockedLessons > 0 && !options.autoComplete) {
+      console.log(
+        chalk.gray(`   💡 Tip: Use --auto-complete to unlock lessons by completing them`)
+      );
+    }
 
     if (options.dryRun) {
       printCourseStructure(courseStructure);
       await browser.close();
       return;
+    }
+
+    // Auto-complete mode: attempt to unlock lessons by completing them
+    if (options.autoComplete && lockedLessons > 0) {
+      console.log(chalk.blue(`\n🔓 Auto-completing lessons to unlock content...\n`));
+
+      let unlockedCount = 0;
+
+      for (const module of courseStructure.modules) {
+        if (module.isLocked) continue;
+
+        for (const lesson of module.lessons) {
+          if (lesson.isLocked || lesson.isCompleted) continue;
+
+          const lessonUrl = getLearningSuiteLessonUrl(
+            courseStructure.domain,
+            courseStructure.courseSlug ?? courseStructure.course.id,
+            courseStructure.course.id,
+            module.id,
+            lesson.id
+          );
+
+          const spinner = ora(`Completing: ${lesson.title}`).start();
+
+          try {
+            const completed = await markLessonComplete(session.page, lessonUrl);
+            if (completed) {
+              unlockedCount++;
+              spinner.succeed(`Completed: ${lesson.title}`);
+            } else {
+              spinner.warn(`Could not complete: ${lesson.title}`);
+            }
+          } catch {
+            spinner.fail(`Failed: ${lesson.title}`);
+          }
+        }
+      }
+
+      if (unlockedCount > 0) {
+        console.log(chalk.green(`\n   ✓ Completed ${unlockedCount} lessons\n`));
+
+        // Re-scan to get updated structure
+        console.log(chalk.gray(`   Re-scanning course structure...\n`));
+        const updatedStructure = await buildLearningSuiteCourseStructure(session.page, url);
+        if (updatedStructure) {
+          courseStructure.modules = updatedStructure.modules;
+        }
+      }
     }
 
     // Create course directory
@@ -325,13 +386,20 @@ export async function syncLearningSuiteCommand(
     const videoTasks: VideoDownloadTask[] = [];
     let contentExtracted = 0;
     let skipped = 0;
+    let skippedLocked = 0;
     let processed = 0;
+
+    // Calculate accessible lessons (excluding locked)
+    const accessibleLessonsCount = courseStructure.modules.reduce(
+      (sum, mod) => (mod.isLocked ? sum : sum + mod.lessons.filter((l) => !l.isLocked).length),
+      0
+    );
 
     // Apply limit
     const lessonLimit = options.limit;
-    let totalToProcess = totalLessons;
+    let totalToProcess = accessibleLessonsCount;
     if (lessonLimit) {
-      totalToProcess = Math.min(totalLessons, lessonLimit);
+      totalToProcess = Math.min(accessibleLessonsCount, lessonLimit);
       console.log(chalk.yellow(`   Limiting to ${totalToProcess} lessons\n`));
     }
 
@@ -364,6 +432,12 @@ export async function syncLearningSuiteCommand(
       for (const [lessonIndex, lesson] of module.lessons.entries()) {
         if (!shouldContinue()) break;
         if (lessonLimit && processed >= lessonLimit) break;
+
+        // Skip locked lessons
+        if (lesson.isLocked) {
+          skippedLocked++;
+          continue;
+        }
 
         const shortName =
           lesson.title.length > 40 ? lesson.title.substring(0, 37) + "..." : lesson.title;
@@ -485,6 +559,7 @@ export async function syncLearningSuiteCommand(
     const contentParts: string[] = [];
     if (contentExtracted > 0) contentParts.push(chalk.green(`${contentExtracted} extracted`));
     if (skipped > 0) contentParts.push(chalk.gray(`${skipped} cached`));
+    if (skippedLocked > 0) contentParts.push(chalk.yellow(`${skippedLocked} locked`));
     console.log(`   Content: ${contentParts.join(", ")}`);
 
     // Phase 3: Download videos
