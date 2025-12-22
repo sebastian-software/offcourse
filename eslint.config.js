@@ -29,8 +29,8 @@ export default tseslint.config(
       ],
       // Empty callbacks are fine (e.g., .catch(() => {}))
       "@typescript-eslint/no-empty-function": "off",
-      // Defensive coding - warn only for now
-      "@typescript-eslint/no-unnecessary-condition": "warn",
+      // Defensive coding with optional chains is fine
+      "@typescript-eslint/no-unnecessary-condition": "off",
       // Non-null assertions after guards/regex matches - warn for now
       "@typescript-eslint/no-non-null-assertion": "warn",
     },
