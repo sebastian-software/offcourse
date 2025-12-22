@@ -204,7 +204,8 @@ export async function fetchPostDetails(
     type: string;
   }>;
 } | null> {
-  return page.evaluate(
+  // Fetch raw data from browser context
+  const rawData = await page.evaluate(
     async ({ locationId, postId }) => {
       try {
         const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
@@ -212,7 +213,7 @@ export async function fetchPostDetails(
         const token = tokenData?.stsTokenManager?.accessToken;
 
         if (!token) {
-          return null;
+          return { error: "No auth token" };
         }
 
         const res = await fetch(
@@ -225,64 +226,98 @@ export async function fetchPostDetails(
         );
 
         if (!res.ok) {
-          return null;
+          return { error: `HTTP ${res.status}`, status: res.status };
         }
 
         const data = await res.json();
-
-        let video: { assetId: string; url: string } | null = null;
-
-        if (data.post?.posterImage?.assetId) {
-          video = {
-            assetId: data.post.posterImage.assetId,
-            url: data.post.posterImage.url ?? "",
-          };
-        }
-
-        // Check for video in contentBlock
-        if (data.post?.contentBlock) {
-          for (const block of data.post.contentBlock) {
-            if (block.type === "video" && block.assetId) {
-              video = {
-                assetId: block.assetId,
-                url: block.url ?? "",
-              };
-              break;
-            }
-          }
-        }
-
-        const materials: Array<{
-          id: string;
-          name: string;
-          url: string;
-          type: string;
-        }> = [];
-
-        if (data.post?.materials && Array.isArray(data.post.materials)) {
-          for (const material of data.post.materials) {
-            materials.push({
-              id: material.id ?? crypto.randomUUID(),
-              name: material.name ?? "Attachment",
-              url: material.url ?? "",
-              type: material.type ?? "file",
-            });
-          }
-        }
-
-        return {
-          title: data.post?.title ?? "",
-          description: data.post?.description ?? null,
-          video,
-          materials,
-        };
+        return { data };
       } catch (error) {
-        console.error("Failed to fetch post details:", error);
-        return null;
+        return { error: String(error) };
       }
     },
     { locationId, postId }
   );
+
+  // Debug: Log raw response in Node context
+  if (rawData?.error) {
+    console.log(`[DEBUG] API Error: ${rawData.error}`);
+    return null;
+  }
+
+  const data = rawData?.data;
+  if (!data) {
+    console.log("[DEBUG] No data in response");
+    return null;
+  }
+
+  // The API returns data directly (not nested under .post)
+  // Check both for backwards compatibility
+  const post = data.post ?? data;
+
+  let video: { assetId: string; url: string } | null = null;
+
+  // Check for video directly on post
+  // Video can have: id, assetId, assetsLicenseId, or direct url
+  if (post.video) {
+    const videoAssetId = post.video.assetsLicenseId ?? post.video.assetId ?? post.video.id;
+    if (videoAssetId || post.video.url) {
+      video = {
+        assetId: videoAssetId ?? "",
+        url: post.video.url ?? "",
+      };
+    }
+  }
+
+  // Check posterImage for video asset (older format)
+  if (!video && post.posterImage?.assetId) {
+    video = {
+      assetId: post.posterImage.assetId,
+      url: post.posterImage.url ?? "",
+    };
+  }
+
+  // Check for video in contentBlock
+  if (!video && post.contentBlock) {
+    for (const block of post.contentBlock) {
+      if (block.type === "video") {
+        const blockAssetId = block.assetsLicenseId ?? block.assetId ?? block.id;
+        if (blockAssetId || block.url) {
+          video = {
+            assetId: blockAssetId ?? "",
+            url: block.url ?? "",
+          };
+          break;
+        }
+      }
+    }
+  }
+
+  const materials: Array<{
+    id: string;
+    name: string;
+    url: string;
+    type: string;
+  }> = [];
+
+  // Materials can be under 'materials' or 'post_materials'
+  const materialsList = post.materials ?? post.post_materials ?? [];
+  if (Array.isArray(materialsList)) {
+    for (const material of materialsList) {
+      materials.push({
+        id: material.id ?? crypto.randomUUID(),
+        name: material.name ?? "Attachment",
+        url: material.url ?? "",
+        type: material.type ?? "file",
+      });
+    }
+  }
+
+  return {
+    title: post.title ?? "",
+    description: post.description ?? null,
+    video,
+    materials,
+  };
 }
 
 /**
@@ -354,21 +389,31 @@ export async function extractHighLevelPostContent(
 
   let video: HighLevelVideoInfo | null = null;
 
-  // If post has a video asset, get the license URL
-  if (postDetails.video?.assetId) {
-    const license = await fetchVideoLicense(page, postDetails.video.assetId);
-
-    if (license?.url) {
+  // Check if we have video data
+  if (postDetails.video) {
+    // Option 1: Direct MP4 URL (preferred - no DRM)
+    if (postDetails.video.url && postDetails.video.url.endsWith(".mp4")) {
       video = {
-        type: "hls",
-        url: license.url,
-        masterPlaylistUrl: license.url,
-        token: license.token,
+        type: "custom", // Direct download, not HLS
+        url: postDetails.video.url,
       };
+    }
+    // Option 2: Get HLS license URL via assetId
+    else if (postDetails.video.assetId) {
+      const license = await fetchVideoLicense(page, postDetails.video.assetId);
+
+      if (license?.url) {
+        video = {
+          type: "hls",
+          url: license.url,
+          masterPlaylistUrl: license.url,
+          token: license.token,
+        };
+      }
     }
   }
 
-  // Fallback: try to extract video from page
+  // Fallback: try to extract video from page DOM
   if (!video) {
     video = await extractVideoFromPage(page);
   }

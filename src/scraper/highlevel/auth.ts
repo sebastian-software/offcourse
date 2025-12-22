@@ -162,8 +162,11 @@ export async function getHighLevelAuthenticatedSession(
   portalUrl: string,
   options: { forceLogin?: boolean; headless?: boolean } = {}
 ): Promise<{ browser: Browser; session: HighLevelAuthSession }> {
+  // Default to headless mode (true) unless explicitly set to false
+  const useHeadless = options.headless !== false;
+
   const browser = await chromium.launch({
-    headless: options.headless ?? false,
+    headless: useHeadless,
   });
 
   // Try to use existing session
@@ -213,8 +216,8 @@ export async function getHighLevelAuthenticatedSession(
     throw new Error("Failed to get browser from session");
   }
 
-  // If headless was requested, reopen with saved session
-  if (options.headless) {
+  // After login, reopen with headless browser (unless explicitly set to false)
+  if (useHeadless) {
     const newBrowser = await chromium.launch({ headless: true });
     const context = await loadSession(newBrowser, domain);
     const page = await context.newPage();
