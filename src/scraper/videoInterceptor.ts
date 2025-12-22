@@ -1,7 +1,7 @@
 /**
  * Browser-based video URL interception - requires Playwright.
+ * Excluded from coverage via vitest.config.ts.
  */
-/* v8 ignore start */
 import type { Page } from "playwright";
 
 /**
@@ -376,4 +376,3 @@ export async function captureLoomHls(
 
   return capturedUrl ? { hlsUrl: capturedUrl } : { hlsUrl: null, error: "HLS URL not captured" };
 }
-/* v8 ignore stop */

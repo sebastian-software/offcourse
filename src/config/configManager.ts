@@ -1,8 +1,7 @@
 /**
  * Application configuration using the `conf` package.
- * Testing this would just test the conf package itself.
+ * Excluded from coverage - testing would just test the conf package.
  */
-/* v8 ignore start */
 import Conf from "conf";
 import { APP_DIR, SESSIONS_DIR } from "./paths.js";
 import { Config, configSchema } from "./schema.js";
@@ -74,4 +73,3 @@ export function clearConfig(): void {
 export function getConfigPath(): string {
   return store.path;
 }
-/* v8 ignore stop */

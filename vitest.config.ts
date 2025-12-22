@@ -9,8 +9,21 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html", "lcov"],
       include: ["src/**/*.ts"],
-      exclude: ["src/**/*.test.ts", "src/cli/**"],
+      exclude: [
+        // Test files
+        "src/**/*.test.ts",
+        // CLI commands (interactive, hard to test)
+        "src/cli/**",
+        // Re-export index files
+        "src/**/index.ts",
+        // Pure I/O wrappers (testing would just test Node.js/packages)
+        "src/shared/fs.ts",
+        "src/config/configManager.ts",
+        // Browser automation (requires Playwright, not unit testable)
+        "src/scraper/videoInterceptor.ts",
+        // Network validation (requires live connections)
+        "src/downloader/hlsValidator.ts",
+      ],
     },
   },
 });
-

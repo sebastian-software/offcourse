@@ -1,4 +1,3 @@
-/* v8 ignore start */
 export {
   CourseDatabase,
   LessonStatus,
@@ -13,4 +12,3 @@ export {
   type ModuleRecord,
   type VideoTypeValue,
 } from "./database.js";
-/* v8 ignore stop */

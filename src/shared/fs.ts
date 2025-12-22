@@ -1,8 +1,7 @@
 /**
  * Thin wrappers around fs/promises for common operations.
- * Testing these would just test Node.js itself.
+ * Excluded from coverage - testing would just test Node.js itself.
  */
-/* v8 ignore start */
 import { mkdir, readFile, writeFile, unlink, access, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 
@@ -79,4 +78,3 @@ export async function getFileSize(path: string): Promise<number | null> {
 
 // Re-export commonly used fs/promises functions
 export { readFile, writeFile, mkdir, unlink, stat } from "node:fs/promises";
-/* v8 ignore stop */

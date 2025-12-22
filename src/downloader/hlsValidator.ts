@@ -1,7 +1,7 @@
 /**
  * HLS stream validation - requires network access to verify streams.
+ * Excluded from coverage via vitest.config.ts.
  */
-/* v8 ignore start */
 import { extractLoomId, getLoomVideoInfoDetailed } from "./loomDownloader.js";
 import {
   extractVimeoId,
@@ -194,4 +194,3 @@ export async function validateVideoHls(
       };
   }
 }
-/* v8 ignore stop */
