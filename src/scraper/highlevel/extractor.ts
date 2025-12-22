@@ -1,5 +1,8 @@
 import type { Page } from "playwright";
-import * as HLS from "hls-parser";
+import { parseHLSPlaylist } from "../../downloader/hlsDownloader.js";
+
+// Alias for backwards compatibility and internal use
+const parseHLSMasterPlaylist = parseHLSPlaylist;
 
 export interface HighLevelVideoInfo {
   type: "hls" | "vimeo" | "loom" | "youtube" | "custom";
@@ -456,58 +459,8 @@ export async function extractHighLevelPostContent(
 }
 /* v8 ignore stop */
 
-/**
- * Parses an HLS master playlist to extract quality variants.
- * Uses hls-parser for robust parsing.
- */
-export function parseHLSMasterPlaylist(
-  content: string,
-  baseUrl: string
-): Array<{
-  label: string;
-  url: string;
-  bandwidth: number;
-  width?: number | undefined;
-  height?: number | undefined;
-}> {
-  try {
-    const playlist = HLS.parse(content);
-
-    // Check if it's a master playlist with variants
-    if (!("variants" in playlist) || !playlist.variants) {
-      return [];
-    }
-
-    const variants = playlist.variants.map((variant) => {
-      const bandwidth = variant.bandwidth ?? 0;
-      const resolution = variant.resolution;
-      const width = resolution?.width;
-      const height = resolution?.height;
-
-      // Build absolute URL
-      const variantUrl = variant.uri.startsWith("http")
-        ? variant.uri
-        : new URL(variant.uri, baseUrl).href;
-
-      const label = height ? `${height}p` : `${Math.round(bandwidth / 1000)}k`;
-
-      return {
-        label,
-        url: variantUrl,
-        bandwidth,
-        width,
-        height,
-      };
-    });
-
-    // Sort by bandwidth (highest first)
-    variants.sort((a, b) => b.bandwidth - a.bandwidth);
-
-    return variants;
-  } catch {
-    return [];
-  }
-}
+// Re-export for backwards compatibility
+export { parseHLSMasterPlaylist };
 
 /* v8 ignore start */
 /**

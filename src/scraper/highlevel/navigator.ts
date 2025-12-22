@@ -632,34 +632,8 @@ export async function buildHighLevelCourseStructure(
 }
 /* v8 ignore stop */
 
-/**
- * Creates a filesystem-safe name from a string.
- */
-export function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[äöüß]/g, (char) => {
-      const replacements: Record<string, string> = {
-        ä: "ae",
-        ö: "oe",
-        ü: "ue",
-        ß: "ss",
-      };
-      return replacements[char] ?? char;
-    })
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .substring(0, 100);
-}
-
-/**
- * Creates a folder name with index prefix.
- */
-export function createFolderName(index: number, name: string): string {
-  const prefix = String(index + 1).padStart(2, "0");
-  const slug = slugify(name);
-  return `${prefix}-${slug}`;
-}
+// Re-export shared utilities for backwards compatibility
+export { slugify, createFolderName } from "../../shared/slug.js";
 
 /**
  * Constructs the URL for a HighLevel course page.

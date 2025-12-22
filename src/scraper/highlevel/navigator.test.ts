@@ -69,7 +69,8 @@ describe("createFolderName", () => {
   });
 
   it("handles German umlauts in name", () => {
-    expect(createFolderName(2, "Größe & Übung")).toBe("03-groesse-uebung");
+    // @sindresorhus/slugify converts & to "and" which preserves meaning
+    expect(createFolderName(2, "Größe & Übung")).toBe("03-groesse-and-uebung");
   });
 });
 
