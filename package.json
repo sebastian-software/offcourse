@@ -6,6 +6,9 @@
   "bin": {
     "offcourse": "./dist/cli/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sebastian-software/offcourse.git"
