@@ -1,5 +1,13 @@
+/**
+ * HLS stream validation - requires network access to verify streams.
+ */
+/* v8 ignore start */
 import { extractLoomId, getLoomVideoInfoDetailed } from "./loomDownloader.js";
-import { extractVimeoId, getVimeoVideoInfo, getVimeoVideoInfoFromBrowser } from "./vimeoDownloader.js";
+import {
+  extractVimeoId,
+  getVimeoVideoInfo,
+  getVimeoVideoInfoFromBrowser,
+} from "./vimeoDownloader.js";
 import { captureLoomHls, captureVimeoConfig } from "../scraper/videoInterceptor.js";
 import type { Page } from "playwright";
 
@@ -21,10 +29,7 @@ export interface HlsValidationResult {
  * @param loomUrl - The Loom video URL
  * @param page - Optional Playwright page for network interception fallback
  */
-export async function validateLoomHls(
-  loomUrl: string,
-  page?: Page
-): Promise<HlsValidationResult> {
+export async function validateLoomHls(loomUrl: string, page?: Page): Promise<HlsValidationResult> {
   const videoId = extractLoomId(loomUrl);
 
   if (!videoId) {
@@ -98,7 +103,8 @@ export async function validateVimeoVideo(
   }
 
   // Extract unlisted hash if present
-  const hashMatch = (/vimeo\.com\/\d+\/([a-f0-9]+)/.exec(vimeoUrl)) ?? (/[?&]h=([a-f0-9]+)/.exec(vimeoUrl));
+  const hashMatch =
+    /vimeo\.com\/\d+\/([a-f0-9]+)/.exec(vimeoUrl) ?? /[?&]h=([a-f0-9]+)/.exec(vimeoUrl);
   const unlistedHash = hashMatch?.[1] ?? null;
 
   // First try direct fetch (works for public videos)
@@ -188,4 +194,4 @@ export async function validateVideoHls(
       };
   }
 }
-
+/* v8 ignore stop */

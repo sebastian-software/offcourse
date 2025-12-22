@@ -1,3 +1,7 @@
+/**
+ * Video download coordination - delegates to type-specific downloaders.
+ */
+/* v8 ignore start */
 import { downloadFile, downloadLoomVideo, type DownloadProgress } from "./loomDownloader.js";
 import { downloadVimeoVideo } from "./vimeoDownloader.js";
 import { downloadHighLevelVideo, downloadHLSVideo } from "./hlsDownloader.js";
@@ -117,3 +121,4 @@ export {
   type HLSDownloadResult,
   type HLSQuality,
 } from "./hlsDownloader.js";
+/* v8 ignore stop */

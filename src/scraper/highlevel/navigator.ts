@@ -46,6 +46,9 @@ export interface HighLevelScanProgress {
   skippedLocked?: boolean;
 }
 
+// Browser/API automation - requires Playwright
+/* v8 ignore start */
+
 /**
  * Extracts the location ID from the HighLevel portal.
  * The location ID is used in all API calls.
@@ -627,6 +630,7 @@ export async function buildHighLevelCourseStructure(
     domain,
   };
 }
+/* v8 ignore stop */
 
 /**
  * Creates a filesystem-safe name from a string.

@@ -22,6 +22,9 @@ export interface CourseStructure {
   modules: Array<CourseModule & { lessons: Lesson[] }>;
 }
 
+// Browser automation - requires Playwright
+/* v8 ignore start */
+
 /**
  * Extracts the course/community name from page data.
  */
@@ -258,6 +261,7 @@ export async function extractModulesFromPage(page: Page): Promise<CourseModule[]
 
   return modules;
 }
+/* v8 ignore stop */
 
 /**
  * Checks if a URL points to a specific module (has 8-char hex slug).
@@ -291,6 +295,7 @@ export interface ScanProgress {
   skippedLocked?: boolean;
 }
 
+/* v8 ignore start */
 /**
  * Builds the complete course structure by crawling all modules and lessons.
  */
@@ -375,6 +380,7 @@ export async function buildCourseStructure(
     modules: modulesWithLessons,
   };
 }
+/* v8 ignore stop */
 
 /**
  * Creates a filesystem-safe name from a string.

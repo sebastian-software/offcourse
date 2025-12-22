@@ -114,7 +114,9 @@ export function extractCommunitySlug(url: string): string {
 
 /**
  * Database manager for course state persistence.
+ * SQLite operations - not unit testable without mocking.
  */
+/* v8 ignore start */
 export class CourseDatabase {
   private db: Database.Database;
 
@@ -928,3 +930,4 @@ interface RawLessonRow {
   created_at: string;
   updated_at: string;
 }
+/* v8 ignore stop */

@@ -33,6 +33,9 @@ export interface HighLevelPostContent {
   productId: string;
 }
 
+// Browser/API automation - requires Playwright
+/* v8 ignore start */
+
 /**
  * Extracts the Firebase auth token from the page.
  */
@@ -451,6 +454,7 @@ export async function extractHighLevelPostContent(
     productId,
   };
 }
+/* v8 ignore stop */
 
 /**
  * Parses an HLS master playlist to extract quality variants.
@@ -505,6 +509,7 @@ export function parseHLSMasterPlaylist(
   }
 }
 
+/* v8 ignore start */
 /**
  * Fetches and parses HLS playlist to get quality options.
  */
@@ -551,3 +556,4 @@ export async function getBestHLSQuality(
   // Return highest quality
   return qualities[0]?.url ?? null;
 }
+/* v8 ignore stop */

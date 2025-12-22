@@ -47,6 +47,9 @@ turndown.addRule("links", {
   },
 });
 
+// Browser automation functions - require Playwright
+/* v8 ignore start */
+
 /**
  * Checks if there's a video preview/thumbnail that needs to be clicked to load the video.
  */
@@ -622,6 +625,7 @@ const DOWNLOADABLE_EXTENSIONS = [
   "epub",
   "mobi",
 ] as const;
+/* v8 ignore stop */
 
 /**
  * Gets the file type from extension.
@@ -639,6 +643,7 @@ export function getFileType(ext: string): DownloadableFile["type"] {
   return "other";
 }
 
+/* v8 ignore start */
 /**
  * Extracts downloadable file links from the page content.
  */
@@ -726,6 +731,7 @@ export async function extractLessonContent(page: Page, lessonUrl: string): Promi
     downloadableFiles,
   };
 }
+/* v8 ignore stop */
 
 /**
  * Extracts the Loom video ID from an embed URL.

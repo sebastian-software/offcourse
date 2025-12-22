@@ -23,6 +23,7 @@ export interface HLSQuality {
 /**
  * Checks if ffmpeg is available on the system.
  */
+/* v8 ignore next 8 */
 export async function checkFfmpeg(): Promise<boolean> {
   try {
     await execa("ffmpeg", ["-version"]);
@@ -35,6 +36,7 @@ export async function checkFfmpeg(): Promise<boolean> {
 /**
  * Fetches an HLS master playlist and parses quality variants.
  */
+/* v8 ignore next 14 */
 export async function fetchHLSQualities(masterUrl: string): Promise<HLSQuality[]> {
   try {
     const response = await fetch(masterUrl);
@@ -100,6 +102,7 @@ export function parseHLSPlaylist(content: string, baseUrl: string): HLSQuality[]
  * @param masterUrl The master playlist URL
  * @param preferredHeight Preferred video height (e.g., 720, 1080)
  */
+/* v8 ignore start */
 export async function getBestQualityUrl(
   masterUrl: string,
   preferredHeight?: number
@@ -286,6 +289,7 @@ export async function downloadHighLevelVideo(
   // Download using ffmpeg
   return downloadHLSVideo(downloadUrl, outputPath, onProgress);
 }
+/* v8 ignore stop */
 
 /**
  * Extracts video info from a HighLevel HLS URL.
