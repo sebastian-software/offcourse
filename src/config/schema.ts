@@ -30,9 +30,9 @@ export type Config = z.infer<typeof configSchema>;
  * Course sync state to track progress and enable resume.
  */
 export const courseSyncStateSchema = z.object({
-  url: z.string().url(),
+  url: z.url(),
   name: z.string(),
-  lastSyncedAt: z.string().datetime().optional(),
+  lastSyncedAt: z.iso.datetime().optional(),
   modules: z.array(
     z.object({
       name: z.string(),
@@ -41,7 +41,7 @@ export const courseSyncStateSchema = z.object({
         z.object({
           name: z.string(),
           slug: z.string(),
-          url: z.string().url(),
+          url: z.url(),
           isCompleted: z.boolean().default(false),
           videoDownloaded: z.boolean().default(false),
           contentSaved: z.boolean().default(false),
@@ -58,9 +58,8 @@ export type CourseSyncState = z.infer<typeof courseSyncStateSchema>;
  */
 export const sessionInfoSchema = z.object({
   domain: z.string(),
-  createdAt: z.string().datetime(),
-  expiresAt: z.string().datetime().optional(),
+  createdAt: z.iso.datetime(),
+  expiresAt: z.iso.datetime().optional(),
 });
 
 export type SessionInfo = z.infer<typeof sessionInfoSchema>;
-

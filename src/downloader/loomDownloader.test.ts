@@ -41,4 +41,3 @@ describe("extractLoomId", () => {
     expect(extractLoomId(url)).toBe(longId);
   });
 });
-

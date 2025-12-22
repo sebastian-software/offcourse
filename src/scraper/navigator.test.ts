@@ -72,4 +72,3 @@ describe("createFolderName", () => {
     expect(createFolderName(0, "")).toBe("01-");
   });
 });
-

@@ -38,12 +38,7 @@ describe("formatMarkdown", () => {
   });
 
   it("includes video link when present", () => {
-    const result = formatMarkdown(
-      "My Lesson",
-      "",
-      "https://loom.com/embed/123",
-      "loom"
-    );
+    const result = formatMarkdown("My Lesson", "", "https://loom.com/embed/123", "loom");
     expect(result).toContain("# My Lesson");
     expect(result).toContain("📺 Loom: https://loom.com/embed/123");
   });
@@ -87,4 +82,3 @@ describe("formatMarkdown", () => {
     expect(result).not.toMatch(/\s+$/);
   });
 });
-

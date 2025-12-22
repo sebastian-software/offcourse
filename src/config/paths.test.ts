@@ -74,4 +74,3 @@ describe("getSyncStatePath", () => {
     expect(result).toMatch(/valid-slug-123\.json$/);
   });
 });
-

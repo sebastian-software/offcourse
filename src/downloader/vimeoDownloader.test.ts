@@ -60,4 +60,3 @@ describe("extractVimeoId", () => {
     expect(extractVimeoId("not-a-url")).toBeNull();
   });
 });
-

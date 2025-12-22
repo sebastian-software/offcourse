@@ -26,9 +26,7 @@ describe("configSchema", () => {
   });
 
   it("rejects invalid video quality", () => {
-    expect(() =>
-      configSchema.parse({ videoQuality: "4k" })
-    ).toThrow();
+    expect(() => configSchema.parse({ videoQuality: "4k" })).toThrow();
   });
 
   it("rejects concurrency outside valid range", () => {
@@ -173,4 +171,3 @@ describe("sessionInfoSchema", () => {
     ).toThrow();
   });
 });
-
