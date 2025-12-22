@@ -31,8 +31,6 @@ export default tseslint.config(
       "@typescript-eslint/no-empty-function": "off",
       // Defensive coding with optional chains is fine
       "@typescript-eslint/no-unnecessary-condition": "off",
-      // Non-null assertions after guards/regex matches - warn for now
-      "@typescript-eslint/no-non-null-assertion": "warn",
     },
   },
   {

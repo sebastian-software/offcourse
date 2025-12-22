@@ -301,22 +301,19 @@ export async function syncHighLevelCommand(
 
     contentProgressBar.start(totalToProcess, 0, { status: "Starting..." });
 
-    for (let catIndex = 0; catIndex < courseStructure.categories.length; catIndex++) {
+    for (const [catIndex, category] of courseStructure.categories.entries()) {
       if (!shouldContinue()) break;
       if (lessonLimit && processed >= lessonLimit) break;
 
-      const category = courseStructure.categories[catIndex]!;
       if (category.isLocked) {
         continue;
       }
 
       const moduleDir = await createModuleDirectory(courseDir, catIndex, category.title);
 
-      for (let postIndex = 0; postIndex < category.posts.length; postIndex++) {
+      for (const [postIndex, post] of category.posts.entries()) {
         if (!shouldContinue()) break;
         if (lessonLimit && processed >= lessonLimit) break;
-
-        const post = category.posts[postIndex]!;
 
         const shortName = post.title.length > 40 ? post.title.substring(0, 37) + "..." : post.title;
         contentProgressBar.update(processed, { status: shortName });
@@ -626,13 +623,11 @@ function printCourseStructure(structure: HighLevelCourseStructure): void {
   console.log(chalk.gray(`   Domain: ${structure.domain}`));
   console.log();
 
-  for (let i = 0; i < structure.categories.length; i++) {
-    const category = structure.categories[i]!;
+  for (const [i, category] of structure.categories.entries()) {
     const lockedTag = category.isLocked ? chalk.yellow(" [LOCKED]") : "";
     console.log(chalk.white(`   ${String(i + 1).padStart(2)}. ${category.title}${lockedTag}`));
 
-    for (let j = 0; j < Math.min(category.posts.length, 5); j++) {
-      const post = category.posts[j]!;
+    for (const [j, post] of category.posts.slice(0, 5).entries()) {
       console.log(chalk.gray(`       ${String(j + 1).padStart(2)}. ${post.title}`));
     }
 

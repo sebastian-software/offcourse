@@ -621,10 +621,9 @@ async function extractContentAndQueueVideos(
   const lessonsByModule = new Map<string, LessonWithModule[]>();
   for (const lesson of lessonsToProcess) {
     const key = `${lesson.modulePosition}-${lesson.moduleSlug}`;
-    if (!lessonsByModule.has(key)) {
-      lessonsByModule.set(key, []);
-    }
-    lessonsByModule.get(key)!.push(lesson);
+    const moduleLessons = lessonsByModule.get(key) ?? [];
+    moduleLessons.push(lesson);
+    lessonsByModule.set(key, moduleLessons);
   }
 
   for (const [, lessons] of lessonsByModule) {
@@ -635,7 +634,8 @@ async function extractContentAndQueueVideos(
       break;
     }
 
-    const firstLesson = lessons[0]!;
+    const firstLesson = lessons[0];
+    if (!firstLesson) continue;
     const moduleDir = await createModuleDirectory(
       courseDir,
       firstLesson.modulePosition,
@@ -963,10 +963,9 @@ async function retryFailedLessons(
   const byErrorCode = new Map<string, typeof errorLessons>();
   for (const lesson of errorLessons) {
     const code = lesson.errorCode ?? "UNKNOWN";
-    if (!byErrorCode.has(code)) {
-      byErrorCode.set(code, []);
-    }
-    byErrorCode.get(code)!.push(lesson);
+    const codeLessons = byErrorCode.get(code) ?? [];
+    codeLessons.push(lesson);
+    byErrorCode.set(code, codeLessons);
   }
 
   console.log(chalk.gray("   Error breakdown:"));
@@ -1205,10 +1204,9 @@ function printStatusSummary(db: CourseDatabase): void {
       const byType = new Map<string, typeof unsupported>();
       for (const lesson of unsupported) {
         const type = lesson.videoType ?? "unknown";
-        if (!byType.has(type)) {
-          byType.set(type, []);
-        }
-        byType.get(type)!.push(lesson);
+        const typeLessons = byType.get(type) ?? [];
+        typeLessons.push(lesson);
+        byType.set(type, typeLessons);
       }
 
       for (const [type, lessons] of byType) {

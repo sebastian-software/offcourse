@@ -599,9 +599,7 @@ export async function buildHighLevelCourseStructure(
   // Extract posts for each category
   const categoriesWithPosts: HighLevelCourseStructure["categories"] = [];
 
-  for (let i = 0; i < categories.length; i++) {
-    const category = categories[i]!;
-
+  for (const [i, category] of categories.entries()) {
     if (category.isLocked) {
       onProgress?.({
         phase: "posts",

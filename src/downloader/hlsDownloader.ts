@@ -121,8 +121,9 @@ export async function getBestQualityUrl(
 
     // Find closest lower quality
     const lower = qualities.filter((q) => q.height && q.height <= preferredHeight);
-    if (lower.length > 0) {
-      return lower[0]!.url;
+    const closest = lower[0];
+    if (closest) {
+      return closest.url;
     }
   }
 
@@ -205,21 +206,23 @@ export async function downloadHLSVideo(
       // Parse duration from input info
       const durationMatch = /Duration:\s*(\d{2}):(\d{2}):(\d{2})\.(\d{2})/.exec(output);
       if (durationMatch && duration === 0) {
+        const [, hours = "0", mins = "0", secs = "0", centis = "0"] = durationMatch;
         duration =
-          parseInt(durationMatch[1]!, 10) * 3600 +
-          parseInt(durationMatch[2]!, 10) * 60 +
-          parseInt(durationMatch[3]!, 10) +
-          parseInt(durationMatch[4]!, 10) / 100;
+          parseInt(hours, 10) * 3600 +
+          parseInt(mins, 10) * 60 +
+          parseInt(secs, 10) +
+          parseInt(centis, 10) / 100;
       }
 
       // Parse current time from progress
       const timeMatch = /time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})/.exec(output);
       if (timeMatch) {
+        const [, hours = "0", mins = "0", secs = "0", centis = "0"] = timeMatch;
         currentTime =
-          parseInt(timeMatch[1]!, 10) * 3600 +
-          parseInt(timeMatch[2]!, 10) * 60 +
-          parseInt(timeMatch[3]!, 10) +
-          parseInt(timeMatch[4]!, 10) / 100;
+          parseInt(hours, 10) * 3600 +
+          parseInt(mins, 10) * 60 +
+          parseInt(secs, 10) +
+          parseInt(centis, 10) / 100;
 
         updateProgress();
       }
@@ -273,8 +276,8 @@ export async function downloadHighLevelVideo(
   let preferredHeight: number | undefined;
   if (preferredQuality) {
     const match = /(\d+)p?/i.exec(preferredQuality);
-    if (match) {
-      preferredHeight = parseInt(match[1]!, 10);
+    if (match?.[1]) {
+      preferredHeight = parseInt(match[1], 10);
     }
   }
 
@@ -304,16 +307,18 @@ export function parseHighLevelVideoUrl(url: string): {
 
     // Pattern: /hls/v2/memberships/{locationId}/videos/{videoId}/...
     const match = /\/memberships\/([^/]+)\/videos\/([^/,]+)/.exec(urlObj.pathname);
+    const locationId = match?.[1];
+    const videoId = match?.[2];
 
-    if (!match) {
+    if (!locationId || !videoId) {
       return null;
     }
 
     const token = urlObj.searchParams.get("token");
 
     return {
-      locationId: match[1]!,
-      videoId: match[2]!,
+      locationId,
+      videoId,
       ...(token ? { token } : {}),
     };
   } catch {

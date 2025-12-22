@@ -307,9 +307,7 @@ export async function buildCourseStructure(
 
   const modulesWithLessons: CourseStructure["modules"] = [];
 
-  for (let i = 0; i < modules.length; i++) {
-    const module = modules[i]!;
-
+  for (const [i, module] of modules.entries()) {
     if (module.isLocked) {
       onProgress?.({
         phase: "lessons",
