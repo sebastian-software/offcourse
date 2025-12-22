@@ -1,0 +1,38 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`formatHighLevelMarkdown > snapshot: complete lesson with all parts 1`] = `
+"# Complete Module: Advanced Techniques
+
+In this comprehensive module, you'll learn advanced strategies.
+
+## Video
+
+Video URL: https://cdn.example.com/videos/advanced-techniques.mp4
+
+---
+
+Let's dive into the key concepts:
+
+- Concept A
+- Concept B
+- Concept C
+Remember to practice daily!
+"
+`;
+
+exports[`formatHighLevelMarkdown > snapshot: lesson with HTML entities and special chars 1`] = `
+"# Q&A Session: Common Questions
+
+Your questions answered!
+
+---
+
+Q: What&apos;s the best approach?
+
+A: It depends on your goals & resources.
+
+ 
+
+<script> tags are blocked
+"
+`;

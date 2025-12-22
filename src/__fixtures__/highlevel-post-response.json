@@ -1,0 +1,68 @@
+{
+  "id": "7a06a12e-3501-42f6-bd60-4144d9d9d7ea",
+  "locationId": "EREskxmNprHK9DrsVSDw",
+  "originId": null,
+  "userId": "internal",
+  "title": "Introduction to the Course",
+  "description": "Welcome to our comprehensive course! In this lesson, we'll cover the basics.",
+  "categoryId": "cat-abc-123",
+  "visibility": "published",
+  "commentPermission": "enabled",
+  "sequenceNo": 1,
+  "posterImage": "/memberships/EREskxmNprHK9DrsVSDw/post/thumbnail.png",
+  "commentStatus": "open",
+  "contentId": null,
+  "contentType": "video",
+  "productId": "e5f64bf3-9d88-4d02-b10e-516f47866094",
+  "lockedByPost": null,
+  "lockedByCategory": null,
+  "certificateTemplateId": null,
+  "metaData": null,
+  "createdAt": "2025-08-11T15:33:59.000Z",
+  "updatedAt": "2025-08-11T15:47:25.000Z",
+  "deletedAt": null,
+  "video": {
+    "id": "5b47db50-4043-43d2-a4d4-331471b88070",
+    "locationId": "EREskxmNprHK9DrsVSDw",
+    "originId": null,
+    "userId": "internal",
+    "title": "Introduction Video",
+    "url": "https://storage.googleapis.com/revex-membership-production/memberships/EREskxmNprHK9DrsVSDw/videos/cts-184162b5f0747fcd_1080p.mp4",
+    "thumbnail": null,
+    "postId": "7a06a12e-3501-42f6-bd60-4144d9d9d7ea",
+    "transcodingStatus": "completed",
+    "hdTranscoded": null,
+    "videoFormats": ["360", "1080", "480", "720"],
+    "rawSize": null,
+    "transcodedSize": "18463027",
+    "assetsLicenseId": "689a0d672ea246086539f453",
+    "transcoderWorkerVideoId": "184162b5f0747fcd",
+    "transcodingEventHistory": [
+      {
+        "event": "VIDEO_TRANSCODED",
+        "timestamp": "2025-08-11T15:47:25.705Z"
+      }
+    ],
+    "metaData": null,
+    "createdAt": "2025-08-11T15:33:59.000Z",
+    "updatedAt": "2025-08-11T15:47:25.000Z",
+    "deletedAt": null
+  },
+  "audio": null,
+  "post_materials": [
+    {
+      "id": "mat-001",
+      "name": "Course Workbook.pdf",
+      "url": "https://storage.example.com/materials/workbook.pdf",
+      "type": "pdf"
+    },
+    {
+      "id": "mat-002",
+      "name": "Resource Links.txt",
+      "url": "https://storage.example.com/materials/links.txt",
+      "type": "text"
+    }
+  ],
+  "asset_urls": {}
+}
+

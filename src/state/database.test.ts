@@ -1,0 +1,49 @@
+import { describe, expect, it } from "vitest";
+import { extractCommunitySlug } from "./database.js";
+
+describe("extractCommunitySlug", () => {
+  it("extracts slug from standard Skool URL", () => {
+    expect(extractCommunitySlug("https://www.skool.com/my-community")).toBe("my-community");
+  });
+
+  it("extracts slug from Skool URL without www", () => {
+    expect(extractCommunitySlug("https://skool.com/test-group")).toBe("test-group");
+  });
+
+  it("extracts slug from URL with path", () => {
+    expect(extractCommunitySlug("https://www.skool.com/my-community/classroom")).toBe(
+      "my-community"
+    );
+    expect(extractCommunitySlug("https://www.skool.com/my-community/classroom/lessons/123")).toBe(
+      "my-community"
+    );
+  });
+
+  it("extracts slug from URL with query params (includes params in slug)", () => {
+    // Note: current implementation doesn't strip query params
+    expect(extractCommunitySlug("https://www.skool.com/my-community?ref=abc")).toBe(
+      "my-community?ref=abc"
+    );
+  });
+
+  it("handles complex community names", () => {
+    expect(extractCommunitySlug("https://skool.com/the-best-community-ever-2024")).toBe(
+      "the-best-community-ever-2024"
+    );
+  });
+
+  it("returns 'unknown' for non-Skool URLs", () => {
+    expect(extractCommunitySlug("https://example.com/path")).toBe("unknown");
+    expect(extractCommunitySlug("https://youtube.com/channel/abc")).toBe("unknown");
+  });
+
+  it("returns 'unknown' for invalid URLs", () => {
+    expect(extractCommunitySlug("not-a-url")).toBe("unknown");
+    expect(extractCommunitySlug("")).toBe("unknown");
+  });
+
+  it("returns 'unknown' for Skool root URL", () => {
+    expect(extractCommunitySlug("https://www.skool.com/")).toBe("unknown");
+    expect(extractCommunitySlug("https://www.skool.com")).toBe("unknown");
+  });
+});

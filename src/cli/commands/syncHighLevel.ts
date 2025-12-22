@@ -554,7 +554,7 @@ async function downloadVideos(
 /**
  * Format markdown content for HighLevel posts.
  */
-function formatHighLevelMarkdown(
+export function formatHighLevelMarkdown(
   title: string,
   description: string | null,
   htmlContent: string | null,
