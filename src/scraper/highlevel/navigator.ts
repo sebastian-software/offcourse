@@ -170,7 +170,7 @@ export async function extractCourses(page: Page): Promise<HighLevelCourse[]> {
 export async function extractCourseDetails(
   page: Page,
   courseUrl: string,
-  _locationId?: string
+  locationId?: string
 ): Promise<HighLevelCourse | null> {
   // Extract product ID from provided courseUrl first
   let productId: string | undefined;
@@ -191,55 +191,49 @@ export async function extractCourseDetails(
     return null;
   }
 
-  // Set up response interception to capture product data
-  let capturedProduct: HighLevelCourse | null = null;
+  // Try direct API call first (most reliable)
+  if (locationId) {
+    try {
+      const apiUrl = `https://services.leadconnectorhq.com/membership/locations/${locationId}/products/${productId}`;
 
-  const responseHandler = async (response: import("playwright").Response) => {
-    const url = response.url();
-    if (url.includes(`/products/${productId}`) && url.includes("leadconnectorhq.com")) {
-      try {
-        const data = await response.json();
-        if (data.product) {
-          capturedProduct = {
-            id: data.product.id,
-            title: data.product.title ?? "Unknown Course",
-            description: data.product.description ?? "",
-            slug: data.product.id,
-            thumbnailUrl: data.product.posterImage ?? null,
-            instructor: data.product.instructor ?? null,
-            totalLessons: data.product.postCount ?? 0,
-            progress: 0,
-          };
+      // Get auth token from the page context
+      const authToken = await page.evaluate(() => {
+        const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
+        const tokenData = tokenKey ? JSON.parse(localStorage.getItem(tokenKey) ?? "{}") : null;
+        return tokenData?.stsTokenManager?.accessToken ?? null;
+      });
+
+      if (authToken) {
+        // Use page.request to make the API call (bypasses CORS)
+        const response = await page.request.get(apiUrl, {
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+          },
+        });
+
+        if (response.ok()) {
+          const data = await response.json();
+          // The API returns the product directly, not wrapped in a "product" property
+          const product = data.product ?? data;
+          const title = product.title;
+          if (title && title !== "Unknown Course") {
+            return {
+              id: product.id ?? productId,
+              title,
+              description: product.description ?? "",
+              slug: product.id ?? productId,
+              thumbnailUrl: product.posterImage ?? null,
+              instructor: product.instructor ?? null,
+              totalLessons: product.postCount ?? 0,
+              progress: 0,
+            };
+          }
         }
-      } catch {
-        // Ignore JSON parse errors
       }
+    } catch {
+      // Continue to DOM fallback silently
     }
-  };
-
-  page.on("response", responseHandler);
-
-  // Navigate to course page if not there (this triggers the API call)
-  const currentUrl = page.url();
-  const expectedPath = `/courses/products/${productId}`;
-  if (!currentUrl.includes(expectedPath)) {
-    await page.goto(courseUrl, { timeout: 30000 });
-    await page.waitForLoadState("domcontentloaded");
   }
-
-  // Wait for potential API response
-  await page.waitForTimeout(3000);
-
-  // Remove the handler
-  page.off("response", responseHandler);
-
-  // If we captured the product, return it
-  if (capturedProduct) {
-    return capturedProduct;
-  }
-
-  // Wait for the page content to load
-  await page.waitForTimeout(2000);
 
   // Fallback to DOM extraction if API fails
   const domCourse = await page.evaluate(() => {
@@ -502,10 +496,13 @@ export async function buildHighLevelCourseStructure(
 
   page.on("response", responseHandler);
 
-  // Navigate to course page
-  await page.goto(courseUrl, { timeout: 30000 });
-  await page.waitForLoadState("domcontentloaded");
-  await page.waitForTimeout(3000);
+  // Navigate to course page (force reload to ensure we capture API responses)
+  // Using waitUntil: "networkidle" to ensure all API calls complete
+  await page.goto(courseUrl, {
+    timeout: 30000,
+    waitUntil: "networkidle",
+  });
+  await page.waitForTimeout(1000);
 
   // Remove the handler
   page.off("response", responseHandler);
@@ -522,6 +519,55 @@ export async function buildHighLevelCourseStructure(
   // Use captured title if available and course title is unknown
   if (capturedCourseTitle && (course.title === "Unknown Course" || !course.title)) {
     course.title = capturedCourseTitle;
+  }
+
+  // Fallback: Try to get title from DOM after page is fully loaded
+  if (course.title === "Unknown Course" || !course.title) {
+    const domTitle = await page.evaluate(() => {
+      // Look for product title in common HighLevel selectors
+      const selectors = [
+        "[class*='product-title']",
+        "[class*='ProductTitle']",
+        "[class*='course-title']",
+        "[class*='CourseTitle']",
+        "h1.title",
+        "h2.title",
+        "[data-testid='product-title']",
+        ".product-header h1",
+        ".product-header h2",
+      ];
+
+      for (const selector of selectors) {
+        const el = document.querySelector(selector);
+        const text = el?.textContent?.trim();
+        if (text && text.length > 2 && text.length < 200) {
+          return text;
+        }
+      }
+
+      // Try to find a heading that's not generic
+      const headings = Array.from(document.querySelectorAll("h1, h2, h3"));
+      for (const h of headings) {
+        const text = h.textContent?.trim() ?? "";
+        if (
+          text.length > 3 &&
+          text.length < 150 &&
+          !text.toLowerCase().includes("menu") &&
+          !text.toLowerCase().includes("login") &&
+          text !== "Memberships" &&
+          text !== "Courses" &&
+          text !== "Unknown Course"
+        ) {
+          return text;
+        }
+      }
+
+      return null;
+    });
+
+    if (domTitle) {
+      course.title = domTitle;
+    }
   }
 
   onProgress?.({ phase: "course", courseName: course.title });

@@ -172,15 +172,9 @@ export async function syncHighLevelCommand(
       return;
     }
 
-    // Navigate to course URL
     console.log(chalk.blue("\n📖 Scanning course structure...\n"));
 
-    // Ensure we're on the course page
-    await session.page.goto(url, { timeout: 30000 });
-    await session.page.waitForLoadState("domcontentloaded");
-    await session.page.waitForTimeout(2000);
-
-    // Build course structure
+    // Build course structure (handles navigation internally to capture API responses)
     let courseStructure: HighLevelCourseStructure | null = null;
     let progressBar: cliProgress.SingleBar | undefined;
 
