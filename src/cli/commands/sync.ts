@@ -665,7 +665,7 @@ async function extractContentAndQueueVideos(
             lesson.videoType
           );
           const mdPath = getMarkdownPath(moduleDir, lesson.position, lesson.name);
-          saveMarkdown(dirname(mdPath), basename(mdPath), markdown);
+          await saveMarkdown(dirname(mdPath), basename(mdPath), markdown);
 
           // Download any linked files (PDFs, Office documents, etc.)
           if (content.downloadableFiles.length > 0) {
