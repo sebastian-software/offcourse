@@ -1,5 +1,6 @@
 import { createWriteStream, existsSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
+import { USER_AGENT } from "../shared/http.js";
 
 export interface VimeoVideoInfo {
   id: string;
@@ -15,7 +16,13 @@ export interface VimeoFetchResult {
   success: boolean;
   info?: VimeoVideoInfo;
   error?: string;
-  errorCode?: "VIDEO_NOT_FOUND" | "DRM_PROTECTED" | "PRIVATE_VIDEO" | "RATE_LIMITED" | "NETWORK_ERROR" | "PARSE_ERROR";
+  errorCode?:
+    | "VIDEO_NOT_FOUND"
+    | "DRM_PROTECTED"
+    | "PRIVATE_VIDEO"
+    | "RATE_LIMITED"
+    | "NETWORK_ERROR"
+    | "PARSE_ERROR";
   details?: string;
 }
 
@@ -95,8 +102,8 @@ export async function getVimeoVideoInfo(
 
   // Build headers - use provided referer for domain-restricted videos
   const headers: Record<string, string> = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "application/json",
+    "User-Agent": USER_AGENT,
+    Accept: "application/json",
   };
 
   // Try with Skool referer first if provided, otherwise use Vimeo's player
@@ -153,10 +160,14 @@ export async function getVimeoVideoInfo(
       };
     }
 
-    const config = await response.json() as VimeoConfig;
+    const config = (await response.json()) as VimeoConfig;
 
     // Check for DRM
-    if (config.request?.files?.dash?.cdns && !config.request?.files?.hls && !config.request?.files?.progressive) {
+    if (
+      config.request?.files?.dash?.cdns &&
+      !config.request?.files?.hls &&
+      !config.request?.files?.progressive
+    ) {
       // Only DASH with no HLS/progressive usually means DRM
       const hasDrm = config.video?.drm || config.request?.drm;
       if (hasDrm) {
@@ -269,9 +280,9 @@ export async function getVimeoVideoInfoFromBrowser(
     const currentUrl = page.url();
     const response = await page.request.get(configUrl, {
       headers: {
-        "Accept": "application/json",
-        "Referer": currentUrl,
-        "Origin": new URL(currentUrl).origin,
+        Accept: "application/json",
+        Referer: currentUrl,
+        Origin: new URL(currentUrl).origin,
       },
     });
 
@@ -302,7 +313,7 @@ export async function getVimeoVideoInfoFromBrowser(
       };
     }
 
-    const config = await response.json() as VimeoConfig;
+    const config = (await response.json()) as VimeoConfig;
 
     // Extract HLS URL (same logic as getVimeoVideoInfo)
     let hlsUrl: string | null = null;
@@ -465,8 +476,8 @@ async function downloadProgressiveVideo(
   try {
     const response = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        "Referer": "https://player.vimeo.com/",
+        "User-Agent": USER_AGENT,
+        Referer: "https://player.vimeo.com/",
       },
     });
 
@@ -545,8 +556,8 @@ async function downloadHlsVideo(
     // Fetch master playlist
     const masterResponse = await fetch(masterUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": "https://player.vimeo.com/",
+        "User-Agent": USER_AGENT,
+        Referer: "https://player.vimeo.com/",
       },
     });
 
@@ -592,7 +603,7 @@ async function downloadHlsVideo(
 
     // Fetch video playlist and get segments
     const videoResponse = await fetch(videoPlaylistUrl, {
-      headers: { "User-Agent": "Mozilla/5.0" },
+      headers: { "User-Agent": USER_AGENT },
     });
 
     if (!videoResponse.ok) {
@@ -632,7 +643,7 @@ async function downloadHlsVideo(
       if (!segmentUrl) continue;
 
       const segResponse = await fetch(segmentUrl, {
-        headers: { "User-Agent": "Mozilla/5.0" },
+        headers: { "User-Agent": USER_AGENT },
       });
 
       if (!segResponse.ok || !segResponse.body) continue;
@@ -704,4 +715,3 @@ interface VimeoConfig {
     };
   };
 }
-

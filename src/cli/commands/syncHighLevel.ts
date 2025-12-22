@@ -4,7 +4,11 @@ import ora from "ora";
 import { join } from "node:path";
 import { loadConfig } from "../../config/configManager.js";
 import { downloadVideo, type VideoDownloadTask } from "../../downloader/index.js";
-import { getHighLevelAuthenticatedSession } from "../../scraper/highlevel/auth.js";
+import {
+  getAuthenticatedSession,
+  hasValidFirebaseToken,
+  isHighLevelLoginPage,
+} from "../../shared/auth.js";
 import {
   buildHighLevelCourseStructure,
   createFolderName,
@@ -149,9 +153,15 @@ export async function syncHighLevelCommand(
   let session;
 
   try {
-    const result = await getHighLevelAuthenticatedSession(domain, portalUrl, {
-      headless: useHeadless,
-    });
+    const result = await getAuthenticatedSession(
+      {
+        domain,
+        loginUrl: portalUrl,
+        isLoginPage: isHighLevelLoginPage,
+        verifySession: hasValidFirebaseToken,
+      },
+      { headless: useHeadless }
+    );
     browser = result.browser;
     session = result.session;
     cleanupResources.browser = browser;
@@ -258,7 +268,7 @@ export async function syncHighLevelCommand(
 
     // Create course directory
     const courseSlug = createSlug(courseStructure.course.title);
-    const courseDir = createCourseDirectory(config.outputDir, courseSlug);
+    const courseDir = await createCourseDirectory(config.outputDir, courseSlug);
     console.log(chalk.gray(`\n📁 Output: ${courseDir}\n`));
 
     // Process lessons
@@ -300,7 +310,7 @@ export async function syncHighLevelCommand(
         continue;
       }
 
-      const moduleDir = createModuleDirectory(courseDir, catIndex, category.title);
+      const moduleDir = await createModuleDirectory(courseDir, catIndex, category.title);
 
       for (let postIndex = 0; postIndex < category.posts.length; postIndex++) {
         if (!shouldContinue()) break;
@@ -312,7 +322,7 @@ export async function syncHighLevelCommand(
         contentProgressBar.update(processed, { status: shortName });
 
         // Check if already synced
-        const syncStatus = isLessonSynced(moduleDir, postIndex, post.title);
+        const syncStatus = await isLessonSynced(moduleDir, postIndex, post.title);
 
         if (!options.skipContent && !syncStatus.content) {
           try {
@@ -343,7 +353,11 @@ export async function syncHighLevelCommand(
                 content.video?.url
               );
 
-              saveMarkdown(moduleDir, createFolderName(postIndex, post.title) + ".md", markdown);
+              await saveMarkdown(
+                moduleDir,
+                createFolderName(postIndex, post.title) + ".md",
+                markdown
+              );
 
               // Download attachments
               for (const attachment of content.attachments) {

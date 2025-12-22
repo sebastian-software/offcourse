@@ -5,6 +5,7 @@ import { finished } from "node:stream/promises";
 import delay from "delay";
 import { execa } from "execa";
 import pRetry, { AbortError } from "p-retry";
+import { USER_AGENT } from "../shared/http.js";
 
 export interface LoomVideoInfo {
   id: string;
@@ -91,8 +92,7 @@ async function fetchLoomVideoInfo(videoId: string): Promise<LoomVideoInfo> {
 
   const embedResponse = await fetch(embedUrl, {
     headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "User-Agent": USER_AGENT,
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
       "Accept-Language": "en-US,en;q=0.5",
       "Cache-Control": "no-cache",
@@ -182,7 +182,7 @@ async function fetchLoomVideoInfo(videoId: string): Promise<LoomVideoInfo> {
 
   try {
     const oembedResponse = await fetch(oembedUrl, {
-      headers: { "User-Agent": "Mozilla/5.0" },
+      headers: { "User-Agent": USER_AGENT },
     });
 
     if (oembedResponse.ok) {
@@ -275,7 +275,7 @@ async function parseHlsMasterPlaylist(
 ): Promise<{ videoUrl: string | null; audioUrl: string | null }> {
   try {
     const response = await fetch(masterUrl, {
-      headers: { "User-Agent": "Mozilla/5.0" },
+      headers: { "User-Agent": USER_AGENT },
     });
 
     if (!response.ok) {
@@ -334,7 +334,7 @@ async function parseHlsMasterPlaylist(
 async function getSegmentUrls(playlistUrl: string): Promise<string[]> {
   try {
     const response = await fetch(playlistUrl, {
-      headers: { "User-Agent": "Mozilla/5.0" },
+      headers: { "User-Agent": USER_AGENT },
     });
 
     if (!response.ok) {
@@ -392,7 +392,7 @@ async function downloadSegmentsToFile(
       if (!segmentUrl) continue;
 
       const response = await fetch(segmentUrl, {
-        headers: { "User-Agent": "Mozilla/5.0" },
+        headers: { "User-Agent": USER_AGENT },
       });
 
       if (!response.ok || !response.body) continue;
@@ -693,7 +693,7 @@ export async function downloadFile(
   try {
     const response = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": USER_AGENT,
         Referer: "https://www.loom.com/",
       },
     });

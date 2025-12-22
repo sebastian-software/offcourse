@@ -1,15 +1,11 @@
 import chalk from "chalk";
 import cliProgress from "cli-progress";
 import ora from "ora";
-import { writeFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { loadConfig } from "../../config/configManager.js";
-import {
-  downloadVideo,
-  type VideoDownloadTask,
-  validateVideoHls,
-} from "../../downloader/index.js";
-import { getAuthenticatedSession } from "../../scraper/auth.js";
+import { downloadVideo, type VideoDownloadTask, validateVideoHls } from "../../downloader/index.js";
+import { getAuthenticatedSession, isSkoolLoginPage } from "../../shared/auth.js";
+import { getFileSize, outputFile } from "../../shared/fs.js";
 import { extractLessonContent, formatMarkdown, extractVideoUrl } from "../../scraper/extractor.js";
 import { buildCourseStructure } from "../../scraper/navigator.js";
 import {
@@ -154,18 +150,33 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
   const initialSummary = hasExistingData ? db.getStatusSummary() : null;
 
   if (hasExistingData && initialSummary) {
-    console.log(chalk.gray(`   Found: ${existingMeta.totalModules} modules, ${existingMeta.totalLessons} lessons`));
+    console.log(
+      chalk.gray(
+        `   Found: ${existingMeta.totalModules} modules, ${existingMeta.totalLessons} lessons`
+      )
+    );
     const lockedInfo = initialSummary.locked > 0 ? `, ${initialSummary.locked} locked` : "";
-    console.log(chalk.gray(`   Status: ${initialSummary.downloaded} downloaded, ${initialSummary.validated} ready, ${initialSummary.error} failed, ${initialSummary.pending} to scan${lockedInfo}`));
+    console.log(
+      chalk.gray(
+        `   Status: ${initialSummary.downloaded} downloaded, ${initialSummary.validated} ready, ${initialSummary.error} failed, ${initialSummary.pending} to scan${lockedInfo}`
+      )
+    );
   }
 
   const needsScan = !hasExistingData || (initialSummary?.pending ?? 0) > 0;
   const needsValidation = hasExistingData ? db.getLessonsToValidate().length > 0 : true;
   const needsDownload = hasExistingData ? db.getLessonsToDownload().length > 0 : true;
-  const courseDir = createCourseDirectory(config.outputDir, communitySlug);
+  const courseDir = await createCourseDirectory(config.outputDir, communitySlug);
 
   // Quick exit if nothing to do (and not retry-failed or dry-run)
-  if (hasExistingData && !needsScan && !needsValidation && !needsDownload && !options.dryRun && !options.retryFailed) {
+  if (
+    hasExistingData &&
+    !needsScan &&
+    !needsValidation &&
+    !needsDownload &&
+    !options.dryRun &&
+    !options.retryFailed
+  ) {
     console.log(chalk.green("\n✅ Already complete! Nothing to do.\n"));
     printStatusSummary(db);
     console.log(chalk.gray(`   Output: ${courseDir}\n`));
@@ -182,9 +193,14 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
   let session;
 
   try {
-    const result = await getAuthenticatedSession(SKOOL_DOMAIN, SKOOL_LOGIN_URL, {
-      headless: useHeadless,
-    });
+    const result = await getAuthenticatedSession(
+      {
+        domain: SKOOL_DOMAIN,
+        loginUrl: SKOOL_LOGIN_URL,
+        isLoginPage: isSkoolLoginPage,
+      },
+      { headless: useHeadless }
+    );
     browser = result.browser;
     session = result.session;
     cleanupResources.browser = browser;
@@ -251,7 +267,11 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
       }
 
       retryRound++;
-      console.log(chalk.yellow(`\n🔄 Auto-retry round ${retryRound}: ${retryable.length} lesson(s) to retry\n`));
+      console.log(
+        chalk.yellow(
+          `\n🔄 Auto-retry round ${retryRound}: ${retryable.length} lesson(s) to retry\n`
+        )
+      );
 
       // Queue them for re-validation and re-download
       for (const lesson of retryable) {
@@ -272,7 +292,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
       }
 
       // Get new download tasks
-      videoTasks = buildDownloadTasksFromDb(db, courseDir);
+      videoTasks = await buildDownloadTasksFromDb(db, courseDir);
     }
 
     // Summary
@@ -308,13 +328,16 @@ async function scanCourseStructure(
         console.log(chalk.white(`   Course: ${courseName}\n`));
       } else if (progress.phase === "modules" && progress.totalModules) {
         totalModules = progress.totalModules;
-        progressBar = new cliProgress.SingleBar({
-          format: "   {bar} {percentage}% | {value}/{total} | {status}",
-          barCompleteChar: "█",
-          barIncompleteChar: "░",
-          barsize: 30,
-          hideCursor: true,
-        }, cliProgress.Presets.shades_grey);
+        progressBar = new cliProgress.SingleBar(
+          {
+            format: "   {bar} {percentage}% | {value}/{total} | {status}",
+            barCompleteChar: "█",
+            barIncompleteChar: "░",
+            barsize: 30,
+            hideCursor: true,
+          },
+          cliProgress.Presets.shades_grey
+        );
         progressBar.start(totalModules, 0, { status: "Starting..." });
       } else if (progress.phase === "lessons" && progress.currentModule !== undefined) {
         if (progress.skippedLocked) {
@@ -322,12 +345,13 @@ async function scanCourseStructure(
           progressBar?.increment({ status: `🔒 ${progress.currentModule}` });
         } else if (progress.lessonsFound !== undefined) {
           progressBar?.increment({
-            status: `${progress.currentModule} (${progress.lessonsFound} lessons)`
+            status: `${progress.currentModule} (${progress.lessonsFound} lessons)`,
           });
         } else {
-          const shortName = progress.currentModule.length > 35
-            ? progress.currentModule.substring(0, 32) + "..."
-            : progress.currentModule;
+          const shortName =
+            progress.currentModule.length > 35
+              ? progress.currentModule.substring(0, 32) + "..."
+              : progress.currentModule;
           progressBar?.update(progress.currentModuleIndex ?? 0, { status: shortName });
         }
       } else if (progress.phase === "done") {
@@ -358,7 +382,14 @@ async function scanCourseStructure(
 
         // Check if lesson exists
         const existingLesson = db.getLessonByUrl(lesson.url);
-        db.upsertLesson(moduleRecord.id, lesson.slug, lesson.name, lesson.url, lessonIndex, lesson.isLocked);
+        db.upsertLesson(
+          moduleRecord.id,
+          lesson.slug,
+          lesson.name,
+          lesson.url,
+          lessonIndex,
+          lesson.isLocked
+        );
 
         if (!existingLesson) {
           newLessons++;
@@ -409,13 +440,16 @@ async function validateVideos(
   console.log(chalk.blue(`\n🔍 Phase 2: Validating ${lessonsToScan.length} videos...\n`));
 
   // Create progress bar
-  const progressBar = new cliProgress.SingleBar({
-    format: "   {bar} {percentage}% | {value}/{total} | {status}",
-    barCompleteChar: "█",
-    barIncompleteChar: "░",
-    barsize: 30,
-    hideCursor: true,
-  }, cliProgress.Presets.shades_grey);
+  const progressBar = new cliProgress.SingleBar(
+    {
+      format: "   {bar} {percentage}% | {value}/{total} | {status}",
+      barCompleteChar: "█",
+      barIncompleteChar: "░",
+      barsize: 30,
+      hideCursor: true,
+    },
+    cliProgress.Presets.shades_grey
+  );
 
   progressBar.start(lessonsToScan.length, 0, { status: "Starting..." });
 
@@ -448,9 +482,12 @@ async function validateVideos(
       await page.waitForLoadState("domcontentloaded");
       // Wait for iframes to potentially load (Skool lazy-loads video iframes)
       try {
-        await page.waitForSelector('iframe[src*="loom.com"], iframe[src*="vimeo"], iframe[src*="youtube"], video', {
-          timeout: 3000,
-        });
+        await page.waitForSelector(
+          'iframe[src*="loom.com"], iframe[src*="vimeo"], iframe[src*="youtube"], video',
+          {
+            timeout: 3000,
+          }
+        );
       } catch {
         // No video element appeared - might not have one, will check below
       }
@@ -485,10 +522,24 @@ async function validateVideos(
         const validation = await validateVideoHls(videoUrl, videoType, page, lesson.url);
 
         if (validation.isValid) {
-          db.updateLessonScan(lesson.id, videoType, videoUrl, validation.hlsUrl, LessonStatus.VALIDATED);
+          db.updateLessonScan(
+            lesson.id,
+            videoType,
+            videoUrl,
+            validation.hlsUrl,
+            LessonStatus.VALIDATED
+          );
           validated++;
         } else {
-          db.updateLessonScan(lesson.id, videoType, videoUrl, null, LessonStatus.ERROR, validation.error, validation.errorCode);
+          db.updateLessonScan(
+            lesson.id,
+            videoType,
+            videoUrl,
+            null,
+            LessonStatus.ERROR,
+            validation.error,
+            validation.errorCode
+          );
           errors++;
         }
       } else {
@@ -498,7 +549,15 @@ async function validateVideos(
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      db.updateLessonScan(lesson.id, null, null, null, LessonStatus.ERROR, errorMessage, "SCAN_ERROR");
+      db.updateLessonScan(
+        lesson.id,
+        null,
+        null,
+        null,
+        LessonStatus.ERROR,
+        errorMessage,
+        "SCAN_ERROR"
+      );
       errors++;
     }
 
@@ -534,16 +593,21 @@ async function extractContentAndQueueVideos(
     return [];
   }
 
-  console.log(chalk.blue(`\n📝 Phase 3: Extracting content for ${lessonsToProcess.length} lessons...\n`));
+  console.log(
+    chalk.blue(`\n📝 Phase 3: Extracting content for ${lessonsToProcess.length} lessons...\n`)
+  );
 
   // Create progress bar
-  const progressBar = new cliProgress.SingleBar({
-    format: "   {bar} {percentage}% | {value}/{total} | {status}",
-    barCompleteChar: "█",
-    barIncompleteChar: "░",
-    barsize: 30,
-    hideCursor: true,
-  }, cliProgress.Presets.shades_grey);
+  const progressBar = new cliProgress.SingleBar(
+    {
+      format: "   {bar} {percentage}% | {value}/{total} | {status}",
+      barCompleteChar: "█",
+      barIncompleteChar: "░",
+      barsize: 30,
+      hideCursor: true,
+    },
+    cliProgress.Presets.shades_grey
+  );
 
   progressBar.start(lessonsToProcess.length, 0, { status: "Starting..." });
 
@@ -572,7 +636,11 @@ async function extractContentAndQueueVideos(
     }
 
     const firstLesson = lessons[0]!;
-    const moduleDir = createModuleDirectory(courseDir, firstLesson.modulePosition, firstLesson.moduleName);
+    const moduleDir = await createModuleDirectory(
+      courseDir,
+      firstLesson.modulePosition,
+      firstLesson.moduleName
+    );
 
     for (const lesson of lessons) {
       // Check for graceful shutdown
@@ -580,10 +648,11 @@ async function extractContentAndQueueVideos(
         break;
       }
 
-      const shortName = lesson.name.length > 40 ? lesson.name.substring(0, 37) + "..." : lesson.name;
+      const shortName =
+        lesson.name.length > 40 ? lesson.name.substring(0, 37) + "..." : lesson.name;
       progressBar.update(processed, { status: shortName });
 
-      const syncStatus = isLessonSynced(moduleDir, lesson.position, lesson.name);
+      const syncStatus = await isLessonSynced(moduleDir, lesson.position, lesson.name);
 
       // Check if content already exists
       if (!options.skipContent && !syncStatus.content) {
@@ -664,20 +733,23 @@ async function downloadVideos(
   console.log(chalk.blue(`\n🎬 Phase 4: Downloading ${total} videos...\n`));
 
   // Create multi-bar container with auto-clear
-  const multibar = new cliProgress.MultiBar({
-    clearOnComplete: true,
-    hideCursor: true,
-    format: "   {typeTag} {bar} {percentage}% | {lessonName}",
-    barCompleteChar: "█",
-    barIncompleteChar: "░",
-    barsize: 25,
-    autopadding: true,
-  }, cliProgress.Presets.shades_grey);
+  const multibar = new cliProgress.MultiBar(
+    {
+      clearOnComplete: true,
+      hideCursor: true,
+      format: "   {typeTag} {bar} {percentage}% | {lessonName}",
+      barCompleteChar: "█",
+      barIncompleteChar: "░",
+      barsize: 25,
+      autopadding: true,
+    },
+    cliProgress.Presets.shades_grey
+  );
 
   // Overall progress bar at the top
   const overallBar = multibar.create(total, 0, {
     typeTag: "[TOTAL]".padEnd(8),
-    lessonName: `0/${total} completed`
+    lessonName: `0/${total} completed`,
   });
 
   // Track results
@@ -695,9 +767,8 @@ async function downloadVideos(
 
   const processTask = async (task: VideoDownloadTask): Promise<void> => {
     const typeTag = task.videoType ? `[${task.videoType.toUpperCase()}]` : "[VIDEO]";
-    const shortName = task.lessonName.length > 40
-      ? task.lessonName.substring(0, 37) + "..."
-      : task.lessonName;
+    const shortName =
+      task.lessonName.length > 40 ? task.lessonName.substring(0, 37) + "..." : task.lessonName;
 
     // Create progress bar for this download
     const bar = multibar.create(100, 0, {
@@ -725,7 +796,11 @@ async function downloadVideos(
         attempt.errorCode = downloadResult.errorCode;
         attempt.details = downloadResult.details;
 
-        db.markLessonError(task.lessonId, downloadResult.error ?? "Download failed", downloadResult.errorCode);
+        db.markLessonError(
+          task.lessonId,
+          downloadResult.error ?? "Download failed",
+          downloadResult.errorCode
+        );
 
         errors.push({
           id: task.lessonName,
@@ -734,12 +809,8 @@ async function downloadVideos(
         failed++;
       } else {
         // Update database with success
-        try {
-          const stats = statSync(task.outputPath);
-          db.markLessonDownloaded(task.lessonId, stats.size);
-        } catch {
-          db.markLessonDownloaded(task.lessonId);
-        }
+        const fileSize = await getFileSize(task.outputPath);
+        db.markLessonDownloaded(task.lessonId, fileSize ?? undefined);
         completed++;
       }
 
@@ -757,7 +828,7 @@ async function downloadVideos(
       // Update overall progress
       const done = completed + failed;
       overallBar.update(done, {
-        lessonName: `${done}/${total} completed (${failed} failed)`
+        lessonName: `${done}/${total} completed (${failed} failed)`,
       });
     }
   };
@@ -813,7 +884,7 @@ async function downloadVideos(
         retryAttempts: config.retryAttempts,
         failures: failedAttempts,
       };
-      writeFileSync(logPath, JSON.stringify(logData, null, 2));
+      await outputFile(logPath, JSON.stringify(logData, null, 2));
       console.log(chalk.gray(`\n   📋 Detailed error log saved: ${logPath}`));
     }
   }
@@ -823,10 +894,10 @@ async function downloadVideos(
  * Build download tasks from database (for --resume mode).
  * Skips lessons that are already downloaded.
  */
-function buildDownloadTasksFromDb(
+async function buildDownloadTasksFromDb(
   db: CourseDatabase,
   courseDir: string
-): VideoDownloadTask[] {
+): Promise<VideoDownloadTask[]> {
   const lessons = db.getLessonsToDownload();
   const videoTasks: VideoDownloadTask[] = [];
   let alreadyOnDisk = 0;
@@ -835,14 +906,14 @@ function buildDownloadTasksFromDb(
 
   for (const lesson of lessons) {
     // Create module directory (flat structure - no lesson subdirectories)
-    const moduleDir = createModuleDirectory(
+    const moduleDir = await createModuleDirectory(
       courseDir,
       lesson.modulePosition,
       lesson.moduleName
     );
 
     // Check if already downloaded
-    const syncStatus = isLessonSynced(moduleDir, lesson.position, lesson.name);
+    const syncStatus = await isLessonSynced(moduleDir, lesson.position, lesson.name);
     if (syncStatus.video) {
       // File exists on disk but DB not updated - fix DB state
       db.markLessonDownloaded(lesson.id);
@@ -913,13 +984,16 @@ async function retryFailedLessons(
   }> = [];
 
   // Progress bar
-  const progressBar = new cliProgress.SingleBar({
-    format: "   {bar} {percentage}% | {value}/{total} | {status}",
-    barCompleteChar: "█",
-    barIncompleteChar: "░",
-    barsize: 30,
-    hideCursor: true,
-  }, cliProgress.Presets.shades_grey);
+  const progressBar = new cliProgress.SingleBar(
+    {
+      format: "   {bar} {percentage}% | {value}/{total} | {status}",
+      barCompleteChar: "█",
+      barIncompleteChar: "░",
+      barsize: 30,
+      hideCursor: true,
+    },
+    cliProgress.Presets.shades_grey
+  );
 
   progressBar.start(errorLessons.length, 0, { status: "Starting..." });
 
@@ -927,9 +1001,7 @@ async function retryFailedLessons(
     const lesson = errorLessons[i];
     if (!lesson) continue;
 
-    const shortName = lesson.name.length > 30
-      ? lesson.name.substring(0, 27) + "..."
-      : lesson.name;
+    const shortName = lesson.name.length > 30 ? lesson.name.substring(0, 27) + "..." : lesson.name;
 
     progressBar.update(i, { status: shortName });
 
@@ -964,7 +1036,11 @@ async function retryFailedLessons(
 
       // Check for unsupported providers
       if (videoInfo.type === "youtube" || videoInfo.type === "wistia") {
-        db.markLessonError(lesson.id, `${videoInfo.type} videos are not yet supported`, "UNSUPPORTED_PROVIDER");
+        db.markLessonError(
+          lesson.id,
+          `${videoInfo.type} videos are not yet supported`,
+          "UNSUPPORTED_PROVIDER"
+        );
         db.updateLessonVideoType(lesson.id, videoInfo.type);
         results.push({
           lesson,
@@ -976,10 +1052,19 @@ async function retryFailedLessons(
       }
 
       // Validate and get HLS URL
-      const validation = await validateVideoHls(videoInfo.url, videoInfo.type ?? "native", page, lesson.url);
+      const validation = await validateVideoHls(
+        videoInfo.url,
+        videoInfo.type ?? "native",
+        page,
+        lesson.url
+      );
 
       if (!validation.isValid || !validation.hlsUrl) {
-        db.markLessonError(lesson.id, validation.error ?? "Validation failed", validation.errorCode ?? "VALIDATION_FAILED");
+        db.markLessonError(
+          lesson.id,
+          validation.error ?? "Validation failed",
+          validation.errorCode ?? "VALIDATION_FAILED"
+        );
         results.push({
           lesson,
           success: false,
@@ -999,7 +1084,7 @@ async function retryFailedLessons(
       );
 
       // Try to download
-      const moduleDir = createModuleDirectory(
+      const moduleDir = await createModuleDirectory(
         courseDir,
         lesson.modulePosition,
         lesson.moduleName
@@ -1015,16 +1100,20 @@ async function retryFailedLessons(
       });
 
       if (downloadResult.success) {
-        const fileSize = statSync(outputPath).size;
-        db.markLessonDownloaded(lesson.id, fileSize);
+        const fileSize = await getFileSize(outputPath);
+        db.markLessonDownloaded(lesson.id, fileSize ?? undefined);
         results.push({
           lesson,
           success: true,
           newStatus: "downloaded",
-          details: `Downloaded ${(fileSize / 1024 / 1024).toFixed(1)} MB`,
+          details: fileSize ? `Downloaded ${(fileSize / 1024 / 1024).toFixed(1)} MB` : "Downloaded",
         });
       } else {
-        db.markLessonError(lesson.id, downloadResult.error ?? "Download failed", downloadResult.errorCode ?? "DOWNLOAD_FAILED");
+        db.markLessonError(
+          lesson.id,
+          downloadResult.error ?? "Download failed",
+          downloadResult.errorCode ?? "DOWNLOAD_FAILED"
+        );
         results.push({
           lesson,
           success: false,

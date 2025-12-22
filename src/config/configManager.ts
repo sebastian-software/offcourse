@@ -1,28 +1,25 @@
-import { existsSync, mkdirSync } from "node:fs";
 import Conf from "conf";
 import { APP_DIR, SESSIONS_DIR } from "./paths.js";
 import { Config, configSchema } from "./schema.js";
+import { ensureDir } from "../shared/fs.js";
 
 /**
  * Application configuration store using conf package.
- * Provides atomic writes, dot-notation access, and XDG-compliant paths.
+ * Provides atomic writes, dot-notation access, and safe defaults.
  */
 const store = new Conf<Config>({
   projectName: "offcourse",
+  cwd: APP_DIR,
+  configName: "config",
   defaults: configSchema.parse({}),
 });
 
 /**
  * Ensures all required application directories exist.
  */
-export function ensureAppDirectories(): void {
+export async function ensureAppDirectories(): Promise<void> {
   const dirs = [APP_DIR, SESSIONS_DIR, `${APP_DIR}/sync-state`];
-
-  for (const dir of dirs) {
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-  }
+  await Promise.all(dirs.map((dir) => ensureDir(dir)));
 }
 
 /**
@@ -30,7 +27,6 @@ export function ensureAppDirectories(): void {
  * Returns validated config with defaults applied.
  */
 export function loadConfig(): Config {
-  ensureAppDirectories();
   // Validate with zod to ensure type safety
   return configSchema.parse(store.store);
 }
@@ -39,7 +35,6 @@ export function loadConfig(): Config {
  * Saves the configuration.
  */
 export function saveConfig(config: Config): void {
-  ensureAppDirectories();
   const validated = configSchema.parse(config);
   store.store = validated;
 }

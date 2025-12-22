@@ -1,10 +1,10 @@
 import chalk from "chalk";
 import ora from "ora";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "../../config/configManager.js";
 import { expandPath } from "../../config/paths.js";
-import { getAuthenticatedSession } from "../../scraper/auth.js";
+import { getAuthenticatedSession, isSkoolLoginPage } from "../../shared/auth.js";
+import { ensureDir, outputFile } from "../../shared/fs.js";
 
 const SKOOL_DOMAIN = "www.skool.com";
 const SKOOL_LOGIN_URL = "https://www.skool.com/login";
@@ -28,9 +28,14 @@ export async function inspectCommand(url: string, options: InspectOptions): Prom
   let session;
 
   try {
-    const result = await getAuthenticatedSession(SKOOL_DOMAIN, SKOOL_LOGIN_URL, {
-      headless: false, // Always visible for inspection
-    });
+    const result = await getAuthenticatedSession(
+      {
+        domain: SKOOL_DOMAIN,
+        loginUrl: SKOOL_LOGIN_URL,
+        isLoginPage: isSkoolLoginPage,
+      },
+      { headless: false } // Always visible for inspection
+    );
     browser = result.browser;
     session = result.session;
     spinner.succeed("Connected");
@@ -101,9 +106,9 @@ export async function inspectCommand(url: string, options: InspectOptions): Prom
         '[class*="player-container"]',
         '[class*="video-wrapper"]',
         // Data attributes
-        '[data-video]',
-        '[data-video-id]',
-        '[data-src]',
+        "[data-video]",
+        "[data-video-id]",
+        "[data-src]",
       ];
 
       for (const selector of previewSelectors) {
@@ -172,9 +177,12 @@ export async function inspectCommand(url: string, options: InspectOptions): Prom
         // Wait for video element to appear
         console.log(chalk.gray("   Waiting for video element..."));
         try {
-          await session.page.waitForSelector("video, iframe[src*='vimeo'], iframe[src*='wistia'], iframe[src*='youtube']", {
-            timeout: 5000,
-          });
+          await session.page.waitForSelector(
+            "video, iframe[src*='vimeo'], iframe[src*='wistia'], iframe[src*='youtube']",
+            {
+              timeout: 5000,
+            }
+          );
           console.log(chalk.green("   ✓ Video element appeared!"));
         } catch {
           console.log(chalk.yellow("   ⚠ No video element detected after click"));
@@ -394,22 +402,20 @@ export async function inspectCommand(url: string, options: InspectOptions): Prom
     // Save full analysis to file if requested
     if (options.output || options.full) {
       const outputDir = expandPath(options.output ?? config.outputDir);
-      if (!existsSync(outputDir)) {
-        mkdirSync(outputDir, { recursive: true });
-      }
+      await ensureDir(outputDir);
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const filename = `inspect-${timestamp}.json`;
       const filepath = join(outputDir, filename);
 
-      writeFileSync(filepath, JSON.stringify(analysis, null, 2), "utf-8");
+      await outputFile(filepath, JSON.stringify(analysis, null, 2));
       console.log(chalk.green(`\n📁 Full analysis saved to: ${filepath}\n`));
 
       // Also save HTML
       if (options.full) {
         const html = await session.page.content();
         const htmlPath = join(outputDir, `inspect-${timestamp}.html`);
-        writeFileSync(htmlPath, html, "utf-8");
+        await outputFile(htmlPath, html);
         console.log(chalk.green(`📁 HTML saved to: ${htmlPath}\n`));
       }
     }
@@ -433,4 +439,3 @@ export async function inspectCommand(url: string, options: InspectOptions): Prom
     await browser.close();
   }
 }
-
