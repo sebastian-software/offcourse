@@ -1,10 +1,8 @@
-import { exec, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { promisify } from "node:util";
+import { execa } from "execa";
+import * as HLS from "hls-parser";
 import type { DownloadProgress } from "./loomDownloader.js";
-
-const execAsync = promisify(exec);
 
 export interface HLSDownloadResult {
   success: boolean;
@@ -27,7 +25,7 @@ export interface HLSQuality {
  */
 export async function checkFfmpeg(): Promise<boolean> {
   try {
-    await execAsync("ffmpeg -version");
+    await execa("ffmpeg", ["-version"]);
     return true;
   } catch {
     return false;
@@ -54,44 +52,47 @@ export async function fetchHLSQualities(masterUrl: string): Promise<HLSQuality[]
 
 /**
  * Parses an HLS master playlist to extract quality variants.
+ * Uses hls-parser for robust parsing.
  */
 export function parseHLSPlaylist(content: string, baseUrl: string): HLSQuality[] {
-  const variants: HLSQuality[] = [];
-  const lines = content.split("\n");
+  try {
+    const playlist = HLS.parse(content);
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!.trim();
-
-    if (line.startsWith("#EXT-X-STREAM-INF:")) {
-      const bandwidthMatch = /BANDWIDTH=(\d+)/.exec(line);
-      const resolutionMatch = /RESOLUTION=(\d+)x(\d+)/.exec(line);
-
-      const bandwidth = bandwidthMatch ? parseInt(bandwidthMatch[1]!, 10) : 0;
-      const width = resolutionMatch ? parseInt(resolutionMatch[1]!, 10) : undefined;
-      const height = resolutionMatch ? parseInt(resolutionMatch[2]!, 10) : undefined;
-
-      // Next line should be the URL
-      const nextLine = lines[i + 1]?.trim() ?? "";
-      if (nextLine && !nextLine.startsWith("#")) {
-        const variantUrl = nextLine.startsWith("http") ? nextLine : new URL(nextLine, baseUrl).href;
-
-        const label = height ? `${height}p` : `${Math.round(bandwidth / 1000)}k`;
-
-        variants.push({
-          label,
-          url: variantUrl,
-          bandwidth,
-          width,
-          height,
-        });
-      }
+    // Check if it's a master playlist with variants
+    if (!("variants" in playlist) || !playlist.variants) {
+      return [];
     }
+
+    const variants: HLSQuality[] = playlist.variants.map((variant) => {
+      const bandwidth = variant.bandwidth ?? 0;
+      const resolution = variant.resolution;
+      const width = resolution?.width;
+      const height = resolution?.height;
+
+      // Build absolute URL
+      const variantUrl = variant.uri.startsWith("http")
+        ? variant.uri
+        : new URL(variant.uri, baseUrl).href;
+
+      const label = height ? `${height}p` : `${Math.round(bandwidth / 1000)}k`;
+
+      return {
+        label,
+        url: variantUrl,
+        bandwidth,
+        width,
+        height,
+      };
+    });
+
+    // Sort by bandwidth (highest first)
+    variants.sort((a, b) => b.bandwidth - a.bandwidth);
+
+    return variants;
+  } catch {
+    // Fallback to empty array on parse error
+    return [];
   }
-
-  // Sort by bandwidth (highest first)
-  variants.sort((a, b) => b.bandwidth - a.bandwidth);
-
-  return variants;
 }
 
 /**
@@ -169,32 +170,33 @@ export async function downloadHLSVideo(
     outputPath,
   ];
 
-  return new Promise((resolve) => {
-    const ffmpeg = spawn("ffmpeg", args);
+  let duration = 0;
+  let currentTime = 0;
+  let lastProgressUpdate = 0;
 
-    let duration = 0;
-    let currentTime = 0;
-    let lastProgressUpdate = 0;
+  const updateProgress = () => {
+    if (duration > 0 && onProgress) {
+      const percent = Math.min((currentTime / duration) * 100, 100);
+      const now = Date.now();
 
-    const updateProgress = () => {
-      if (duration > 0 && onProgress) {
-        const percent = Math.min((currentTime / duration) * 100, 100);
-        const now = Date.now();
-
-        // Throttle progress updates to avoid spam
-        if (now - lastProgressUpdate > 200 || percent >= 100) {
-          lastProgressUpdate = now;
-          onProgress({
-            phase: "downloading",
-            percent: Math.round(percent),
-            currentBytes: currentTime,
-            totalBytes: duration,
-          });
-        }
+      // Throttle progress updates to avoid spam
+      if (now - lastProgressUpdate > 200 || percent >= 100) {
+        lastProgressUpdate = now;
+        onProgress({
+          phase: "downloading",
+          percent: Math.round(percent),
+          currentBytes: currentTime,
+          totalBytes: duration,
+        });
       }
-    };
+    }
+  };
 
-    ffmpeg.stderr.on("data", (data: Buffer) => {
+  try {
+    const subprocess = execa("ffmpeg", args);
+
+    // Parse stderr for progress info
+    subprocess.stderr?.on("data", (data: Buffer) => {
       const output = data.toString();
 
       // Parse duration from input info
@@ -220,38 +222,29 @@ export async function downloadHLSVideo(
       }
     });
 
-    ffmpeg.on("error", (error) => {
-      resolve({
-        success: false,
-        error: `ffmpeg error: ${error.message}`,
-        errorCode: "FFMPEG_ERROR",
+    await subprocess;
+
+    // Final progress update
+    if (onProgress) {
+      onProgress({
+        phase: "complete",
+        percent: 100,
       });
-    });
+    }
 
-    ffmpeg.on("close", (code) => {
-      if (code === 0) {
-        // Final progress update
-        if (onProgress) {
-          onProgress({
-            phase: "complete",
-            percent: 100,
-          });
-        }
-
-        resolve({
-          success: true,
-          outputPath,
-          duration,
-        });
-      } else {
-        resolve({
-          success: false,
-          error: `ffmpeg exited with code ${code}`,
-          errorCode: "FFMPEG_EXIT_ERROR",
-        });
-      }
-    });
-  });
+    return {
+      success: true,
+      outputPath,
+      duration,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return {
+      success: false,
+      error: `ffmpeg error: ${errorMessage}`,
+      errorCode: "FFMPEG_ERROR",
+    };
+  }
 }
 
 /**

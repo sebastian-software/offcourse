@@ -1,4 +1,5 @@
 import type { Page } from "playwright";
+import * as HLS from "hls-parser";
 
 export interface HighLevelVideoInfo {
   type: "hls" | "vimeo" | "loom" | "youtube" | "custom";
@@ -453,6 +454,7 @@ export async function extractHighLevelPostContent(
 
 /**
  * Parses an HLS master playlist to extract quality variants.
+ * Uses hls-parser for robust parsing.
  */
 export function parseHLSMasterPlaylist(
   content: string,
@@ -464,60 +466,43 @@ export function parseHLSMasterPlaylist(
   width?: number | undefined;
   height?: number | undefined;
 }> {
-  const variants: Array<{
-    label: string;
-    url: string;
-    bandwidth: number;
-    width?: number | undefined;
-    height?: number | undefined;
-  }> = [];
+  try {
+    const playlist = HLS.parse(content);
 
-  const lines = content.split("\n");
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!.trim();
-
-    if (line.startsWith("#EXT-X-STREAM-INF:")) {
-      // Parse attributes
-      const bandwidthMatch = /BANDWIDTH=(\d+)/.exec(line);
-      const resolutionMatch = /RESOLUTION=(\d+)x(\d+)/.exec(line);
-
-      const bandwidth = bandwidthMatch ? parseInt(bandwidthMatch[1]!, 10) : 0;
-
-      // Next line should be the URL
-      const nextLine = lines[i + 1]?.trim() ?? "";
-      if (nextLine && !nextLine.startsWith("#")) {
-        const variantUrl = nextLine.startsWith("http") ? nextLine : new URL(nextLine, baseUrl).href;
-
-        const height = resolutionMatch ? parseInt(resolutionMatch[2]!, 10) : undefined;
-        const label = height ? `${height}p` : `${Math.round(bandwidth / 1000)}k`;
-
-        const variant: {
-          label: string;
-          url: string;
-          bandwidth: number;
-          width?: number | undefined;
-          height?: number | undefined;
-        } = {
-          label,
-          url: variantUrl,
-          bandwidth,
-        };
-
-        if (resolutionMatch) {
-          variant.width = parseInt(resolutionMatch[1]!, 10);
-          variant.height = parseInt(resolutionMatch[2]!, 10);
-        }
-
-        variants.push(variant);
-      }
+    // Check if it's a master playlist with variants
+    if (!("variants" in playlist) || !playlist.variants) {
+      return [];
     }
+
+    const variants = playlist.variants.map((variant) => {
+      const bandwidth = variant.bandwidth ?? 0;
+      const resolution = variant.resolution;
+      const width = resolution?.width;
+      const height = resolution?.height;
+
+      // Build absolute URL
+      const variantUrl = variant.uri.startsWith("http")
+        ? variant.uri
+        : new URL(variant.uri, baseUrl).href;
+
+      const label = height ? `${height}p` : `${Math.round(bandwidth / 1000)}k`;
+
+      return {
+        label,
+        url: variantUrl,
+        bandwidth,
+        width,
+        height,
+      };
+    });
+
+    // Sort by bandwidth (highest first)
+    variants.sort((a, b) => b.bandwidth - a.bandwidth);
+
+    return variants;
+  } catch {
+    return [];
   }
-
-  // Sort by bandwidth (highest first)
-  variants.sort((a, b) => b.bandwidth - a.bandwidth);
-
-  return variants;
 }
 
 /**

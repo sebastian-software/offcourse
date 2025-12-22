@@ -1,4 +1,5 @@
 import type { Page } from "playwright";
+import slugifyLib from "@sindresorhus/slugify";
 
 export interface CourseModule {
   name: string;
@@ -178,7 +179,11 @@ export async function extractLessons(page: Page, moduleUrl: string): Promise<Les
         // Fallback: Check for lock icon in DOM
         let parent: Element | null = anchor;
         for (let i = 0; i < 3 && parent; i++) {
-          if (parent.querySelector('[class*="lock"], [class*="Lock"], svg[class*="lock"], svg[class*="Lock"]')) {
+          if (
+            parent.querySelector(
+              '[class*="lock"], [class*="Lock"], svg[class*="lock"], svg[class*="Lock"]'
+            )
+          ) {
             isLocked = true;
             break;
           }
@@ -334,7 +339,7 @@ export async function buildCourseStructure(
         phase: "lessons",
         currentModule: module.name,
         currentModuleIndex: i,
-        skippedLocked: true
+        skippedLocked: true,
       });
       continue;
     }
@@ -342,7 +347,7 @@ export async function buildCourseStructure(
     onProgress?.({
       phase: "lessons",
       currentModule: module.name,
-      currentModuleIndex: i
+      currentModuleIndex: i,
     });
 
     if (module.url) {
@@ -352,7 +357,7 @@ export async function buildCourseStructure(
         phase: "lessons",
         currentModule: module.name,
         currentModuleIndex: i,
-        lessonsFound: lessons.length
+        lessonsFound: lessons.length,
       });
 
       modulesWithLessons.push({
@@ -373,22 +378,13 @@ export async function buildCourseStructure(
 
 /**
  * Creates a filesystem-safe name from a string.
+ * Uses @sindresorhus/slugify for proper transliteration.
  */
 export function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[äöüß]/g, (char) => {
-      const replacements: Record<string, string> = {
-        ä: "ae",
-        ö: "oe",
-        ü: "ue",
-        ß: "ss",
-      };
-      return replacements[char] ?? char;
-    })
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .substring(0, 100);
+  return slugifyLib(name, {
+    lowercase: true,
+    separator: "-",
+  }).substring(0, 100);
 }
 
 /**

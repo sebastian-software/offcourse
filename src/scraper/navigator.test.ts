@@ -46,7 +46,10 @@ describe("slugify", () => {
   });
 
   it("handles string with only special characters", () => {
-    expect(slugify("!@#$%^&*()")).toBe("");
+    // @sindresorhus/slugify converts & to "and"
+    expect(slugify("!@#$%^&*()")).toBe("and");
+    // Pure symbols without & become empty
+    expect(slugify("!@#$%^*()")).toBe("");
   });
 });
 

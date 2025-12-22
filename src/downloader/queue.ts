@@ -1,3 +1,5 @@
+import PQueue from "p-queue";
+
 export interface QueueItem<T> {
   id: string;
   data: T;
@@ -13,17 +15,19 @@ export interface QueueOptions {
 }
 
 /**
- * A simple async queue for processing items with concurrency control.
+ * An async queue for processing items with concurrency control.
+ * Uses p-queue internally for battle-tested concurrency handling.
  */
 export class AsyncQueue<T> {
   private items: Array<QueueItem<T>> = [];
-  private processing = 0;
-  private readonly concurrency: number;
+  private readonly queue: PQueue;
   private readonly maxRetries: number;
-  private readonly onProgress: ((completed: number, total: number, current?: string) => void) | undefined;
+  private readonly onProgress:
+    | ((completed: number, total: number, current?: string) => void)
+    | undefined;
 
   constructor(options: QueueOptions) {
-    this.concurrency = options.concurrency;
+    this.queue = new PQueue({ concurrency: options.concurrency });
     this.maxRetries = options.maxRetries;
     this.onProgress = options.onProgress;
   }
@@ -57,43 +61,32 @@ export class AsyncQueue<T> {
   ): Promise<{ completed: number; failed: number; errors: Array<{ id: string; error: string }> }> {
     const errors: Array<{ id: string; error: string }> = [];
 
-    const processNext = async (): Promise<void> => {
-      const item = this.items.find((i) => i.status === "pending");
-
-      if (!item) {
-        return;
-      }
-
+    const processItem = async (item: QueueItem<T>): Promise<void> => {
       item.status = "processing";
-      this.processing++;
 
-      try {
-        await handler(item.data, item.id);
-        item.status = "completed";
-      } catch (error) {
-        item.retries++;
+      // maxRetries=0 means try once, maxRetries=3 means try up to 3 times total
+      const maxAttempts = Math.max(1, this.maxRetries);
 
-        if (item.retries < this.maxRetries) {
-          item.status = "pending";
-        } else {
-          item.status = "failed";
-          item.error = error instanceof Error ? error.message : String(error);
-          errors.push({ id: item.id, error: item.error });
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          await handler(item.data, item.id);
+          item.status = "completed";
+          this.reportProgress();
+          return;
+        } catch (error) {
+          item.retries = attempt + 1;
+          if (attempt >= maxAttempts - 1) {
+            item.status = "failed";
+            item.error = error instanceof Error ? error.message : String(error);
+            errors.push({ id: item.id, error: item.error });
+            this.reportProgress();
+          }
         }
       }
-
-      this.processing--;
-      this.reportProgress();
-
-      // Process next item
-      await processNext();
     };
 
-    // Start initial batch of concurrent processors
-    const initialBatch = Math.min(this.concurrency, this.items.length);
-    const processors = Array.from({ length: initialBatch }, () => processNext());
-
-    await Promise.all(processors);
+    // Add all items to the p-queue
+    await this.queue.addAll(this.items.map((item) => () => processItem(item)));
 
     const completed = this.items.filter((i) => i.status === "completed").length;
     const failed = this.items.filter((i) => i.status === "failed").length;
@@ -123,4 +116,3 @@ export class AsyncQueue<T> {
     };
   }
 }
-

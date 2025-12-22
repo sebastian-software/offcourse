@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { expandPath, getSessionPath, getSyncStatePath } from "./paths.js";
+import { expandPath, getSessionPath, getSyncStatePath, APP_DIR } from "./paths.js";
 
 describe("expandPath", () => {
   it("expands ~ to home directory", () => {
@@ -25,9 +25,9 @@ describe("expandPath", () => {
   });
 
   it("handles just ~ correctly", () => {
-    // Edge case: just "~" without slash should not be expanded
+    // untildify expands ~ to home directory
     const result = expandPath("~");
-    expect(result).toBe("~");
+    expect(result).toBe(homedir());
   });
 
   it("handles empty string", () => {
@@ -72,5 +72,12 @@ describe("getSyncStatePath", () => {
   it("handles slugs with only valid characters", () => {
     const result = getSyncStatePath("valid-slug-123");
     expect(result).toMatch(/valid-slug-123\.json$/);
+  });
+});
+
+describe("APP_DIR", () => {
+  it("is defined and contains offcourse", () => {
+    expect(APP_DIR).toBeDefined();
+    expect(APP_DIR).toContain("offcourse");
   });
 });

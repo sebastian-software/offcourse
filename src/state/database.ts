@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { APP_DIR } from "../config/paths.js";
+import { CACHE_DIR } from "../config/paths.js";
 
 /**
  * Lesson sync status.
@@ -93,7 +93,7 @@ export interface CourseMetadata {
  * Get the database directory path.
  */
 export function getDbDir(): string {
-  return join(APP_DIR, "cache");
+  return CACHE_DIR;
 }
 
 /**
@@ -188,7 +188,9 @@ export class CourseDatabase {
    * Run database migrations for schema updates.
    */
   private runMigrations(): void {
-    const tableInfo = this.db.prepare("PRAGMA table_info(lessons)").all() as Array<{ name: string }>;
+    const tableInfo = this.db.prepare("PRAGMA table_info(lessons)").all() as Array<{
+      name: string;
+    }>;
 
     // Migration: Add is_locked column if it doesn't exist
     const hasIsLocked = tableInfo.some((col) => col.name === "is_locked");
@@ -318,15 +320,17 @@ export class CourseDatabase {
    */
   getModuleBySlug(slug: string): ModuleRecord | null {
     const stmt = this.db.prepare("SELECT * FROM modules WHERE slug = ?");
-    const row = stmt.get(slug) as {
-      id: number;
-      slug: string;
-      name: string;
-      position: number;
-      is_locked: number;
-      created_at: string;
-      updated_at: string;
-    } | undefined;
+    const row = stmt.get(slug) as
+      | {
+          id: number;
+          slug: string;
+          name: string;
+          position: number;
+          is_locked: number;
+          created_at: string;
+          updated_at: string;
+        }
+      | undefined;
     return row ? this.mapModuleRow(row) : null;
   }
 
@@ -404,7 +408,15 @@ export class CourseDatabase {
         updated_at = datetime('now')
       WHERE id = ?
     `);
-    stmt.run(videoType, videoUrl, hlsUrl, status, errorMessage ?? null, errorCode ?? null, lessonId);
+    stmt.run(
+      videoType,
+      videoUrl,
+      hlsUrl,
+      status,
+      errorMessage ?? null,
+      errorCode ?? null,
+      lessonId
+    );
   }
 
   /**
@@ -516,11 +528,13 @@ export class CourseDatabase {
         AND (l.error_code IS NULL OR l.error_code NOT IN ('UNSUPPORTED_PROVIDER'))
       ORDER BY m.position, l.position
     `);
-    const rows = stmt.all(maxRetries) as Array<RawLessonRow & {
-      module_name: string;
-      module_slug: string;
-      module_position: number;
-    }>;
+    const rows = stmt.all(maxRetries) as Array<
+      RawLessonRow & {
+        module_name: string;
+        module_slug: string;
+        module_position: number;
+      }
+    >;
 
     return rows.map((row) => ({
       ...this.mapLessonRow(row),
@@ -568,11 +582,13 @@ export class CourseDatabase {
       JOIN modules m ON l.module_id = m.id
       ORDER BY m.position, l.position
     `);
-    const rows = stmt.all() as Array<RawLessonRow & {
-      module_name: string;
-      module_slug: string;
-      module_position: number;
-    }>;
+    const rows = stmt.all() as Array<
+      RawLessonRow & {
+        module_name: string;
+        module_slug: string;
+        module_position: number;
+      }
+    >;
 
     return rows.map((row) => ({
       ...this.mapLessonRow(row),
@@ -597,11 +613,13 @@ export class CourseDatabase {
       WHERE l.status = ?
       ORDER BY m.position, l.position
     `);
-    const rows = stmt.all(status) as Array<RawLessonRow & {
-      module_name: string;
-      module_slug: string;
-      module_position: number;
-    }>;
+    const rows = stmt.all(status) as Array<
+      RawLessonRow & {
+        module_name: string;
+        module_slug: string;
+        module_position: number;
+      }
+    >;
 
     return rows.map((row) => ({
       ...this.mapLessonRow(row),
@@ -627,11 +645,13 @@ export class CourseDatabase {
         AND l.is_locked = 0
       ORDER BY m.position, l.position
     `);
-    const rows = stmt.all() as Array<RawLessonRow & {
-      module_name: string;
-      module_slug: string;
-      module_position: number;
-    }>;
+    const rows = stmt.all() as Array<
+      RawLessonRow & {
+        module_name: string;
+        module_slug: string;
+        module_position: number;
+      }
+    >;
 
     return rows.map((row) => ({
       ...this.mapLessonRow(row),
@@ -658,11 +678,13 @@ export class CourseDatabase {
         AND l.is_locked = 0
       ORDER BY m.position, l.position
     `);
-    const rows = stmt.all() as Array<RawLessonRow & {
-      module_name: string;
-      module_slug: string;
-      module_position: number;
-    }>;
+    const rows = stmt.all() as Array<
+      RawLessonRow & {
+        module_name: string;
+        module_slug: string;
+        module_position: number;
+      }
+    >;
 
     return rows.map((row) => ({
       ...this.mapLessonRow(row),
@@ -687,11 +709,13 @@ export class CourseDatabase {
       WHERE l.status = 'validated' AND l.hls_url IS NOT NULL
       ORDER BY m.position, l.position
     `);
-    const rows = stmt.all() as Array<RawLessonRow & {
-      module_name: string;
-      module_slug: string;
-      module_position: number;
-    }>;
+    const rows = stmt.all() as Array<
+      RawLessonRow & {
+        module_name: string;
+        module_slug: string;
+        module_position: number;
+      }
+    >;
 
     return rows.map((row) => ({
       ...this.mapLessonRow(row),
@@ -819,11 +843,13 @@ export class CourseDatabase {
       WHERE l.error_code = ?
       ORDER BY m.position, l.position
     `);
-    const rows = stmt.all(errorCode) as Array<RawLessonRow & {
-      module_name: string;
-      module_slug: string;
-      module_position: number;
-    }>;
+    const rows = stmt.all(errorCode) as Array<
+      RawLessonRow & {
+        module_name: string;
+        module_slug: string;
+        module_position: number;
+      }
+    >;
 
     return rows.map((row) => ({
       ...this.mapLessonRow(row),
@@ -902,4 +928,3 @@ interface RawLessonRow {
   created_at: string;
   updated_at: string;
 }
-

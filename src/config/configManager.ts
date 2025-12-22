@@ -1,7 +1,16 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
-import { APP_DIR, CONFIG_FILE, SESSIONS_DIR } from "./paths.js";
+import { existsSync, mkdirSync } from "node:fs";
+import Conf from "conf";
+import { APP_DIR, SESSIONS_DIR } from "./paths.js";
 import { Config, configSchema } from "./schema.js";
+
+/**
+ * Application configuration store using conf package.
+ * Provides atomic writes, dot-notation access, and XDG-compliant paths.
+ */
+const store = new Conf<Config>({
+  projectName: "offcourse",
+  defaults: configSchema.parse({}),
+});
 
 /**
  * Ensures all required application directories exist.
@@ -17,40 +26,22 @@ export function ensureAppDirectories(): void {
 }
 
 /**
- * Loads the application configuration from disk.
- * Returns default config if file doesn't exist.
+ * Loads the application configuration.
+ * Returns validated config with defaults applied.
  */
 export function loadConfig(): Config {
   ensureAppDirectories();
-
-  if (!existsSync(CONFIG_FILE)) {
-    const defaultConfig = configSchema.parse({});
-    saveConfig(defaultConfig);
-    return defaultConfig;
-  }
-
-  try {
-    const raw = readFileSync(CONFIG_FILE, "utf-8");
-    const parsed = JSON.parse(raw) as unknown;
-    return configSchema.parse(parsed);
-  } catch (error) {
-    console.error("Failed to parse config, using defaults:", error);
-    return configSchema.parse({});
-  }
+  // Validate with zod to ensure type safety
+  return configSchema.parse(store.store);
 }
 
 /**
- * Saves the configuration to disk.
+ * Saves the configuration.
  */
 export function saveConfig(config: Config): void {
   ensureAppDirectories();
-
-  const dir = dirname(CONFIG_FILE);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-
-  writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
+  const validated = configSchema.parse(config);
+  store.store = validated;
 }
 
 /**
@@ -59,7 +50,7 @@ export function saveConfig(config: Config): void {
 export function updateConfig(updates: Partial<Config>): Config {
   const current = loadConfig();
   const updated = configSchema.parse({ ...current, ...updates });
-  saveConfig(updated);
+  store.store = updated;
   return updated;
 }
 
@@ -67,7 +58,19 @@ export function updateConfig(updates: Partial<Config>): Config {
  * Gets a specific config value.
  */
 export function getConfigValue<K extends keyof Config>(key: K): Config[K] {
-  const config = loadConfig();
-  return config[key];
+  return store.get(key);
 }
 
+/**
+ * Clears all configuration (for testing or reset).
+ */
+export function clearConfig(): void {
+  store.clear();
+}
+
+/**
+ * Gets the path to the config file.
+ */
+export function getConfigPath(): string {
+  return store.path;
+}
