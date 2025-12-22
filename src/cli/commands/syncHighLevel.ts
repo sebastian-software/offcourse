@@ -77,7 +77,7 @@ function shouldContinue(): boolean {
   return !isShuttingDown;
 }
 
-interface SyncHighLevelOptions {
+export interface SyncHighLevelOptions {
   skipVideos?: boolean;
   skipContent?: boolean;
   dryRun?: boolean;

@@ -4,7 +4,7 @@ import prettier from "eslint-config-prettier";
 
 export default tseslint.config(
   eslint.configs.recommended,
-  ...tseslint.configs.recommendedTypeChecked,
+  ...tseslint.configs.strictTypeChecked,
   ...tseslint.configs.stylisticTypeChecked,
   {
     languageOptions: {
@@ -12,6 +12,38 @@ export default tseslint.config(
         projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
+    },
+  },
+  {
+    files: ["src/**/*.ts"],
+    rules: {
+      // Allow underscore-prefixed unused vars (common pattern)
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+      // Allow numbers/booleans in template literals
+      "@typescript-eslint/restrict-template-expressions": [
+        "error",
+        { allowNumber: true, allowBoolean: true },
+      ],
+      // Empty callbacks are fine (e.g., .catch(() => {}))
+      "@typescript-eslint/no-empty-function": "off",
+      // Defensive coding - warn only for now
+      "@typescript-eslint/no-unnecessary-condition": "warn",
+      // Non-null assertions after guards/regex matches - warn for now
+      "@typescript-eslint/no-non-null-assertion": "warn",
+    },
+  },
+  {
+    files: ["src/**/*.test.ts"],
+    rules: {
+      // Tests need more flexibility with mocks and fixtures
+      "@typescript-eslint/require-await": "off",
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/only-throw-error": "off",
+      "@typescript-eslint/no-non-null-assertion": "off",
     },
   },
   {

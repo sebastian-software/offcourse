@@ -547,7 +547,7 @@ export async function extractTextContent(page: Page): Promise<{ html: string; ma
 
     for (const selector of contentSelectors) {
       const element = document.querySelector(selector);
-      if (element && element.textContent && element.textContent.trim().length > 50) {
+      if (element?.textContent && element.textContent.trim().length > 50) {
         // Clone to avoid modifying the actual page
         const clone = element.cloneNode(true) as HTMLElement;
 

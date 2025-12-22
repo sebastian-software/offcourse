@@ -173,7 +173,7 @@ export async function getVimeoVideoInfo(
       !config.request?.files?.progressive
     ) {
       // Only DASH with no HLS/progressive usually means DRM
-      const hasDrm = config.video?.drm || config.request?.drm;
+      const hasDrm = config.video?.drm ?? config.request?.drm;
       if (hasDrm) {
         return {
           success: false,

@@ -4,6 +4,58 @@
  */
 import type { Page } from "playwright";
 
+// ============================================================================
+// Type definitions for external browser APIs
+// ============================================================================
+
+/** Vimeo player configuration embedded in the page */
+interface VimeoPlayerConfig {
+  request?: {
+    files?: {
+      hls?: {
+        cdns?: Record<string, { url?: string }>;
+      };
+      progressive?: { url?: string; height?: number }[];
+    };
+  };
+}
+
+/** Vimeo-related window properties */
+interface VimeoWindow {
+  playerConfig?: VimeoPlayerConfig;
+  vimeo?: { config?: VimeoPlayerConfig };
+  __vimeo_player__?: { config?: VimeoPlayerConfig };
+}
+
+/** Loom video asset URLs */
+interface LoomAssetUrls {
+  hls_url?: string;
+}
+
+/** Loom video data */
+interface LoomVideo {
+  asset_urls?: LoomAssetUrls;
+}
+
+/** Loom SSR state embedded in the page */
+interface LoomSSRState {
+  video?: LoomVideo;
+}
+
+/** Loom-related window properties */
+interface LoomWindow {
+  __LOOM_SSR_STATE__?: LoomSSRState;
+}
+
+/** Next.js data for Loom pages */
+interface LoomNextData {
+  props?: {
+    pageProps?: {
+      video?: LoomVideo;
+    };
+  };
+}
+
 /**
  * Captures Vimeo video URL by extracting it from the running player.
  * The key insight: the video is ALREADY playing in the iframe - we just need to get the URL.
@@ -135,7 +187,7 @@ export async function captureVimeoConfig(
         // Method 3: Extract from Vimeo's internal player state
         if (!result.hlsUrl && !result.progressiveUrl) {
           try {
-            const win = window as any;
+            const win = window as unknown as VimeoWindow;
 
             // Try various Vimeo internal variables
             const configPaths = [
@@ -151,8 +203,9 @@ export async function captureVimeoConfig(
               if (files.hls?.cdns) {
                 const cdns = files.hls.cdns;
                 for (const cdn of Object.keys(cdns)) {
-                  if (cdns[cdn]?.url) {
-                    result.hlsUrl = cdns[cdn].url;
+                  const cdnEntry = cdns[cdn];
+                  if (cdnEntry?.url) {
+                    result.hlsUrl = cdnEntry.url;
                     result.debug.push(`Found HLS in playerConfig.${cdn}`);
                     break;
                   }
@@ -160,9 +213,9 @@ export async function captureVimeoConfig(
               }
 
               // Progressive MP4
-              if (!result.progressiveUrl && files.progressive?.length > 0) {
+              if (!result.progressiveUrl && files.progressive && files.progressive.length > 0) {
                 const sorted = [...files.progressive].sort(
-                  (a: any, b: any) => (b.height ?? 0) - (a.height ?? 0)
+                  (a, b) => (b.height ?? 0) - (a.height ?? 0)
                 );
                 result.progressiveUrl = sorted[0]?.url ?? null;
                 if (result.progressiveUrl) {
@@ -173,7 +226,9 @@ export async function captureVimeoConfig(
               if (result.hlsUrl || result.progressiveUrl) break;
             }
           } catch (e) {
-            result.debug.push(`Config extraction error: ${e}`);
+            result.debug.push(
+              `Config extraction error: ${e instanceof Error ? e.message : String(e)}`
+            );
           }
         }
 
@@ -219,7 +274,7 @@ export async function captureVimeoConfig(
     return {
       hlsUrl: null,
       progressiveUrl: null,
-      error: `Vimeo extraction failed: ${error}`,
+      error: `Vimeo extraction failed: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 }
@@ -324,7 +379,7 @@ export async function captureLoomHls(
     // Also try to extract from page JS if not found via network
     if (!capturedUrl) {
       const jsUrl = await page.evaluate(() => {
-        const win = window as any;
+        const win = window as unknown as LoomWindow;
 
         // Check __LOOM_SSR_STATE__
         if (win.__LOOM_SSR_STATE__?.video?.asset_urls?.hls_url) {
@@ -335,7 +390,7 @@ export async function captureLoomHls(
         const nextData = document.getElementById("__NEXT_DATA__");
         if (nextData?.textContent) {
           try {
-            const data = JSON.parse(nextData.textContent);
+            const data = JSON.parse(nextData.textContent) as LoomNextData;
             const hlsUrl = data?.props?.pageProps?.video?.asset_urls?.hls_url;
             if (hlsUrl) return hlsUrl;
 
@@ -350,7 +405,9 @@ export async function captureLoomHls(
         // Scan scripts for HLS URL
         const scripts = Array.from(document.querySelectorAll("script"));
         for (const script of scripts) {
-          const match = /https:\/\/luna\.loom\.com[^"'\s]+\.m3u8[^"'\s]*/.exec(script.textContent);
+          const match = /https:\/\/luna\.loom\.com[^"'\s]+\.m3u8[^"'\s]*/.exec(
+            script.textContent ?? ""
+          );
           if (match) return match[0];
         }
 

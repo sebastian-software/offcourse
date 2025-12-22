@@ -62,7 +62,7 @@ function setupShutdownHandlers(): void {
         cleanupResources.db.close();
       }
       console.log(chalk.gray("   Cleanup complete. State saved."));
-    } catch (error) {
+    } catch {
       // Ignore cleanup errors during shutdown
     }
 
@@ -94,7 +94,7 @@ interface DownloadAttempt {
 const SKOOL_DOMAIN = "www.skool.com";
 const SKOOL_LOGIN_URL = "https://www.skool.com/login";
 
-interface SyncOptions {
+export interface SyncOptions {
   skipVideos?: boolean;
   skipContent?: boolean;
   dryRun?: boolean;
@@ -205,7 +205,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
     session = result.session;
     cleanupResources.browser = browser;
     spinner.succeed("Connected to Skool");
-  } catch (error) {
+  } catch {
     spinner.fail("Failed to connect");
     db.close();
     console.log(chalk.red("\n❌ Authentication failed. Please run: offcourse login\n"));

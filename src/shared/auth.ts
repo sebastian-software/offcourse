@@ -77,12 +77,12 @@ export async function hasValidSession(domain: string): Promise<boolean> {
  */
 async function loadSession(browser: Browser, domain: string): Promise<BrowserContext> {
   const sessionPath = getSessionPath(domain);
+  // Playwright's storageState type is complex, we load it as-is from JSON
   const storageState = await readJson(sessionPath);
   if (!storageState) {
     throw new Error("Session file not found or invalid");
   }
-  // Cast to any since Playwright's storageState type is complex
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any
   return browser.newContext({ storageState: storageState as any });
 }
 
@@ -245,24 +245,7 @@ export async function clearSession(domain: string): Promise<boolean> {
  * Checks if the page has a valid Firebase auth token.
  * Used by HighLevel/GoHighLevel portals.
  */
-export async function hasValidFirebaseToken(page: Page): Promise<boolean> {
-  try {
-    return await page.evaluate(() => {
-      const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
-      if (!tokenKey) return false;
-
-      const tokenData = JSON.parse(localStorage.getItem(tokenKey) ?? "{}");
-      const expirationTime = tokenData?.stsTokenManager?.expirationTime;
-
-      if (expirationTime) {
-        return Date.now() < expirationTime;
-      }
-
-      return !!tokenData?.stsTokenManager?.accessToken;
-    });
-  } catch {
-    return false;
-  }
-}
+// Re-export Firebase auth utilities (used by multiple platforms)
+export { hasValidFirebaseToken } from "./firebase.js";
 
 /* v8 ignore stop */

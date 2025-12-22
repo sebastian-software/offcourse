@@ -6,6 +6,7 @@ import {
   CategoriesResponseSchema,
   PostsResponseSchema,
   safeParse,
+  type FirebaseAuthRaw,
 } from "./schemas.js";
 
 export interface HighLevelCourse {
@@ -110,7 +111,7 @@ export async function extractPortalSettings(
 
     if (!response.ok()) return null;
 
-    const data = await response.json();
+    const data: unknown = await response.json();
 
     // Validate response with Zod schema
     const parsed = safeParse(PortalSettingsResponseSchema, data, "extractPortalSettings");
@@ -153,8 +154,8 @@ export async function extractCourses(page: Page): Promise<HighLevelCourse[]> {
         if (match?.[1] && !seen.has(match[1])) {
           seen.add(match[1]);
           const title =
-            link.querySelector("h3, h4, [class*='title']")?.textContent?.trim() ||
-            link.textContent?.trim() ||
+            link.querySelector("h3, h4, [class*='title']")?.textContent?.trim() ??
+            link.textContent?.trim() ??
             `Course ${results.length + 1}`;
 
           results.push({
@@ -210,11 +211,11 @@ export async function extractCourseDetails(
       const apiUrl = `https://services.leadconnectorhq.com/membership/locations/${locationId}/products/${productId}`;
 
       // Get auth token from the page context
-      const rawTokenData = await page.evaluate(() => {
+      const rawTokenData = await page.evaluate((): FirebaseAuthRaw | null => {
         const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
         if (!tokenKey) return null;
         try {
-          return JSON.parse(localStorage.getItem(tokenKey) ?? "{}");
+          return JSON.parse(localStorage.getItem(tokenKey) ?? "{}") as FirebaseAuthRaw;
         } catch {
           return null;
         }
@@ -234,7 +235,7 @@ export async function extractCourseDetails(
         });
 
         if (response.ok()) {
-          const data = await response.json();
+          const data: unknown = await response.json();
 
           // Validate response with Zod schema
           const parsed = safeParse(ProductResponseSchema, data, "extractCourseDetails");
@@ -336,11 +337,11 @@ export async function extractCategories(
 ): Promise<HighLevelCategory[]> {
   try {
     // Get auth token from the page context
-    const rawTokenData = await page.evaluate(() => {
+    const rawTokenData = await page.evaluate((): FirebaseAuthRaw | null => {
       const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
       if (!tokenKey) return null;
       try {
-        return JSON.parse(localStorage.getItem(tokenKey) ?? "{}");
+        return JSON.parse(localStorage.getItem(tokenKey) ?? "{}") as FirebaseAuthRaw;
       } catch {
         return null;
       }
@@ -371,7 +372,7 @@ export async function extractCategories(
       return [];
     }
 
-    const data = await response.json();
+    const data: unknown = await response.json();
 
     // Validate response with Zod schema
     const parsed = safeParse(CategoriesResponseSchema, data, "extractCategories");
@@ -402,11 +403,11 @@ export async function extractPosts(
 ): Promise<HighLevelPost[]> {
   try {
     // Get auth token from the page context
-    const rawTokenData = await page.evaluate(() => {
+    const rawTokenData = await page.evaluate((): FirebaseAuthRaw | null => {
       const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
       if (!tokenKey) return null;
       try {
-        return JSON.parse(localStorage.getItem(tokenKey) ?? "{}");
+        return JSON.parse(localStorage.getItem(tokenKey) ?? "{}") as FirebaseAuthRaw;
       } catch {
         return null;
       }
@@ -435,7 +436,7 @@ export async function extractPosts(
       return [];
     }
 
-    const data = await response.json();
+    const data: unknown = await response.json();
 
     // Validate response with Zod schema
     const parsed = safeParse(PostsResponseSchema, data, "extractPosts");
@@ -481,9 +482,7 @@ export async function buildHighLevelCourseStructure(
   }
 
   // Fallback: try to extract from page
-  if (!locationId) {
-    locationId = await extractLocationId(page);
-  }
+  locationId ??= await extractLocationId(page);
 
   if (!locationId) {
     console.error("Could not determine location ID");
@@ -501,7 +500,7 @@ export async function buildHighLevelCourseStructure(
       url.includes("leadconnectorhq.com")
     ) {
       try {
-        const data = await response.json();
+        const data: unknown = await response.json();
         const parsed = safeParse(ProductResponseSchema, data, "responseHandler");
         const title = parsed?.product?.title ?? parsed?.title;
         if (title) {

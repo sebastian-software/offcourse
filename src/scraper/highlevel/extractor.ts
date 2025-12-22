@@ -5,6 +5,7 @@ import {
   PostDetailsResponseSchema,
   VideoLicenseResponseSchema,
   safeParse,
+  type FirebaseAuthRaw,
 } from "./schemas.js";
 
 // Alias for backwards compatibility and internal use
@@ -49,12 +50,12 @@ export interface HighLevelPostContent {
  * Extracts the Firebase auth token from the page.
  */
 export async function getAuthToken(page: Page): Promise<string | null> {
-  const rawData = await page.evaluate(() => {
+  const rawData = await page.evaluate((): FirebaseAuthRaw | null => {
     const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
     if (!tokenKey) return null;
 
     try {
-      return JSON.parse(localStorage.getItem(tokenKey) ?? "{}");
+      return JSON.parse(localStorage.getItem(tokenKey) ?? "{}") as FirebaseAuthRaw;
     } catch {
       return null;
     }
@@ -75,8 +76,8 @@ export async function extractVideoFromPage(page: Page): Promise<HighLevelVideoIn
     // Look for HLS master playlist URLs in the DOM
     const videoElements = Array.from(document.querySelectorAll("video"));
     for (const video of videoElements) {
-      const src = video.currentSrc || video.src;
-      if (src && src.includes(".m3u8")) {
+      const src = video.currentSrc ?? video.src;
+      if (src?.includes(".m3u8")) {
         return src;
       }
     }
@@ -226,11 +227,15 @@ export async function fetchPostDetails(
   }[];
 } | null> {
   // Fetch raw data from browser context
+  type FetchResult = { error: string; status?: number } | { data: unknown };
+
   const rawData = await page.evaluate(
-    async ({ locationId, postId }) => {
+    async ({ locationId, postId }): Promise<FetchResult> => {
       try {
         const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
-        const tokenData = tokenKey ? JSON.parse(localStorage.getItem(tokenKey) ?? "{}") : null;
+        const tokenData = tokenKey
+          ? (JSON.parse(localStorage.getItem(tokenKey) ?? "{}") as FirebaseAuthRaw)
+          : null;
         const token = tokenData?.stsTokenManager?.accessToken;
 
         if (!token) {
@@ -250,7 +255,7 @@ export async function fetchPostDetails(
           return { error: `HTTP ${res.status}`, status: res.status };
         }
 
-        const data = await res.json();
+        const data: unknown = await res.json();
         return { data };
       } catch (error) {
         return { error: String(error) };
@@ -260,12 +265,12 @@ export async function fetchPostDetails(
   );
 
   // Debug: Log raw response in Node context
-  if (rawData?.error) {
+  if ("error" in rawData) {
     console.log(`[DEBUG] API Error: ${rawData.error}`);
     return null;
   }
 
-  const data = rawData?.data;
+  const data = rawData.data;
   if (!data) {
     console.log("[DEBUG] No data in response");
     return null;
@@ -374,7 +379,7 @@ export async function fetchVideoLicense(
       return null;
     }
 
-    const data = await response.json();
+    const data: unknown = await response.json();
 
     // Validate response with Zod schema
     const parsed = safeParse(VideoLicenseResponseSchema, data, "fetchVideoLicense");
@@ -421,7 +426,7 @@ export async function extractHighLevelPostContent(
   // Check if we have video data
   if (postDetails.video) {
     // Option 1: Direct MP4 URL (preferred - no DRM)
-    if (postDetails.video.url && postDetails.video.url.endsWith(".mp4")) {
+    if (postDetails.video.url?.endsWith(".mp4")) {
       video = {
         type: "custom", // Direct download, not HLS
         url: postDetails.video.url,
@@ -443,9 +448,7 @@ export async function extractHighLevelPostContent(
   }
 
   // Fallback: try to extract video from page DOM
-  if (!video) {
-    video = await extractVideoFromPage(page);
-  }
+  video ??= await extractVideoFromPage(page);
 
   // Extract HTML content
   const htmlContent = await page.evaluate(() => {

@@ -5,8 +5,12 @@ import { configGetCommand, configSetCommand, configShowCommand } from "./command
 import { inspectCommand } from "./commands/inspect.js";
 import { loginCommand, logoutCommand } from "./commands/login.js";
 import { statusCommand, statusListCommand, type StatusOptions } from "./commands/status.js";
-import { syncCommand } from "./commands/sync.js";
-import { syncHighLevelCommand, isHighLevelPortal } from "./commands/syncHighLevel.js";
+import { syncCommand, type SyncOptions } from "./commands/sync.js";
+import {
+  syncHighLevelCommand,
+  isHighLevelPortal,
+  type SyncHighLevelOptions,
+} from "./commands/syncHighLevel.js";
 
 const program = new Command();
 
@@ -38,7 +42,7 @@ program
   .option("--visible", "Show browser window (default: headless)")
   .option("-q, --quality <quality>", "Preferred video quality (e.g., 720p, 1080p)")
   .option("--course-name <name>", "Override detected course name")
-  .action((url: string, options) => {
+  .action((url: string, options: SyncOptions & SyncHighLevelOptions) => {
     // Auto-detect platform
     if (url.includes("skool.com")) {
       return syncCommand(url, options);

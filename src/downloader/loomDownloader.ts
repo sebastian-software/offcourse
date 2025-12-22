@@ -710,17 +710,23 @@ export async function downloadFile(
     let downloaded = 0;
 
     const readable = new Readable({
-      async read(): Promise<void> {
-        const { done, value } = await reader.read();
-        if (done) {
-          this.push(null);
-        } else {
-          downloaded += value.length;
-          if (onProgress && total > 0) {
-            onProgress({ percent: (downloaded / total) * 100, downloaded, total });
-          }
-          this.push(Buffer.from(value));
-        }
+      read() {
+        reader
+          .read()
+          .then(({ done, value }) => {
+            if (done) {
+              this.push(null);
+            } else {
+              downloaded += value.length;
+              if (onProgress && total > 0) {
+                onProgress({ percent: (downloaded / total) * 100, downloaded, total });
+              }
+              this.push(Buffer.from(value));
+            }
+          })
+          .catch((err: unknown) => {
+            this.destroy(err instanceof Error ? err : new Error(String(err)));
+          });
       },
     });
 

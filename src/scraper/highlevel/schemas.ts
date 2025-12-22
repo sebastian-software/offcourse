@@ -5,19 +5,12 @@
 
 import { z } from "zod";
 
-// ============================================================================
-// Firebase Auth Token (from localStorage)
-// ============================================================================
-
-export const FirebaseAuthTokenSchema = z.object({
-  stsTokenManager: z.object({
-    accessToken: z.string(),
-    expirationTime: z.number().optional(),
-    refreshToken: z.string().optional(),
-  }),
-});
-
-export type FirebaseAuthToken = z.infer<typeof FirebaseAuthTokenSchema>;
+// Re-export Firebase auth types (Firebase is used by HighLevel for auth)
+export {
+  FirebaseAuthTokenSchema,
+  type FirebaseAuthToken,
+  type FirebaseAuthRaw,
+} from "../../shared/firebase.js";
 
 // ============================================================================
 // Portal Settings API
@@ -183,7 +176,7 @@ export function safeParse<T>(schema: z.ZodType<T>, data: unknown, context?: stri
   }
 
   if (context) {
-    console.warn(`[${context}] Validation failed:`, result.error.format());
+    console.warn(`[${context}] Validation failed:`, z.treeifyError(result.error));
   }
 
   return null;

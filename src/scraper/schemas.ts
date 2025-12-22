@@ -9,55 +9,42 @@ import { z } from "zod";
 // Skool Course Child (Module/Lesson)
 // ============================================================================
 
-const CourseMetadataSchema = z
-  .object({
-    title: z.string().optional(),
-    videoLink: z.string().optional(),
-  })
-  .passthrough();
+const CourseMetadataSchema = z.looseObject({
+  title: z.string().optional(),
+  videoLink: z.string().optional(),
+});
 
-const CourseInfoSchema = z
-  .object({
-    id: z.string().optional(),
-    name: z.string().optional(), // 8-char hex slug
-    metadata: CourseMetadataSchema.optional(),
-  })
-  .passthrough();
+const CourseInfoSchema = z.looseObject({
+  id: z.string().optional(),
+  name: z.string().optional(), // 8-char hex slug
+  metadata: CourseMetadataSchema.optional(),
+});
 
-const CourseChildSchema = z
-  .object({
-    course: CourseInfoSchema.optional(),
-    hasAccess: z.boolean().optional(),
-  })
-  .passthrough();
+const CourseChildSchema = z.looseObject({
+  course: CourseInfoSchema.optional(),
+  hasAccess: z.boolean().optional(),
+});
 
 // ============================================================================
 // Skool __NEXT_DATA__ PageProps
 // ============================================================================
 
-const SkoolCourseSchema = z
-  .object({
-    children: z.array(CourseChildSchema).optional(),
-  })
-  .passthrough();
+const SkoolCourseSchema = z.looseObject({
+  children: z.array(CourseChildSchema).optional(),
+});
 
-const SkoolPagePropsSchema = z
-  .object({
-    course: SkoolCourseSchema.optional(),
-    selectedModule: z.string().optional(),
-  })
-  .passthrough();
+const SkoolPagePropsSchema = z.looseObject({
+  course: SkoolCourseSchema.optional(),
+  selectedModule: z.string().optional(),
+});
 
-export const SkoolNextDataSchema = z
-  .object({
-    props: z
-      .object({
-        pageProps: SkoolPagePropsSchema.optional(),
-      })
-      .passthrough()
-      .optional(),
-  })
-  .passthrough();
+export const SkoolNextDataSchema = z.looseObject({
+  props: z
+    .looseObject({
+      pageProps: SkoolPagePropsSchema.optional(),
+    })
+    .optional(),
+});
 
 export type SkoolNextData = z.infer<typeof SkoolNextDataSchema>;
 
@@ -91,12 +78,12 @@ export interface SkoolVideoInfo {
  */
 export function parseNextData(json: string): SkoolNextData | null {
   try {
-    const data = JSON.parse(json);
+    const data: unknown = JSON.parse(json);
     const result = SkoolNextDataSchema.safeParse(data);
     if (result.success) {
       return result.data;
     }
-    console.warn("[parseNextData] Validation failed:", result.error.format());
+    console.warn("[parseNextData] Validation failed:", z.treeifyError(result.error));
     return null;
   } catch {
     return null;

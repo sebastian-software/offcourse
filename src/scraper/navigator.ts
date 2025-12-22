@@ -88,7 +88,7 @@ export async function extractModulesFromJson(page: Page): Promise<CourseModule[]
         // Skip if already added
         if (slug && title && !results.some((m) => m.slug === slug)) {
           // Decode unicode escapes (e.g., \u0026 -> &)
-          const decodedTitle = title.replace(/\\u([0-9a-fA-F]{4})/g, (_, code) =>
+          const decodedTitle = title.replace(/\\u([0-9a-fA-F]{4})/g, (_, code: string) =>
             String.fromCharCode(parseInt(code, 16))
           );
 
