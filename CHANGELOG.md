@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.1](https://github.com/sebastian-software/offcourse/compare/v1.0.0...v1.0.1) (2025-12-22)
+
+### Bug Fixes
+
+* use separate tsconfig.build.json for production build ([86e60c9](https://github.com/sebastian-software/offcourse/commit/86e60c9ac410e3eda446bf07d77cd27009f73817))
+
 ## 1.0.0 (2025-12-22)
 
 ### ⚠ BREAKING CHANGES
