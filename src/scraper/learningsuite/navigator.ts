@@ -628,12 +628,8 @@ export async function buildLearningSuiteCourseStructure(
       await page.waitForTimeout(2000);
     }
   } else {
-    // Try clicking on start button to enter the course
-    const startButton = page
-      .locator(
-        'button:has-text("Jetzt anfangen"), button:has-text("Fortsetzen"), button:has-text("Start")'
-      )
-      .first();
+    // Try clicking on start/continue button using data-cy attribute (language-independent)
+    const startButton = page.locator('[data-cy="continue-lesson"]').first();
     if (await startButton.isVisible().catch(() => false)) {
       await startButton.click();
       await page.waitForLoadState("networkidle").catch(() => {});
@@ -772,9 +768,9 @@ async function extractModulesAndLessonsFromDOM(
 
       if (!card || card === dialog) continue;
 
-      // Check if the lesson is locked (has "GESPERRT" text)
+      // Check if the lesson is locked (has "GESPERRT" or "LOCKED" text)
       const cardText = card.textContent ?? "";
-      const isLocked = /GESPERRT/i.test(cardText);
+      const isLocked = /GESPERRT|LOCKED/i.test(cardText);
 
       // Check if the lesson is completed (has checkmark icon or completed indicator)
       // Completed lessons typically have a check/tick icon or specific styling
@@ -801,8 +797,8 @@ async function extractModulesAndLessonsFromDOM(
         if (text.includes("LEKTION")) continue;
         if (text === moduleTitle) continue;
 
-        // Skip "GESPERRT" label
-        if (/^GESPERRT$/i.test(text)) continue;
+        // Skip "GESPERRT" / "LOCKED" label
+        if (/^(GESPERRT|LOCKED)$/i.test(text)) continue;
 
         // This is likely the title
         title = text;
@@ -814,7 +810,7 @@ async function extractModulesAndLessonsFromDOM(
         const cleaned = cardText
           .replace(moduleTitle, "")
           .replace(/\d+\s*(?:LEKTION|Lektion)(?:EN)?/gi, "")
-          .replace(/GESPERRT/gi, "")
+          .replace(/GESPERRT|LOCKED/gi, "")
           .trim();
         if (cleaned.length >= 5 && cleaned.length <= 80) {
           title = cleaned;
@@ -941,11 +937,10 @@ async function extractModulesFromCoursePage(
 
       const cardText = card.textContent ?? "";
 
-      // Check if it's a module card (has lesson count or "Erscheint bald")
-      const lessonCountMatch = /(\d+)\s*(?:LEKTION|Lektion)(?:EN)?\s*\|\s*(\d+)\s*MIN/i.exec(
-        cardText
-      );
-      const isLocked = /Erscheint\s*bald/i.test(cardText);
+      // Check if it's a module card (has lesson count or "Erscheint bald" / "Coming soon")
+      const lessonCountMatch =
+        /(\d+)\s*(?:LEKTION|Lektion|Lesson)(?:EN|s)?\s*\|\s*(\d+)\s*MIN/i.exec(cardText);
+      const isLocked = /Erscheint\s*bald|Coming\s*soon/i.test(cardText);
 
       if (!lessonCountMatch && !isLocked) continue;
 

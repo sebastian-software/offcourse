@@ -339,8 +339,8 @@ export async function syncLearningSuiteCommand(
       const courseUrl = `https://${courseStructure.domain}/student/course/${courseStructure.courseSlug ?? courseStructure.course.id}/${courseStructure.course.id}`;
       await session.page.goto(courseUrl);
 
-      // Wait for Fortsetzen button
-      const fortsetzenButton = session.page.locator('button:has-text("Fortsetzen")').first();
+      // Wait for Continue button using data-cy attribute (language-independent)
+      const fortsetzenButton = session.page.locator('[data-cy="continue-lesson"]').first();
       const hasFortsetzen = await fortsetzenButton
         .waitFor({ state: "visible", timeout: 5000 })
         .then(() => true)
@@ -381,10 +381,9 @@ export async function syncLearningSuiteCommand(
             });
           });
 
-          // Wait for the complete button to be visible AND enabled
+          // Wait for the complete button (green success button, language-independent)
           const completeButton = session.page
-            .locator("button:not([disabled])")
-            .filter({ hasText: /abschließen|complete/i })
+            .locator("button.MuiButton-colorSuccess:not([disabled])")
             .first();
           const hasButton = await completeButton
             .waitFor({ state: "visible", timeout: 3000 })
