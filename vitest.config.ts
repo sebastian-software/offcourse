@@ -23,9 +23,6 @@ export default defineConfig({
         "src/scraper/videoInterceptor.ts",
         // Network validation (requires live connections)
         "src/downloader/hlsValidator.ts",
-        // Video downloaders (mostly network I/O, pure functions tested separately)
-        "src/downloader/loomDownloader.ts",
-        "src/downloader/vimeoDownloader.ts",
       ],
     },
   },
