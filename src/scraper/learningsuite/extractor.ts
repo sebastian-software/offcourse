@@ -246,9 +246,9 @@ export async function extractAttachmentsFromPage(
       size?: number;
     }[] = [];
 
-    // Look for download links
+    // Look for download links - include storage URLs (Google Cloud Storage)
     const downloadLinks = document.querySelectorAll(
-      'a[download], a[href*=".pdf"], a[href*=".doc"], a[href*=".xls"], a[href*=".ppt"], a[href*=".zip"]'
+      'a[download], a[href*=".pdf"], a[href*=".doc"], a[href*=".xls"], a[href*=".ppt"], a[href*=".zip"], a[href*="storage.googleapis.com"], a[href*="storage.cloud.google"]'
     );
 
     const seen = new Set<string>();
@@ -258,13 +258,33 @@ export async function extractAttachmentsFromPage(
       const url = anchor.href;
 
       if (!url || seen.has(url)) continue;
+
+      // Skip non-file URLs
+      if (url.startsWith("javascript:") || url.startsWith("#")) continue;
+
       seen.add(url);
 
-      // Get filename
-      let name = anchor.download || anchor.textContent?.trim() || "";
+      // Get filename from download attribute, text content, or URL
+      let name = anchor.download || "";
       if (!name) {
+        // Try to get name from visible text (often the file name is shown)
+        const textContent = anchor.textContent?.trim() ?? "";
+        if (textContent && textContent.includes(".")) {
+          name = textContent;
+        }
+      }
+      if (!name) {
+        // Extract from URL, handling encoded characters
         const urlParts = url.split("/");
-        name = urlParts[urlParts.length - 1]?.split("?")[0] ?? "attachment";
+        const lastPart = urlParts[urlParts.length - 1]?.split("?")[0] ?? "";
+        try {
+          name = decodeURIComponent(lastPart);
+        } catch {
+          name = lastPart;
+        }
+      }
+      if (!name) {
+        name = "attachment";
       }
 
       // Determine type from extension
@@ -275,6 +295,7 @@ export async function extractAttachmentsFromPage(
       else if (["xls", "xlsx"].includes(ext)) type = "spreadsheet";
       else if (["ppt", "pptx"].includes(ext)) type = "presentation";
       else if (["zip", "rar", "7z"].includes(ext)) type = "archive";
+      else if (["jpg", "jpeg", "png", "gif", "webp"].includes(ext)) type = "image";
 
       attachments.push({
         id: `attachment-${attachments.length}`,
@@ -289,7 +310,7 @@ export async function extractAttachmentsFromPage(
 }
 
 /**
- * Extracts complete lesson content using DOM-based extraction.
+ * Extracts complete lesson content using DOM-based extraction with network interception.
  * Note: LearningSuite uses persisted GraphQL queries, so we can't make arbitrary API calls.
  */
 export async function extractLearningSuitePostContent(
@@ -299,13 +320,48 @@ export async function extractLearningSuitePostContent(
   _courseId: string,
   lessonId: string
 ): Promise<LearningSuitePostContent | null> {
+  // Set up request interception to capture HLS video URLs
+  const hlsUrls: string[] = [];
+  const requestHandler = (request: { url: () => string }) => {
+    const url = request.url();
+    // Capture HLS playlists from Bunny API or direct m3u8
+    if (url.includes("/playlist/master") || url.includes(".m3u8")) {
+      hlsUrls.push(url);
+    }
+  };
+
+  page.on("request", requestHandler);
+
   // Navigate to lesson page
   await page.goto(lessonUrl, { timeout: 30000 });
   await page.waitForLoadState("domcontentloaded");
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(3000); // Wait for video to start loading
 
-  // Extract content from DOM (GraphQL API uses persisted queries only)
-  const video = await extractVideoFromPage(page);
+  // Remove handler
+  page.off("request", requestHandler);
+
+  // Try to get video from intercepted requests first
+  let video: LearningSuiteVideoInfo | null = null;
+  const masterPlaylist = hlsUrls.find((url) => url.includes("/playlist/master"));
+  if (masterPlaylist) {
+    video = {
+      type: "hls",
+      url: masterPlaylist,
+      hlsUrl: masterPlaylist,
+    };
+  } else if (hlsUrls.length > 0 && hlsUrls[0]) {
+    video = {
+      type: "hls",
+      url: hlsUrls[0],
+      hlsUrl: hlsUrls[0],
+    };
+  }
+
+  // Fallback to DOM extraction if no HLS found
+  if (!video) {
+    video = await extractVideoFromPage(page);
+  }
+
   const htmlContent = await extractHtmlContent(page);
   const attachments = await extractAttachmentsFromPage(page);
 
