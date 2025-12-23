@@ -782,141 +782,184 @@ export async function completeLearningSuiteCommand(
   }
 
   try {
-    // Scan course structure
-    console.log(chalk.blue("\n📊 Scanning course structure...\n"));
-    const courseStructure = await buildLearningSuiteCourseStructure(session.page, url);
+    let iteration = 0;
+    let lastTotalLessons = 0;
+    let lastCompletedLessons = 0;
+    let grandTotalCompleted = 0;
+    const maxIterations = 10; // Safety limit
 
-    if (!courseStructure) {
-      console.error(chalk.red("Failed to build course structure"));
-      await browser.close();
-      process.exit(1);
-    }
+    // Iterative loop: keep going until no new content is unlocked
+    while (iteration < maxIterations) {
+      iteration++;
+      console.log(
+        chalk.blue(`\n📊 ${iteration === 1 ? "Scanning" : "Re-scanning"} course structure...\n`)
+      );
 
-    const totalLessons = courseStructure.modules.reduce((sum, mod) => sum + mod.lessons.length, 0);
-    const completedLessons = courseStructure.modules.reduce(
-      (sum, mod) => sum + mod.lessons.filter((l) => l.isCompleted).length,
-      0
-    );
-    const lockedLessons = courseStructure.modules.reduce(
-      (sum, mod) => sum + mod.lessons.filter((l) => l.isLocked).length,
-      0
-    );
-    const incompleteLessons = totalLessons - completedLessons;
+      const courseStructure = await buildLearningSuiteCourseStructure(session.page, url);
 
-    console.log(
-      chalk.gray(
-        `   Found: ${totalLessons} lessons, ${completedLessons} completed, ${incompleteLessons} remaining`
-      )
-    );
-    if (lockedLessons > 0) {
-      console.log(chalk.yellow(`   Note: ${lockedLessons} lessons still locked`));
-    }
+      if (!courseStructure) {
+        console.error(chalk.red("Failed to build course structure"));
+        await browser.close();
+        process.exit(1);
+      }
 
-    if (incompleteLessons === 0) {
-      console.log(chalk.green("\n✅ All lessons are already completed!\n"));
-      await browser.close();
-      return;
-    }
+      const totalLessons = courseStructure.modules.reduce(
+        (sum, mod) => sum + mod.lessons.length,
+        0
+      );
+      const completedLessons = courseStructure.modules.reduce(
+        (sum, mod) => sum + mod.lessons.filter((l) => l.isCompleted).length,
+        0
+      );
+      const lockedLessons = courseStructure.modules.reduce(
+        (sum, mod) => sum + mod.lessons.filter((l) => l.isLocked).length,
+        0
+      );
+      const incompleteLessons = totalLessons - completedLessons;
+      const percentage = totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0;
 
-    console.log(chalk.blue(`\n🔓 Completing ${incompleteLessons} lessons...\n`));
+      console.log(
+        chalk.gray(
+          `   Found: ${totalLessons} lessons, ${completedLessons} completed (${percentage}%)`
+        )
+      );
+      if (incompleteLessons > 0) {
+        console.log(chalk.gray(`   Remaining: ${incompleteLessons} incomplete`));
+      }
+      if (lockedLessons > 0) {
+        console.log(chalk.yellow(`   Note: ${lockedLessons} lessons still locked`));
+      }
 
-    let totalCompleted = 0;
-    const maxLessons = 1000; // Safety limit
+      // Check if anything changed since last iteration
+      if (iteration > 1) {
+        const newLessons = totalLessons - lastTotalLessons;
+        if (newLessons > 0) {
+          console.log(chalk.green(`   🆕 ${newLessons} new lessons unlocked!`));
+        } else if (totalLessons === lastTotalLessons && completedLessons === lastCompletedLessons) {
+          console.log(chalk.gray(`   No new content unlocked.`));
+          break;
+        }
+      }
 
-    // Navigate to course page
-    const courseUrl = `https://${courseStructure.domain}/student/course/${courseStructure.courseSlug ?? courseStructure.course.id}/${courseStructure.course.id}`;
-    await session.page.goto(courseUrl, { waitUntil: "load" });
-
-    // Wait for continue button to appear then click
-    try {
-      await session.page.waitForSelector('[data-cy="continue-lesson"]', { timeout: 8000 });
-      await session.page.click('[data-cy="continue-lesson"]');
-    } catch {
-      console.log(chalk.gray(`   No lessons to complete.`));
-      await browser.close();
-      return;
-    }
-
-    // Wait for navigation to lesson page
-    await session.page.waitForURL(/\/student\/course\/[^/]+\/[^/]+\/[^/]+\/[^/]+/);
-
-    let lastUrl = "";
-
-    while (totalCompleted < maxLessons) {
-      const currentUrl = session.page.url();
-
-      // Loop detection
-      if (currentUrl === lastUrl) {
-        console.log(chalk.gray(`   Detected loop, stopping.`));
+      // All done?
+      if (incompleteLessons === 0) {
+        console.log(chalk.green("\n✅ All lessons are completed!\n"));
         break;
       }
-      lastUrl = currentUrl;
 
-      // All in one evaluate: get title, check checkboxes, click button
-      const result = await session.page.evaluate(() => {
-        // Check any unchecked checkboxes
-        document.querySelectorAll('input[type="checkbox"]:not(:checked)').forEach((cb) => {
-          (cb as HTMLInputElement).click();
+      lastTotalLessons = totalLessons;
+      lastCompletedLessons = completedLessons;
+
+      console.log(chalk.blue(`\n🔓 Round ${iteration}: Completing lessons...\n`));
+
+      let roundCompleted = 0;
+      const maxLessons = 1000; // Safety limit per round
+
+      // Navigate to course page to find modules
+      const courseUrl = `https://${courseStructure.domain}/student/course/${courseStructure.courseSlug ?? courseStructure.course.id}/${courseStructure.course.id}`;
+      await session.page.goto(courseUrl, { waitUntil: "load" });
+      await session.page.waitForTimeout(2000);
+
+      // Try to start any unstarted modules by clicking on them
+      const moduleCards = await session.page.$$('[class*="MuiCard"], [class*="module-card"]');
+      for (const card of moduleCards) {
+        const hasStart = await card.$("text=START");
+        if (hasStart) {
+          try {
+            await card.click();
+            await session.page.waitForTimeout(1000);
+            // Go back to course page
+            await session.page.goto(courseUrl, { waitUntil: "load" });
+            await session.page.waitForTimeout(1000);
+          } catch {
+            // Ignore click errors
+          }
+        }
+      }
+
+      // Now click continue button to start completing lessons
+      try {
+        await session.page.waitForSelector('[data-cy="continue-lesson"]', { timeout: 5000 });
+        await session.page.click('[data-cy="continue-lesson"]');
+      } catch {
+        console.log(chalk.gray(`   No continue button found.`));
+        continue; // Try next iteration
+      }
+
+      // Wait for navigation to lesson page
+      try {
+        await session.page.waitForURL(/\/student\/course\/[^/]+\/[^/]+\/[^/]+\/[^/]+/, {
+          timeout: 5000,
+        });
+      } catch {
+        console.log(chalk.gray(`   Could not navigate to lesson.`));
+        continue;
+      }
+
+      let lastUrl = "";
+
+      while (roundCompleted < maxLessons) {
+        const currentUrl = session.page.url();
+
+        // Loop detection
+        if (currentUrl === lastUrl) {
+          break;
+        }
+        lastUrl = currentUrl;
+
+        // All in one evaluate: get title, check checkboxes, click button
+        const result = await session.page.evaluate(() => {
+          // Check any unchecked checkboxes (for AGB etc.)
+          document.querySelectorAll('input[type="checkbox"]:not(:checked)').forEach((cb) => {
+            (cb as HTMLInputElement).click();
+          });
+
+          const breadcrumb = document.querySelector("nav li:last-child");
+          const title = breadcrumb?.textContent?.trim() ?? "Unknown";
+          const btn = document.querySelector<HTMLButtonElement>(
+            "button.MuiButton-colorSuccess:not([disabled])"
+          );
+
+          if (btn) {
+            btn.click();
+            return { title, clicked: true };
+          }
+          return { title, clicked: false };
         });
 
-        const breadcrumb = document.querySelector("nav li:last-child");
-        const title = breadcrumb?.textContent?.trim() ?? "Unknown";
-        const btn = document.querySelector<HTMLButtonElement>(
-          "button.MuiButton-colorSuccess:not([disabled])"
-        );
+        const shortName =
+          result.title.length > 50 ? result.title.substring(0, 47) + "..." : result.title;
+        process.stdout.write(chalk.gray(`   ⏳ ${shortName}...`));
 
-        if (btn) {
-          btn.click();
-          return { title, clicked: true };
+        if (!result.clicked) {
+          process.stdout.write(chalk.yellow(` end of sequence\n`));
+          break;
         }
-        return { title, clicked: false };
-      });
 
-      const shortName =
-        result.title.length > 50 ? result.title.substring(0, 47) + "..." : result.title;
-      process.stdout.write(chalk.gray(`   ⏳ ${shortName}...`));
-
-      if (!result.clicked) {
-        process.stdout.write(chalk.yellow(` locked/disabled\n`));
-        break;
+        // Wait for URL to change (navigation to next lesson)
+        try {
+          await session.page.waitForURL((u) => u.href !== currentUrl, { timeout: 5000 });
+          roundCompleted++;
+          grandTotalCompleted++;
+          process.stdout.write(chalk.green(` ✓\n`));
+        } catch {
+          process.stdout.write(chalk.yellow(` no navigation\n`));
+          break;
+        }
       }
 
-      // Wait for URL to change (navigation to next lesson)
-      try {
-        await session.page.waitForURL((url) => url.href !== currentUrl);
-        totalCompleted++;
-        process.stdout.write(chalk.green(` ✓\n`));
-      } catch {
-        process.stdout.write(chalk.yellow(` no navigation\n`));
-        break;
+      if (roundCompleted > 0) {
+        console.log(chalk.green(`\n   ✓ Round ${iteration}: ${roundCompleted} lessons completed`));
+      } else {
+        console.log(chalk.gray(`\n   Round ${iteration}: No lessons completed in this round`));
       }
     }
 
-    if (totalCompleted > 0) {
-      console.log(chalk.green(`\n   ✓ Marked ${totalCompleted} lessons as complete\n`));
-
-      // Final re-scan to get updated structure
-      console.log(chalk.gray(`   Re-scanning course structure...\n`));
-      const updatedStructure = await buildLearningSuiteCourseStructure(session.page, url);
-      if (updatedStructure) {
-        const newCompletedLessons = updatedStructure.modules.reduce(
-          (sum, mod) => sum + mod.lessons.filter((l) => l.isCompleted).length,
-          0
-        );
-        const newTotalLessons = updatedStructure.modules.reduce(
-          (sum, mod) => sum + mod.lessons.length,
-          0
-        );
-        const percentage = Math.round((newCompletedLessons / newTotalLessons) * 100);
-        console.log(
-          chalk.gray(`   Progress: ${newCompletedLessons}/${newTotalLessons} (${percentage}%)`)
-        );
-      }
-    } else {
-      console.log(chalk.gray(`   No lessons needed completion.`));
+    // Final summary
+    if (grandTotalCompleted > 0) {
+      console.log(chalk.green(`\n🎉 Total: ${grandTotalCompleted} lessons marked as complete!\n`));
     }
-
-    console.log(chalk.green("\n✅ Complete finished!\n"));
+    console.log(chalk.green("✅ Complete finished!\n"));
   } finally {
     await browser.close();
   }
