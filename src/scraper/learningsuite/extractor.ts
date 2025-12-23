@@ -60,6 +60,22 @@ export function detectVideoType(url: string): LearningSuiteVideoInfo["type"] {
  * Extracts video information from a lesson page.
  */
 export async function extractVideoFromPage(page: Page): Promise<LearningSuiteVideoInfo | null> {
+  // Helper to check if URL is a valid CDN URL (not an API proxy)
+  const isValidCdnUrl = (url: string): boolean => {
+    // Skip API proxy endpoints
+    if (url.includes("api.learningsuite.io")) {
+      return false;
+    }
+    // Only accept actual CDN URLs
+    return (
+      url.includes("b-cdn.net") ||
+      url.includes("mediadelivery.net") ||
+      url.includes("vz-") ||
+      // Also accept URLs without API proxying
+      (!url.includes("learningsuite.io") && url.includes(".m3u8"))
+    );
+  };
+
   // Check for HLS video
   const hlsUrl = await page.evaluate(() => {
     // Look for video elements with HLS source
@@ -80,8 +96,19 @@ export async function extractVideoFromPage(page: Page): Promise<LearningSuiteVid
       if (src) return src;
     }
 
-    // Look for HLS URLs in script tags
+    // Look for HLS URLs in script tags - prefer CDN URLs
     const scripts = Array.from(document.querySelectorAll("script"));
+    for (const script of scripts) {
+      const content = script.textContent ?? "";
+      // Look for Bunny CDN URLs first
+      const cdnMatch =
+        /(https?:\/\/[^"'\s]*(?:b-cdn\.net|mediadelivery\.net|vz-)[^"'\s]*\.m3u8[^"'\s]*)/i.exec(
+          content
+        );
+      if (cdnMatch?.[1]) return cdnMatch[1];
+    }
+
+    // Fallback to any m3u8 URL in scripts (will be filtered later)
     for (const script of scripts) {
       const content = script.textContent ?? "";
       const hlsMatch = /"(https?:\/\/[^"]+\.m3u8[^"]*)"/i.exec(content);
@@ -91,7 +118,8 @@ export async function extractVideoFromPage(page: Page): Promise<LearningSuiteVid
     return null;
   });
 
-  if (hlsUrl) {
+  // Filter out API proxy URLs
+  if (hlsUrl && isValidCdnUrl(hlsUrl)) {
     return {
       type: "hls",
       url: hlsUrl,
@@ -355,23 +383,64 @@ export async function extractLearningSuitePostContent(
 ): Promise<LearningSuitePostContent | null> {
   // Set up request interception to capture HLS video URLs
   const hlsUrls: string[] = [];
+
+  // Handler for requests - capture direct CDN URLs
   const requestHandler = (request: { url: () => string }) => {
     const url = request.url();
-    // Capture actual HLS playlists from Bunny CDN or direct m3u8 files
-    // Prioritize actual .m3u8 files over API endpoints
+
+    // Only capture real Bunny CDN URLs, not API proxies
+    if (url.includes("api.learningsuite.io")) {
+      return;
+    }
+
+    // Capture actual HLS playlists from Bunny CDN
     if (
-      url.includes(".m3u8") || // Direct HLS playlist
-      url.includes("b-cdn.net") || // Bunny CDN
-      url.includes("mediadelivery.net") // Bunny video delivery
+      (url.includes(".m3u8") && url.includes("b-cdn.net")) ||
+      (url.includes(".m3u8") && url.includes("mediadelivery.net")) ||
+      (url.includes(".m3u8") && url.includes("vz-"))
     ) {
-      // Skip API responses, only capture actual playlist URLs
-      if (!url.includes("/embed/") && !url.includes("/play/")) {
+      if (!hlsUrls.includes(url)) {
         hlsUrls.push(url);
       }
     }
   };
 
+  // Handler for responses - capture Bunny CDN URLs from API responses
+  const responseHandler = async (response: {
+    url: () => string;
+    status: () => number;
+    text: () => Promise<string>;
+  }) => {
+    const url = response.url();
+
+    // Check if this is a Bunny API response that might contain the real playlist URL
+    if (url.includes("api.learningsuite.io") && url.includes("/bunny/")) {
+      try {
+        const status = response.status();
+        // Follow redirects - status 302/301 might have Location header
+        if (status >= 300 && status < 400) {
+          return; // Redirects are handled automatically
+        }
+
+        // For 200 responses, try to parse as JSON to extract playlist URL
+        if (status === 200) {
+          const text = await response.text();
+          // Look for Bunny CDN URLs in the response
+          const cdnUrlRegex =
+            /(https?:\/\/[^"'\s]*(?:b-cdn\.net|mediadelivery\.net)[^"'\s]*\.m3u8[^"'\s]*)/;
+          const cdnUrlMatch = cdnUrlRegex.exec(text);
+          if (cdnUrlMatch?.[1] && !hlsUrls.includes(cdnUrlMatch[1])) {
+            hlsUrls.push(cdnUrlMatch[1]);
+          }
+        }
+      } catch {
+        // Response body might not be readable
+      }
+    }
+  };
+
   page.on("request", requestHandler);
+  page.on("response", responseHandler);
 
   // Navigate to lesson page
   await page.goto(lessonUrl, { timeout: 30000 });
@@ -406,30 +475,20 @@ export async function extractLearningSuitePostContent(
     await page.waitForTimeout(2000);
   }
 
-  // Remove handler
+  // Remove handlers
   page.off("request", requestHandler);
+  page.off("response", responseHandler);
 
   // Try to get video from intercepted requests first
   let video: LearningSuiteVideoInfo | null = null;
 
-  // Prioritize actual .m3u8 files from CDN
-  const actualPlaylist = hlsUrls.find(
-    (url) =>
-      url.includes(".m3u8") && (url.includes("b-cdn.net") || url.includes("mediadelivery.net"))
-  );
-
-  if (actualPlaylist) {
+  // Only use CDN URLs we captured (API proxy URLs are filtered out above)
+  const firstHlsUrl = hlsUrls[0];
+  if (firstHlsUrl) {
     video = {
       type: "hls",
-      url: actualPlaylist,
-      hlsUrl: actualPlaylist,
-    };
-  } else if (hlsUrls.length > 0 && hlsUrls[0]) {
-    // Fallback to any captured HLS URL
-    video = {
-      type: "hls",
-      url: hlsUrls[0],
-      hlsUrl: hlsUrls[0],
+      url: firstHlsUrl,
+      hlsUrl: firstHlsUrl,
     };
   }
 
