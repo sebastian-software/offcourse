@@ -50,40 +50,70 @@ export async function fetchHLSQualities(
     const headers: Record<string, string> = {
       Origin: new URL(origin).origin,
       Referer: origin,
+      Accept: "*/*",
     };
     if (cookies) {
       headers.Cookie = cookies;
     }
 
-    const response = await fetch(masterUrl, { headers });
+    // Follow redirects manually to capture the final URL
+    const response = await fetch(masterUrl, {
+      headers,
+      redirect: "follow",
+    });
+
     if (!response.ok) {
       console.error(`[HLS] Fetch failed: ${response.status} for ${masterUrl}`);
       return [];
     }
 
     const content = await response.text();
+    const finalUrl = response.url; // URL after redirects
 
     // Debug: Check if response is valid HLS
     if (!content.startsWith("#EXTM3U")) {
       // Check if it's JSON (Bunny CDN API response)
       if (content.startsWith("{") || content.startsWith("[")) {
         try {
-          const json = JSON.parse(content) as { playlist?: string; url?: string };
-          // Try to extract actual playlist URL from JSON
-          const playlistUrl = json.playlist ?? json.url;
+          const json = JSON.parse(content) as Record<string, unknown>;
+          // Try to extract actual playlist URL from JSON - check various field names
+          const playlistUrl =
+            (json.playlist as string | undefined) ??
+            (json.url as string | undefined) ??
+            (json.playlistUrl as string | undefined) ??
+            (json.hlsUrl as string | undefined) ??
+            (json.src as string | undefined) ??
+            (json.source as string | undefined);
           if (playlistUrl && typeof playlistUrl === "string") {
             // Recursively fetch the actual playlist
             return await fetchHLSQualities(playlistUrl, cookies, referer);
+          }
+          // Look for CDN URL anywhere in the JSON string
+          const jsonStr = JSON.stringify(json);
+          const cdnMatch =
+            /(https?:\/\/[^"'\s]*(?:b-cdn\.net|mediadelivery\.net|vz-)[^"'\s]*)/i.exec(jsonStr);
+          if (cdnMatch?.[1]) {
+            return await fetchHLSQualities(cdnMatch[1], cookies, referer);
           }
         } catch {
           // Not valid JSON
         }
       }
+
+      // Check if content contains a redirect URL or CDN URL
+      const cdnMatch =
+        /(https?:\/\/[^"'\s<>]*(?:b-cdn\.net|mediadelivery\.net|vz-)[^"'\s<>]*\.m3u8[^"'\s<>]*)/i.exec(
+          content
+        );
+      if (cdnMatch?.[1]) {
+        return await fetchHLSQualities(cdnMatch[1], cookies, referer);
+      }
+
       console.error(`[HLS] Invalid playlist (starts with: ${content.substring(0, 50)}...)`);
       return [];
     }
 
-    return parseHLSPlaylist(content, masterUrl);
+    return parseHLSPlaylist(content, finalUrl);
   } catch (error) {
     console.error("[HLS] Failed to fetch qualities:", error);
     return [];
