@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.1](https://github.com/sebastian-software/offcourse/compare/v1.2.0...v1.2.1) (2025-12-23)
+
+### Bug Fixes
+
+* **learningsuite:** filter out API proxy URLs, capture real CDN URLs ([e281413](https://github.com/sebastian-software/offcourse/commit/e281413d7d1a50baf7f896c6f39ce82656b47e73))
+
 ## [1.2.0](https://github.com/sebastian-software/offcourse/compare/v1.1.0...v1.2.0) (2025-12-23)
 
 ### Features
