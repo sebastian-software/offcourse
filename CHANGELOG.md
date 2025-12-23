@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.1.0](https://github.com/sebastian-software/offcourse/compare/v1.0.1...v1.1.0) (2025-12-23)
+
+### Features
+
+* add LearningSuite platform support ([d5c2af5](https://github.com/sebastian-software/offcourse/commit/d5c2af5281fbdf8d4e909f6f69a5ecf966394fcb))
+* complete command now auto-detects platform ([5a11776](https://github.com/sebastian-software/offcourse/commit/5a11776a83ae2c53fe130c76e7c0f5faed1da6d1))
+* **complete:** iterative approach to unlock all content ([a3d5207](https://github.com/sebastian-software/offcourse/commit/a3d5207469ab2ae051980e13b1048b6af211b52e))
+* **learningsuite:** add --auto-complete option to batch complete lessons ([df86ad2](https://github.com/sebastian-software/offcourse/commit/df86ad2bcb33247b12b9b0ad62aff13360e611cf))
+* **learningsuite:** detect locked lessons and add auto-complete option ([05235bd](https://github.com/sebastian-software/offcourse/commit/05235bd8a47102750ffc390cbf597ebeec3037fd))
+
+### Bug Fixes
+
+* **complete:** avoid stale element references when clicking modules ([73ccd35](https://github.com/sebastian-software/offcourse/commit/73ccd3518b774825bf361462a324745ffd98a661))
+* **complete:** iterate through all modules and lessons systematically ([6aac791](https://github.com/sebastian-software/offcourse/commit/6aac79181e3a8774c39ca4b5ae8c10389a6037fe))
+* **complete:** mark incomplete lessons, not just unlock locked ones ([ff6c5cb](https://github.com/sebastian-software/offcourse/commit/ff6c5cb9bd889c8eb5e70b6c9db1d64ac9e81d7d))
+* **learningsuite:** --auto-complete now exits after completing lessons ([78852d9](https://github.com/sebastian-software/offcourse/commit/78852d923e796ef4b901eb16b78928e5e8532aa8))
+* **learningsuite:** add Origin/Referer headers to HLS downloads ([d1157b2](https://github.com/sebastian-software/offcourse/commit/d1157b2defc92d0ba1d1c3e9074d99a38572a1b1))
+* **learningsuite:** improve video and attachment extraction ([a0da5b9](https://github.com/sebastian-software/offcourse/commit/a0da5b9814a779cf25790ca94ca11184c24fdfde))
+* **learningsuite:** improve video detection with play button trigger ([e750f6e](https://github.com/sebastian-software/offcourse/commit/e750f6eadfe7fdcac10e4f60bffb5156f41e4d11))
+* **learningsuite:** pass session cookies to HLS video downloads ([09b2006](https://github.com/sebastian-software/offcourse/commit/09b200636be75663456cb59f9d64c38a2077d7cc))
+* **learningsuite:** properly extract lesson title and text content ([b57fcc6](https://github.com/sebastian-software/offcourse/commit/b57fcc607e9834c32e0c4c988967e3e165296493))
+* **learningsuite:** properly extract modules and lessons from course pages ([9b1d5dd](https://github.com/sebastian-software/offcourse/commit/9b1d5ddf1f3ad8fe5bd2644b943ce0167980ba89))
+* **learningsuite:** remove redundant video URL from markdown ([146d6f6](https://github.com/sebastian-software/offcourse/commit/146d6f6ede5a5c705db7e175e99f73798a6c0829))
+* **learningsuite:** suppress GraphQL errors, use DOM-based extraction ([96aad94](https://github.com/sebastian-software/offcourse/commit/96aad94357d45796671c445864d10c1deb4ddb45))
+* **learningsuite:** use correct referer URL for video downloads ([31f3031](https://github.com/sebastian-software/offcourse/commit/31f30313a112d9862ce28d2efb9fd76d3097e1ba))
+* resolve ESLint errors ([4fd34cc](https://github.com/sebastian-software/offcourse/commit/4fd34cc239a7d1dda920680111e59fc5aac3ca1f))
+* show correct phase message when --skip-content is used ([b6b7e82](https://github.com/sebastian-software/offcourse/commit/b6b7e82e56c2ae169611ffc9b4300c5187768531))
+
 ## [1.0.1](https://github.com/sebastian-software/offcourse/compare/v1.0.0...v1.0.1) (2025-12-22)
 
 ### Bug Fixes
