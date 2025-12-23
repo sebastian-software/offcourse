@@ -860,21 +860,26 @@ export async function completeLearningSuiteCommand(
       await session.page.goto(courseUrl, { waitUntil: "load" });
       await session.page.waitForTimeout(2000);
 
-      // Try to start any unstarted modules by clicking on them
-      const moduleCards = await session.page.$$('[class*="MuiCard"], [class*="module-card"]');
-      for (const card of moduleCards) {
-        const hasStart = await card.$("text=START");
-        if (hasStart) {
-          try {
-            await card.click();
-            await session.page.waitForTimeout(1000);
-            // Go back to course page
-            await session.page.goto(courseUrl, { waitUntil: "load" });
-            await session.page.waitForTimeout(1000);
-          } catch {
-            // Ignore click errors
+      // Try to start any unstarted modules by clicking on them (using evaluate to avoid stale references)
+      const startedModule = await session.page.evaluate(() => {
+        const cards = document.querySelectorAll('[class*="MuiCard"], [class*="module-card"]');
+        for (const card of Array.from(cards)) {
+          const startText = card.textContent?.includes("START");
+          if (startText) {
+            // Find clickable element
+            const link = card.querySelector("a") ?? card;
+            (link as HTMLElement).click();
+            return true;
           }
         }
+        return false;
+      });
+
+      // If we clicked a module, wait for page change then go back
+      if (startedModule) {
+        await session.page.waitForTimeout(2000);
+        await session.page.goto(courseUrl, { waitUntil: "load" });
+        await session.page.waitForTimeout(1000);
       }
 
       // Now click continue button to start completing lessons
