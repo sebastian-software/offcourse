@@ -428,6 +428,11 @@ export async function syncLearningSuiteCommand(
       } else {
         console.log(chalk.gray(`   No lessons needed completion.`));
       }
+
+      // Auto-complete only mode - exit after completing
+      console.log(chalk.green("\n✅ Auto-complete finished!\n"));
+      await browser.close();
+      return;
     }
 
     // Create course directory
