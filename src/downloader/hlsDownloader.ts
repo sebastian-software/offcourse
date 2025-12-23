@@ -236,6 +236,11 @@ export async function downloadHLSVideo(
     };
   }
 
+  // Handle special "segments:" URLs (for encrypted HLS with individual tokens)
+  if (hlsUrl.startsWith("segments:")) {
+    return downloadHLSSegments(hlsUrl, outputPath, onProgress);
+  }
+
   // Pre-validate the HLS URL before downloading
   try {
     const urlObj = new URL(hlsUrl);
@@ -464,5 +469,128 @@ export function parseHighLevelVideoUrl(url: string): {
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Downloads HLS video from individual segment URLs (for encrypted HLS with per-segment tokens)
+ */
+async function downloadHLSSegments(
+  segmentsUrl: string,
+  outputPath: string,
+  onProgress?: (progress: DownloadProgress) => void
+): Promise<HLSDownloadResult> {
+  try {
+    // Decode segment URLs from base64-encoded JSON
+    const base64Data = segmentsUrl.replace("segments:", "");
+    const segmentData = Buffer.from(base64Data, "base64").toString("utf-8");
+    const segmentUrls: string[] = JSON.parse(segmentData) as string[];
+
+    if (segmentUrls.length === 0) {
+      return {
+        success: false,
+        error: "No segment URLs provided",
+        errorCode: "NO_SEGMENTS",
+      };
+    }
+
+    // Create temp directory for segments
+    const tempDir = path.join(path.dirname(outputPath), ".hls-segments");
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    // Download all segments
+    const segmentPaths: string[] = [];
+    for (let i = 0; i < segmentUrls.length; i++) {
+      const segmentUrl = segmentUrls[i];
+      if (!segmentUrl) continue;
+
+      const segmentPath = path.join(tempDir, `segment${String(i).padStart(4, "0")}.ts`);
+      segmentPaths.push(segmentPath);
+
+      // Skip if already downloaded
+      if (fs.existsSync(segmentPath)) {
+        continue;
+      }
+
+      const response = await fetch(segmentUrl);
+      if (!response.ok) {
+        return {
+          success: false,
+          error: `Failed to download segment ${i}: HTTP ${response.status}`,
+          errorCode: "SEGMENT_FETCH_FAILED",
+        };
+      }
+
+      const buffer = await response.arrayBuffer();
+      fs.writeFileSync(segmentPath, Buffer.from(buffer));
+
+      // Report progress
+      if (onProgress) {
+        onProgress({
+          percent: Math.round(((i + 1) / segmentUrls.length) * 90), // Leave 10% for merging
+          phase: "downloading",
+        });
+      }
+    }
+
+    // Create concat file for ffmpeg
+    const concatPath = path.join(tempDir, "concat.txt");
+    const concatContent = segmentPaths.map((p) => `file '${p}'`).join("\n");
+    fs.writeFileSync(concatPath, concatContent);
+
+    // Merge segments with ffmpeg
+    if (onProgress) {
+      onProgress({ percent: 95, phase: "preparing" });
+    }
+
+    await execa("ffmpeg", [
+      "-y",
+      "-f",
+      "concat",
+      "-safe",
+      "0",
+      "-i",
+      concatPath,
+      "-c",
+      "copy",
+      outputPath,
+    ]);
+
+    // Clean up temp files
+    for (const p of segmentPaths) {
+      try {
+        fs.unlinkSync(p);
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      fs.unlinkSync(concatPath);
+    } catch {
+      /* ignore */
+    }
+    try {
+      fs.rmdirSync(tempDir);
+    } catch {
+      /* ignore */
+    }
+
+    if (onProgress) {
+      onProgress({ percent: 100, phase: "complete" });
+    }
+
+    return {
+      success: true,
+      outputPath,
+    };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    return {
+      success: false,
+      error: `Segment download failed: ${error}`,
+      errorCode: "SEGMENT_DOWNLOAD_FAILED",
+    };
   }
 }

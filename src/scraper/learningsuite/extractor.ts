@@ -60,18 +60,19 @@ export function detectVideoType(url: string): LearningSuiteVideoInfo["type"] {
  * Extracts video information from a lesson page.
  */
 export async function extractVideoFromPage(page: Page): Promise<LearningSuiteVideoInfo | null> {
-  // Helper to check if URL is a valid video URL
+  // Helper to check if URL is a valid video URL (real CDN, not API proxy)
   const isValidVideoUrl = (url: string): boolean => {
-    // Accept LearningSuite Bunny API proxy URLs
-    if (url.includes("api.learningsuite.io") && url.includes("/bunny/")) {
-      return true;
+    // REJECT API proxy URLs - they don't work outside the browser
+    if (url.includes("api.learningsuite.io")) {
+      return false;
     }
     // Accept actual CDN URLs
     return (
       url.includes("b-cdn.net") ||
       url.includes("mediadelivery.net") ||
       url.includes("vz-") ||
-      // Also accept other m3u8 URLs
+      url.includes("bunnycdn") ||
+      // Also accept other m3u8 URLs that are not from learningsuite
       (!url.includes("learningsuite.io") && url.includes(".m3u8"))
     );
   };
@@ -384,31 +385,22 @@ export async function extractLearningSuitePostContent(
   // Set up request interception to capture HLS video URLs
   const hlsUrls: string[] = [];
 
-  // Handler for requests - capture video URLs
+  // Handler for requests - capture segment URLs with tokens
+  const segmentUrls: string[] = [];
   const requestHandler = (request: { url: () => string }) => {
     const url = request.url();
 
-    // Capture Bunny API playlist URLs (these proxy to the actual CDN)
-    if (
-      url.includes("api.learningsuite.io") &&
-      url.includes("/bunny/") &&
-      url.includes("playlist")
-    ) {
-      if (!hlsUrls.includes(url)) {
-        hlsUrls.push(url);
+    // Capture .ts segment URLs with tokens - these are the actual video data
+    if (url.includes("b-cdn.net") && url.includes(".ts") && url.includes("token=")) {
+      if (!segmentUrls.includes(url)) {
+        segmentUrls.push(url);
       }
-      return;
     }
 
-    // Also capture direct CDN URLs if they appear
-    if (
-      (url.includes(".m3u8") && url.includes("b-cdn.net")) ||
-      (url.includes(".m3u8") && url.includes("mediadelivery.net")) ||
-      (url.includes(".m3u8") && url.includes("vz-"))
-    ) {
-      // Prefer CDN URLs over API URLs
+    // Also capture direct CDN .m3u8 URLs if they ever appear
+    if (url.includes("vz-") && url.includes("b-cdn.net") && url.includes(".m3u8")) {
       if (!hlsUrls.includes(url)) {
-        hlsUrls.unshift(url); // Add to front to prioritize
+        hlsUrls.unshift(url);
       }
     }
   };
@@ -418,27 +410,67 @@ export async function extractLearningSuitePostContent(
     url: () => string;
     status: () => number;
     text: () => Promise<string>;
+    headers: () => Record<string, string>;
   }) => {
     const url = response.url();
 
-    // Check if this is a Bunny API response that might contain the real playlist URL
-    if (url.includes("api.learningsuite.io") && url.includes("/bunny/")) {
+    // Check API proxy responses for CDN URLs
+    if (
+      url.includes("api.learningsuite.io") &&
+      url.includes("/bunny/") &&
+      url.includes("playlist")
+    ) {
       try {
         const status = response.status();
-        // Follow redirects - status 302/301 might have Location header
+
+        // Check for redirect headers
         if (status >= 300 && status < 400) {
-          return; // Redirects are handled automatically
+          const headers = response.headers();
+          const location = headers.location;
+          if (location?.includes("b-cdn.net")) {
+            console.log(`[DEBUG] Redirect to CDN: ${location.substring(0, 100)}...`);
+            if (!hlsUrls.includes(location)) {
+              hlsUrls.unshift(location); // Priority
+            }
+          }
+          return;
         }
 
-        // For 200 responses, try to parse as JSON to extract playlist URL
         if (status === 200) {
+          const contentType = response.headers()["content-type"] ?? "";
+
+          // If it's a direct playlist response
+          if (contentType.includes("mpegurl") || contentType.includes("m3u8")) {
+            // The API proxy is serving the playlist directly - construct CDN URL from .ts requests
+            // We'll capture the CDN base URL from .ts segment requests instead
+            return;
+          }
+
           const text = await response.text();
-          // Look for Bunny CDN URLs in the response
-          const cdnUrlRegex =
-            /(https?:\/\/[^"'\s]*(?:b-cdn\.net|mediadelivery\.net)[^"'\s]*\.m3u8[^"'\s]*)/;
-          const cdnUrlMatch = cdnUrlRegex.exec(text);
-          if (cdnUrlMatch?.[1] && !hlsUrls.includes(cdnUrlMatch[1])) {
-            hlsUrls.push(cdnUrlMatch[1]);
+
+          // Check if it's HLS playlist content
+          if (text.startsWith("#EXTM3U")) {
+            console.log(`[DEBUG] Got HLS playlist from API proxy`);
+            // Extract CDN base URL from playlist content
+            const cdnMatch = /(https?:\/\/vz-[^"'\s]+\.b-cdn\.net\/[^"'\s]+)/g.exec(text);
+            if (cdnMatch?.[1]) {
+              const baseUrl = cdnMatch[1].replace(/\/[^/]+\.ts.*$/, "/playlist.m3u8");
+              console.log(`[DEBUG] Extracted CDN base: ${baseUrl}`);
+              if (!hlsUrls.includes(baseUrl)) {
+                hlsUrls.unshift(baseUrl);
+              }
+            }
+          }
+
+          // Look for CDN URLs in JSON or other response
+          const cdnUrlRegex = /(https?:\/\/vz-[^"'\s]+\.b-cdn\.net[^"'\s]*)/g;
+          let match;
+          while ((match = cdnUrlRegex.exec(text)) !== null) {
+            const cdnUrl = match[1];
+            if (cdnUrl && !hlsUrls.includes(cdnUrl)) {
+              console.log(`[DEBUG] Found CDN URL in response: ${cdnUrl.substring(0, 80)}...`);
+              hlsUrls.push(cdnUrl);
+            }
           }
         }
       } catch {
@@ -464,40 +496,82 @@ export async function extractLearningSuitePostContent(
 
   // If video player exists but no HLS URL captured yet, try to trigger video load
   if (hasVideoPlayer && hlsUrls.length === 0) {
-    // Try clicking play button or video element to trigger load
-    const playButton = page.locator(
-      '[aria-label*="play" i], [aria-label*="Play" i], [class*="play" i], button[class*="Play"], video'
-    );
+    // Try multiple approaches to trigger video loading
 
+    // 1. Try clicking play button
+    const playButton = page.locator(
+      '[aria-label*="play" i], [class*="play" i], button[class*="Play"], [data-testid*="play"]'
+    );
     try {
       await playButton.first().click({ timeout: 2000 });
-      // Wait for HLS URL to be captured after clicking play
-      await page.waitForTimeout(2000);
+      await page.waitForTimeout(3000);
     } catch {
-      // Play button not found or not clickable, continue anyway
+      // Play button not found
+    }
+
+    // 2. Try clicking the video element directly
+    if (hlsUrls.length === 0) {
+      try {
+        await page.locator("video").first().click({ timeout: 2000 });
+        await page.waitForTimeout(3000);
+      } catch {
+        // Video not clickable
+      }
+    }
+
+    // 3. Try hovering over video to trigger autoplay
+    if (hlsUrls.length === 0) {
+      try {
+        await page.locator("video, [class*='video']").first().hover({ timeout: 2000 });
+        await page.waitForTimeout(3000);
+      } catch {
+        // Hover failed
+      }
     }
   }
 
-  // Give a bit more time for lazy-loaded videos
+  // Give more time for lazy-loaded videos and CDN URL extraction
   if (hlsUrls.length === 0 && hasVideoPlayer) {
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(5000);
   }
 
   // Remove handlers
   page.off("request", requestHandler);
   page.off("response", responseHandler);
 
+  // Sort and deduplicate segment URLs by video number
+  const sortedSegments = [...new Set(segmentUrls)].sort((a, b) => {
+    const numA = parseInt(/video(\d+)\.ts/.exec(a)?.[1] ?? "0", 10);
+    const numB = parseInt(/video(\d+)\.ts/.exec(b)?.[1] ?? "0", 10);
+    return numA - numB;
+  });
+
   // Try to get video from intercepted requests first
   let video: LearningSuiteVideoInfo | null = null;
 
-  // Only use CDN URLs we captured (API proxy URLs are filtered out above)
-  const firstHlsUrl = hlsUrls[0];
-  if (firstHlsUrl) {
+  // Use captured segment URLs if we have them (LearningSuite's encrypted HLS)
+  if (sortedSegments.length > 0) {
+    // Create a special URL that contains the segments as a data URL
+    // The downloader will handle this specially
+    const segmentData = JSON.stringify(sortedSegments);
+    const segmentUrl = `segments:${Buffer.from(segmentData).toString("base64")}`;
     video = {
-      type: "hls",
-      url: firstHlsUrl,
-      hlsUrl: firstHlsUrl,
+      type: "hls", // We'll handle this in the downloader
+      url: segmentUrl,
+      hlsUrl: segmentUrl,
     };
+  }
+
+  // Fallback to direct HLS URLs if available
+  if (!video) {
+    const firstHlsUrl = hlsUrls[0];
+    if (firstHlsUrl) {
+      video = {
+        type: "hls",
+        url: firstHlsUrl,
+        hlsUrl: firstHlsUrl,
+      };
+    }
   }
 
   // Fallback to DOM extraction if no HLS found

@@ -449,11 +449,12 @@ export async function syncLearningSuiteCommand(
 
               // Queue video download
               if (!options.skipVideos && !syncStatus.video && content.video?.url) {
+                const videoUrl = content.video.hlsUrl ?? content.video.url;
                 videoTasks.push({
                   lessonId: lesson.id as unknown as number,
                   lessonName: lesson.title,
-                  videoUrl: content.video.hlsUrl ?? content.video.url,
-                  videoType: mapVideoType(content.video.type),
+                  videoUrl,
+                  videoType: mapVideoType(content.video.type, videoUrl),
                   outputPath: getVideoPath(moduleDir, lessonIndex, lesson.title),
                   preferredQuality: options.quality,
                 });
@@ -487,11 +488,12 @@ export async function syncLearningSuiteCommand(
               );
 
               if (content?.video?.url) {
+                const videoUrl = content.video.hlsUrl ?? content.video.url;
                 videoTasks.push({
                   lessonId: lesson.id as unknown as number,
                   lessonName: lesson.title,
-                  videoUrl: content.video.hlsUrl ?? content.video.url,
-                  videoType: mapVideoType(content.video.type),
+                  videoUrl,
+                  videoType: mapVideoType(content.video.type, videoUrl),
                   outputPath: getVideoPath(moduleDir, lessonIndex, lesson.title),
                   preferredQuality: options.quality,
                 });
@@ -547,10 +549,15 @@ export async function syncLearningSuiteCommand(
 /**
  * Maps LearningSuite video type to downloader video type.
  */
-function mapVideoType(type: string): VideoDownloadTask["videoType"] {
+function mapVideoType(type: string, url?: string): VideoDownloadTask["videoType"] {
+  // Special case: segments:... URLs use direct HLS segment download
+  if (url?.startsWith("segments:")) {
+    return "hls";
+  }
+
   switch (type) {
     case "hls":
-      return "highlevel"; // Use HLS downloader
+      return "highlevel"; // Use HLS downloader for standard HLS
     case "vimeo":
       return "vimeo";
     case "loom":
