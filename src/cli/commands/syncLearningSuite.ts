@@ -853,103 +853,124 @@ export async function completeLearningSuiteCommand(
       console.log(chalk.blue(`\n🔓 Round ${iteration}: Completing lessons...\n`));
 
       let roundCompleted = 0;
-      const maxLessons = 1000; // Safety limit per round
 
       // Navigate to course page to find modules
       const courseUrl = `https://${courseStructure.domain}/student/course/${courseStructure.courseSlug ?? courseStructure.course.id}/${courseStructure.course.id}`;
       await session.page.goto(courseUrl, { waitUntil: "load" });
       await session.page.waitForTimeout(2000);
 
-      // Try to start any unstarted modules by clicking on them (using evaluate to avoid stale references)
-      const startedModule = await session.page.evaluate(() => {
-        const cards = document.querySelectorAll('[class*="MuiCard"], [class*="module-card"]');
-        for (const card of Array.from(cards)) {
-          const startText = card.textContent?.includes("START");
-          if (startText) {
-            // Find clickable element
-            const link = card.querySelector("a") ?? card;
-            (link as HTMLElement).click();
-            return true;
-          }
+      // Start ALL unstarted modules in a loop using Playwright locator
+      let modulesStarted = 0;
+      const maxModuleStarts = 20; // Safety limit
+
+      while (modulesStarted < maxModuleStarts) {
+        // Find all elements containing "START" text (case-sensitive, exact match)
+        const startButtons = session.page.locator("text=START");
+        const startCount = await startButtons.count();
+
+        if (startCount === 0) {
+          break; // No more modules to start
         }
-        return false;
-      });
 
-      // If we clicked a module, wait for page change then go back
-      if (startedModule) {
-        await session.page.waitForTimeout(2000);
-        await session.page.goto(courseUrl, { waitUntil: "load" });
-        await session.page.waitForTimeout(1000);
-      }
+        console.log(chalk.gray(`   Found ${startCount} unstarted module(s)...`));
 
-      // Now click continue button to start completing lessons
-      try {
-        await session.page.waitForSelector('[data-cy="continue-lesson"]', { timeout: 5000 });
-        await session.page.click('[data-cy="continue-lesson"]');
-      } catch {
-        console.log(chalk.gray(`   No continue button found.`));
-        continue; // Try next iteration
-      }
+        try {
+          // Click the first START button
+          await startButtons.first().click({ timeout: 5000 });
+          modulesStarted++;
+          console.log(chalk.green(`   ▶️ Started module ${modulesStarted}`));
 
-      // Wait for navigation to lesson page
-      try {
-        await session.page.waitForURL(/\/student\/course\/[^/]+\/[^/]+\/[^/]+\/[^/]+/, {
-          timeout: 5000,
-        });
-      } catch {
-        console.log(chalk.gray(`   Could not navigate to lesson.`));
-        continue;
-      }
+          // Wait for navigation
+          await session.page.waitForTimeout(3000);
 
-      let lastUrl = "";
-
-      while (roundCompleted < maxLessons) {
-        const currentUrl = session.page.url();
-
-        // Loop detection
-        if (currentUrl === lastUrl) {
+          // Go back to course page
+          await session.page.goto(courseUrl, { waitUntil: "load" });
+          await session.page.waitForTimeout(2000);
+        } catch {
+          console.log(chalk.gray(`   Could not click START`));
           break;
         }
-        lastUrl = currentUrl;
+      }
 
-        // All in one evaluate: get title, check checkboxes, click button
-        const result = await session.page.evaluate(() => {
+      if (modulesStarted > 0) {
+        console.log(chalk.green(`   ✓ Started ${modulesStarted} modules\n`));
+      }
+
+      // Go through each module and complete its lessons
+      for (const mod of courseStructure.modules) {
+        // Skip modules that are 100% complete or locked
+        const moduleComplete = mod.lessons.every((l) => l.isCompleted);
+        const moduleLocked = mod.isLocked;
+
+        if (moduleComplete) {
+          continue; // Skip completed modules
+        }
+        if (moduleLocked) {
+          console.log(chalk.yellow(`   ⏭️ Skipping locked module: ${mod.title}`));
+          continue;
+        }
+
+        console.log(chalk.cyan(`   📁 Processing: ${mod.title}`));
+
+        // Navigate to each incomplete lesson in this module
+        for (const lesson of mod.lessons) {
+          if (lesson.isCompleted) {
+            continue; // Skip completed lessons
+          }
+          if (lesson.isLocked) {
+            continue; // Skip locked lessons
+          }
+
+          // Navigate to the lesson
+          // URL format: /student/course/{slug}/{courseId}/{topicId}
+          // The topicId is the lesson.id - server auto-expands to full URL
+          const lessonUrl = `https://${courseStructure.domain}/student/course/${courseStructure.courseSlug ?? courseStructure.course.id}/${courseStructure.course.id}/${lesson.id}`;
+
+          try {
+            await session.page.goto(lessonUrl, { waitUntil: "load" });
+            await session.page.waitForTimeout(2000);
+          } catch {
+            continue; // Skip if navigation fails
+          }
+
+          const shortName =
+            lesson.title.length > 40 ? lesson.title.substring(0, 37) + "..." : lesson.title;
+          process.stdout.write(chalk.gray(`      ⏳ ${shortName}...`));
+
           // Check any unchecked checkboxes (for AGB etc.)
-          document.querySelectorAll('input[type="checkbox"]:not(:checked)').forEach((cb) => {
-            (cb as HTMLInputElement).click();
+          await session.page.evaluate(() => {
+            document.querySelectorAll('input[type="checkbox"]:not(:checked)').forEach((cb) => {
+              (cb as HTMLInputElement).click();
+            });
           });
 
-          const breadcrumb = document.querySelector("nav li:last-child");
-          const title = breadcrumb?.textContent?.trim() ?? "Unknown";
-          const btn = document.querySelector<HTMLButtonElement>(
-            "button.MuiButton-colorSuccess:not([disabled])"
-          );
+          // Find and click the complete button
+          let completeButton = session.page.locator('button:has-text("Abschließen")');
+          let buttonCount = await completeButton.count();
 
-          if (btn) {
-            btn.click();
-            return { title, clicked: true };
+          if (buttonCount === 0) {
+            completeButton = session.page.locator('button:has-text("schlie")');
+            buttonCount = await completeButton.count();
           }
-          return { title, clicked: false };
-        });
+          if (buttonCount === 0) {
+            completeButton = session.page.locator("button.MuiButton-colorSuccess");
+            buttonCount = await completeButton.count();
+          }
 
-        const shortName =
-          result.title.length > 50 ? result.title.substring(0, 47) + "..." : result.title;
-        process.stdout.write(chalk.gray(`   ⏳ ${shortName}...`));
+          if (buttonCount === 0) {
+            process.stdout.write(chalk.yellow(` no button\n`));
+            continue;
+          }
 
-        if (!result.clicked) {
-          process.stdout.write(chalk.yellow(` end of sequence\n`));
-          break;
-        }
-
-        // Wait for URL to change (navigation to next lesson)
-        try {
-          await session.page.waitForURL((u) => u.href !== currentUrl, { timeout: 5000 });
-          roundCompleted++;
-          grandTotalCompleted++;
-          process.stdout.write(chalk.green(` ✓\n`));
-        } catch {
-          process.stdout.write(chalk.yellow(` no navigation\n`));
-          break;
+          try {
+            await completeButton.first().click({ timeout: 5000 });
+            await session.page.waitForTimeout(1000);
+            roundCompleted++;
+            grandTotalCompleted++;
+            process.stdout.write(chalk.green(` ✓\n`));
+          } catch {
+            process.stdout.write(chalk.yellow(` click failed\n`));
+          }
         }
       }
 
