@@ -36,13 +36,20 @@ export async function checkFfmpeg(): Promise<boolean> {
 /**
  * Fetches an HLS master playlist and parses quality variants.
  */
-/* v8 ignore next 18 */
+/* v8 ignore next 24 */
 export async function fetchHLSQualities(
   masterUrl: string,
   cookies?: string
 ): Promise<HLSQuality[]> {
   try {
-    const headers: Record<string, string> = {};
+    // Extract origin from URL for proper CORS headers
+    const urlObj = new URL(masterUrl);
+    const origin = `${urlObj.protocol}//${urlObj.host}`;
+
+    const headers: Record<string, string> = {
+      Origin: origin,
+      Referer: origin + "/",
+    };
     if (cookies) {
       headers.Cookie = cookies;
     }
@@ -170,6 +177,10 @@ export async function downloadHLSVideo(
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
+  // Extract origin from URL for proper headers
+  const urlObj = new URL(hlsUrl);
+  const origin = `${urlObj.protocol}//${urlObj.host}`;
+
   // Build ffmpeg command
   const args = [
     "-y", // Overwrite output
@@ -179,10 +190,12 @@ export async function downloadHLSVideo(
     "-stats",
   ];
 
-  // Add cookies header if provided
+  // Add headers for authenticated requests
+  const headerParts: string[] = [`Origin: ${origin}`, `Referer: ${origin}/`];
   if (cookies) {
-    args.push("-headers", `Cookie: ${cookies}\r\n`);
+    headerParts.push(`Cookie: ${cookies}`);
   }
+  args.push("-headers", headerParts.join("\r\n") + "\r\n");
 
   args.push(
     "-i",
