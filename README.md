@@ -109,6 +109,25 @@ offcourse sync-highlevel <url> --course-name "Course Name"
 offcourse sync-learningsuite https://subdomain.learningsuite.io/student/course/<id>
 ```
 
+### Complete Command (LearningSuite)
+
+Some platforms lock lessons sequentially – you must complete lesson 1 before accessing lesson 2. The `complete` command automatically marks all accessible lessons as complete to unlock more content:
+
+```bash
+# Mark all lessons as complete (iterates until no new content unlocks)
+offcourse complete <url>
+
+# Show browser window
+offcourse complete <url> --visible
+```
+
+The command runs in rounds:
+1. Scans course structure
+2. Starts any unstarted modules
+3. Marks accessible lessons as complete
+4. Re-scans for newly unlocked content
+5. Repeats until nothing changes
+
 ### Configuration
 
 ```bash
@@ -177,12 +196,15 @@ Common HighLevel portal URLs:
 
 LearningSuite is a German LMS platform popular with coaches and course creators. Offcourse supports:
 
-- **Authentication**: Browser-based login
-- **Course structure**: Extracts courses, modules, and lessons via GraphQL API
-- **Video downloads**: HLS streams, embedded videos (Vimeo, Loom)
+- **Authentication**: Browser-based login with session caching
+- **Course structure**: Extracts courses, modules, and lessons via DOM parsing
+- **Video downloads**: HLS streams from Bunny CDN (requires ffmpeg)
 - **Attachments**: Downloads PDFs and other course materials
+- **Sequential unlocking**: Use `offcourse complete <url>` to unlock all content
 
-URL format: `https://{subdomain}.learningsuite.io/student/course/{courseId}`
+URL format: `https://{subdomain}.learningsuite.io/student/course/{slug}/{courseId}`
+
+**Note**: LearningSuite videos require session cookies for download. The sync command automatically extracts cookies from the browser session.
 
 ## Development
 
