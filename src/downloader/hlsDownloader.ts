@@ -306,6 +306,7 @@ export async function downloadHLSVideo(
   args.push("-headers", headerParts.join("\r\n") + "\r\n");
 
   args.push(
+    "-nostdin", // Prevent ffmpeg from waiting for input
     "-i",
     hlsUrl,
     "-c",
@@ -547,6 +548,7 @@ async function downloadHLSSegments(
 
     await execa("ffmpeg", [
       "-y",
+      "-nostdin", // Prevent ffmpeg from waiting for input
       "-f",
       "concat",
       "-safe",

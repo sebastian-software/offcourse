@@ -446,7 +446,19 @@ async function mergeWithFfmpeg(
   try {
     await execa(
       "ffmpeg",
-      ["-i", videoPath, "-i", audioPath, "-c:v", "copy", "-c:a", "aac", "-y", outputPath],
+      [
+        "-nostdin",
+        "-i",
+        videoPath,
+        "-i",
+        audioPath,
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-y",
+        outputPath,
+      ],
       { stdio: "ignore" }
     );
 
