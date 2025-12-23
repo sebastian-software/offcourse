@@ -792,21 +792,33 @@ export async function completeLearningSuiteCommand(
       process.exit(1);
     }
 
+    const totalLessons = courseStructure.modules.reduce((sum, mod) => sum + mod.lessons.length, 0);
+    const completedLessons = courseStructure.modules.reduce(
+      (sum, mod) => sum + mod.lessons.filter((l) => l.isCompleted).length,
+      0
+    );
     const lockedLessons = courseStructure.modules.reduce(
       (sum, mod) => sum + mod.lessons.filter((l) => l.isLocked).length,
       0
     );
-    const totalLessons = courseStructure.modules.reduce((sum, mod) => sum + mod.lessons.length, 0);
+    const incompleteLessons = totalLessons - completedLessons;
 
-    console.log(chalk.gray(`   Found: ${totalLessons} lessons, ${lockedLessons} locked`));
+    console.log(
+      chalk.gray(
+        `   Found: ${totalLessons} lessons, ${completedLessons} completed, ${incompleteLessons} remaining`
+      )
+    );
+    if (lockedLessons > 0) {
+      console.log(chalk.yellow(`   Note: ${lockedLessons} lessons still locked`));
+    }
 
-    if (lockedLessons === 0) {
-      console.log(chalk.green("\n✅ All lessons are already unlocked!\n"));
+    if (incompleteLessons === 0) {
+      console.log(chalk.green("\n✅ All lessons are already completed!\n"));
       await browser.close();
       return;
     }
 
-    console.log(chalk.blue(`\n🔓 Completing lessons to unlock content...\n`));
+    console.log(chalk.blue(`\n🔓 Completing ${incompleteLessons} lessons...\n`));
 
     let totalCompleted = 0;
     const maxLessons = 1000; // Safety limit
@@ -881,22 +893,23 @@ export async function completeLearningSuiteCommand(
     }
 
     if (totalCompleted > 0) {
-      console.log(chalk.green(`\n   ✓ Total: ${totalCompleted} lessons completed\n`));
+      console.log(chalk.green(`\n   ✓ Marked ${totalCompleted} lessons as complete\n`));
 
       // Final re-scan to get updated structure
       console.log(chalk.gray(`   Re-scanning course structure...\n`));
       const updatedStructure = await buildLearningSuiteCourseStructure(session.page, url);
       if (updatedStructure) {
-        const newLockedLessons = updatedStructure.modules.reduce(
-          (sum, mod) => sum + mod.lessons.filter((l) => l.isLocked).length,
+        const newCompletedLessons = updatedStructure.modules.reduce(
+          (sum, mod) => sum + mod.lessons.filter((l) => l.isCompleted).length,
           0
         );
         const newTotalLessons = updatedStructure.modules.reduce(
           (sum, mod) => sum + mod.lessons.length,
           0
         );
+        const percentage = Math.round((newCompletedLessons / newTotalLessons) * 100);
         console.log(
-          chalk.gray(`   Updated: ${newTotalLessons} lessons, ${newLockedLessons} still locked`)
+          chalk.gray(`   Progress: ${newCompletedLessons}/${newTotalLessons} (${percentage}%)`)
         );
       }
     } else {
