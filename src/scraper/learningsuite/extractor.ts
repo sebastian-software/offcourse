@@ -192,50 +192,49 @@ export async function extractVideoFromPage(page: Page): Promise<LearningSuiteVid
 }
 
 /**
- * Extracts HTML content from the lesson page.
- * LearningSuite uses Slate.js editor with data-slate-node attributes.
+ * Extracts HTML content from the lesson page using semantic HTML structure.
+ * Uses accessibility-friendly selectors: main element, semantic headings, paragraphs, lists.
+ * Falls back to data-* attributes which are also stable.
  */
 export async function extractHtmlContent(page: Page): Promise<string | null> {
   return page.evaluate(() => {
-    // LearningSuite uses Slate.js - look for elements with data-slate-node or data-cy attributes
-    const slateElements = document.querySelectorAll(
-      '[data-cy="paragraph-element"], [data-cy="heading-element"], [data-cy="list-item"], ul[data-slate-node="element"], ol[data-slate-node="element"]'
+    // Find the main content area (semantic HTML)
+    const main = document.querySelector("main");
+    if (!main) return null;
+
+    // Find content elements using semantic selectors first, then data attributes as fallback
+    // Priority: semantic HTML (p, ul, ol in main) > data-slate-node > data-cy attributes
+    const contentElements = main.querySelectorAll(
+      // Semantic HTML within main
+      "p[data-slate-node], ul[data-slate-node], ol[data-slate-node], " +
+        // Stable data attributes as fallback
+        '[data-cy="paragraph-element"], [data-cy="list-item"]'
     );
 
-    if (slateElements.length > 0) {
-      // Build HTML from Slate elements
+    if (contentElements.length > 0) {
       const htmlParts: string[] = [];
       const processedTexts = new Set<string>();
 
-      for (const el of Array.from(slateElements)) {
+      for (const el of Array.from(contentElements)) {
         const tag = el.tagName.toLowerCase();
         const text = el.textContent?.trim() ?? "";
 
-        // Skip empty or duplicate content
-        if (!text || processedTexts.has(text)) continue;
+        // Skip empty, duplicate, or very short text
+        if (!text || processedTexts.has(text) || text.length < 3) continue;
         processedTexts.add(text);
 
-        // Convert to HTML based on element type
         if (tag === "p") {
           htmlParts.push(`<p>${text}</p>`);
-        } else if (
-          tag === "h1" ||
-          tag === "h2" ||
-          tag === "h3" ||
-          tag === "h4" ||
-          tag === "h5" ||
-          tag === "h6"
-        ) {
-          htmlParts.push(`<${tag}>${text}</${tag}>`);
         } else if (tag === "ul" || tag === "ol") {
-          // Get list items
           const items = el.querySelectorAll("li");
           const listItems = Array.from(items)
-            .map((li) => `<li>${li.textContent?.trim() ?? ""}</li>`)
+            .map((li) => li.textContent?.trim() ?? "")
+            .filter((t) => t.length > 0)
+            .map((t) => `<li>${t}</li>`)
             .join("");
-          htmlParts.push(`<${tag}>${listItems}</${tag}>`);
-        } else if (tag === "li") {
-          // Skip individual LI if we already processed the parent list
+          if (listItems) {
+            htmlParts.push(`<${tag}>${listItems}</${tag}>`);
+          }
         }
       }
 
@@ -244,35 +243,19 @@ export async function extractHtmlContent(page: Page): Promise<string | null> {
       }
     }
 
-    // Fallback: Look for traditional content containers
-    const contentSelectors = [
-      '[class*="lesson-content"]',
-      '[class*="LessonContent"]',
-      '[class*="post-content"]',
-      '[class*="PostContent"]',
-      '[class*="content-body"]',
-      '[class*="ContentBody"]',
-      "article",
-      '[class*="prose"]',
-      "main [class*='content']",
-    ];
+    // Fallback: extract from main, excluding navigation and interactive elements
+    const clone = main.cloneNode(true) as HTMLElement;
 
-    for (const selector of contentSelectors) {
-      const element = document.querySelector(selector);
-      if (element?.textContent && element.textContent.trim().length > 50) {
-        // Clone to avoid modifying the page
-        const clone = element.cloneNode(true) as HTMLElement;
+    // Remove non-content elements using semantic/role selectors
+    const unwanted = clone.querySelectorAll(
+      "script, style, nav, video, iframe, svg, button, input, " +
+        '[role="navigation"], [role="button"], [role="menuitem"], [role="menu"]'
+    );
+    unwanted.forEach((el) => el.remove());
 
-        // Remove video elements, nav, scripts, styles
-        const unwanted = clone.querySelectorAll(
-          "script, style, nav, video, iframe, [class*='video'], [class*='Video'], [class*='player'], [class*='Player']"
-        );
-        unwanted.forEach((el) => {
-          el.remove();
-        });
-
-        return clone.innerHTML;
-      }
+    const text = clone.textContent?.trim();
+    if (text && text.length > 50) {
+      return `<p>${text}</p>`;
     }
 
     return null;
@@ -413,21 +396,31 @@ export async function extractLearningSuitePostContent(
   const htmlContent = await extractHtmlContent(page);
   const attachments = await extractAttachmentsFromPage(page);
 
-  // Get title from page - LearningSuite uses h3.MuiTypography-h3 or breadcrumb
+  // Get title from page using semantic HTML structure
+  // The lesson title is typically an h3 within the main element
   const title = await page.evaluate(() => {
-    // Try h3 heading first (main lesson title)
-    const h3Title = document.querySelector("h3.MuiTypography-h3, h3[class*='MuiTypography']");
-    if (h3Title?.textContent?.trim()) {
-      return h3Title.textContent.trim();
+    const main = document.querySelector("main");
+
+    // Find h3 heading within main (lesson title is usually h3)
+    if (main) {
+      const h3 = main.querySelector("h3");
+      if (h3?.textContent?.trim()) {
+        return h3.textContent.trim();
+      }
     }
 
-    // Try breadcrumb (last item is usually the lesson title)
-    const breadcrumbItems = document.querySelectorAll(".MuiBreadcrumbs-li");
-    if (breadcrumbItems.length > 0) {
-      const lastBreadcrumb = breadcrumbItems[breadcrumbItems.length - 1];
-      if (lastBreadcrumb?.textContent?.trim()) {
-        return lastBreadcrumb.textContent.trim();
-      }
+    // Try breadcrumb navigation (last item is the current page)
+    const breadcrumb = document.querySelector(
+      'nav[aria-label*="breadcrumb"], [role="navigation"] li:last-child'
+    );
+    if (breadcrumb?.textContent?.trim()) {
+      return breadcrumb.textContent.trim();
+    }
+
+    // Try any h3 on the page
+    const h3 = document.querySelector("h3");
+    if (h3?.textContent?.trim()) {
+      return h3.textContent.trim();
     }
 
     // Try h1 as fallback
