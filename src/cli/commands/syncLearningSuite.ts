@@ -524,8 +524,7 @@ export async function syncLearningSuiteCommand(
               const markdown = formatLearningSuiteMarkdown(
                 content.title,
                 content.description,
-                content.htmlContent,
-                content.video?.url
+                content.htmlContent
               );
 
               await saveMarkdown(
@@ -758,8 +757,7 @@ async function downloadVideos(
 export function formatLearningSuiteMarkdown(
   title: string,
   description: string | null,
-  htmlContent: string | null,
-  videoUrl?: string
+  htmlContent: string | null
 ): string {
   const lines: string[] = [];
 
@@ -768,13 +766,6 @@ export function formatLearningSuiteMarkdown(
 
   if (description) {
     lines.push(description);
-    lines.push("");
-  }
-
-  if (videoUrl) {
-    lines.push("## Video");
-    lines.push("");
-    lines.push(`Video URL: ${videoUrl}`);
     lines.push("");
   }
 
