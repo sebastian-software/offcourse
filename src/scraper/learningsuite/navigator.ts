@@ -616,50 +616,108 @@ export async function buildLearningSuiteCourseStructure(
   // Extract modules and lessons from DOM
   onProgress?.({ phase: "modules" });
 
-  // First try to extract modules directly from the course page
-  let modulesWithLessons = await extractModulesFromCoursePage(page, domain, courseSlug, courseId);
+  // First extract all modules from the course page
+  const modulesWithLessons = await extractModulesFromCoursePage(page, domain, courseSlug, courseId);
 
-  // If we found modules, try to get lessons for each by clicking on them
-  if (modulesWithLessons.length > 0) {
-    // Click on the first module to enter and get lessons
-    const moduleCard = page.locator('[class*="module"], [class*="Module"]').first();
-    if (await moduleCard.isVisible().catch(() => false)) {
-      await moduleCard.click();
-      await page.waitForLoadState("networkidle").catch(() => {});
-      await page.waitForTimeout(2000);
+  // Now iterate through each module to get its lessons
+  for (let i = 0; i < modulesWithLessons.length; i++) {
+    const module = modulesWithLessons[i];
+    if (!module) continue;
+
+    // Skip locked modules
+    if (module.isLocked) {
+      continue;
     }
-  } else {
-    // Try clicking on start/continue button using data-cy attribute (language-independent)
-    const startButton = page.locator('[data-cy="continue-lesson"]').first();
-    if (await startButton.isVisible().catch(() => false)) {
-      await startButton.click();
-      await page.waitForLoadState("networkidle").catch(() => {});
+
+    onProgress?.({
+      phase: "modules",
+      currentModuleIndex: i + 1,
+      totalModules: modulesWithLessons.length,
+      currentModule: module.title,
+    });
+
+    // Navigate to the module by clicking on its title text
+    const moduleTitle = page.locator(`text="${module.title}"`).first();
+
+    if (await moduleTitle.isVisible().catch(() => false)) {
+      await moduleTitle.click();
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
       await page.waitForTimeout(2000);
+
+      // Extract module ID from URL (format: /t/{moduleId})
+      const currentUrl = page.url();
+      const moduleIdMatch = /\/t\/([^/]+)/.exec(currentUrl);
+      if (moduleIdMatch?.[1]) {
+        module.id = moduleIdMatch[1];
+      }
+
+      // Extract lessons directly from the module page
+      // Lessons are listed as links with format: /{courseId}/{lessonId}
+      const lessonsData = await page.evaluate((cId) => {
+        const links = document.querySelectorAll("a");
+        const lessons: Array<{
+          title: string;
+          lessonId: string;
+          duration: string;
+          isCompleted: boolean;
+        }> = [];
+        const seenIds = new Set<string>();
+
+        for (const link of Array.from(links)) {
+          const href = link.href;
+
+          // Check if this is a lesson link (contains courseId but not /t/)
+          if (!href.includes(`/${cId}/`) || href.includes("/t/")) continue;
+
+          // Extract lesson ID from URL
+          const parts = href.split("/");
+          const lessonId = parts[parts.length - 1];
+          if (!lessonId || seenIds.has(lessonId)) continue;
+          seenIds.add(lessonId);
+
+          // Extract title and duration from link text
+          const text = link.textContent?.replace(/\s+/g, " ").trim() ?? "";
+          if (text.length < 5) continue;
+
+          // Parse title (before duration info)
+          let title = text;
+          let duration = "";
+
+          // Duration patterns: "X Minute(n)" or "X Sekunde(n)"
+          const durationMatch = /(\d+\s*(?:Minute|Sekunde)n?)/i.exec(text);
+          if (durationMatch) {
+            const durationIdx = text.indexOf(durationMatch[0]);
+            title = text.substring(0, durationIdx).trim();
+            duration = durationMatch[0];
+          }
+
+          // Check for completion checkmark
+          const hasCheckmark = link.querySelector('svg[data-icon="check"]') !== null;
+
+          if (title.length > 3) {
+            lessons.push({ title, lessonId, duration, isCompleted: hasCheckmark });
+          }
+        }
+
+        return lessons;
+      }, courseId);
+
+      if (lessonsData.length > 0) {
+        module.lessons = lessonsData.map((l, idx) => ({
+          id: l.lessonId,
+          title: l.title,
+          position: idx,
+          moduleId: module.id,
+          isLocked: false,
+          isCompleted: l.isCompleted,
+        }));
+      }
+
+      // Go back to the course page
+      await page.goto(courseUrl, { waitUntil: "domcontentloaded" }).catch(() => {});
+      await page.waitForTimeout(1500);
     }
   }
-
-  // Now look for "Übersicht" button to open the lessons panel
-  const overviewButton = page
-    .locator('button:has-text("Übersicht"), button:has-text("Overview")')
-    .first();
-  if (await overviewButton.isVisible().catch(() => false)) {
-    await overviewButton.click();
-    await page.waitForTimeout(2000);
-
-    // Extract lessons from the overview dialog
-    const lessonsFromOverview = await extractModulesAndLessonsFromDOM(
-      page,
-      domain,
-      courseSlug,
-      courseId
-    );
-    if (lessonsFromOverview.length > 0) {
-      modulesWithLessons = lessonsFromOverview;
-    }
-  }
-
-  // Close any open dialog
-  await page.keyboard.press("Escape").catch(() => {});
 
   onProgress?.({ phase: "done" });
 
@@ -677,215 +735,8 @@ export async function buildLearningSuiteCourseStructure(
 }
 
 /**
- * Extracts modules and lessons from the overview dialog/sidebar.
- * The dialog shows:
- * - Header with module title + "X LEKTIONEN"
- * - Clickable lesson cards with thumbnails and titles
- * - Locked lessons show "GESPERRT" label
- */
-async function extractModulesAndLessonsFromDOM(
-  page: Page,
-  _domain: string,
-  _courseSlug: string,
-  _courseId: string
-): Promise<LearningSuiteCourseStructure["modules"]> {
-  // Wait for dialog to be visible
-  await page.waitForSelector('[role="dialog"]', { timeout: 5000 }).catch(() => {});
-  await page.waitForTimeout(500); // Give time for content to render
-
-  // Extract lesson data from the dialog
-  const data = await page.evaluate(() => {
-    const dialog = document.querySelector('[role="dialog"]');
-    if (!dialog) return { moduleTitle: "", lessonCount: 0, lessons: [], moduleId: null };
-
-    // Get module title and count from the header
-    // The dialog header shows: "ModuleTitle" + "X LEKTIONEN"
-    let moduleTitle = "";
-    let lessonCount = 0;
-    let moduleId: string | null = null;
-
-    // The dialog content starts with header area containing title and count
-    // Look for elements with text patterns
-    const dialogText = dialog.textContent ?? "";
-
-    // Extract lesson count first (e.g., "9 LEKTIONEN")
-    const countMatch = /(\d+)\s*(?:LEKTION|Lektion)(?:EN)?/i.exec(dialogText);
-    if (countMatch) {
-      lessonCount = parseInt(countMatch[1] ?? "0", 10);
-    }
-
-    // Module title is typically the text before the lesson count
-    // Find it by looking at the first text element in the dialog
-    const firstTextElements = dialog.querySelectorAll("div > div > div:first-child *");
-    for (const el of Array.from(firstTextElements)) {
-      // Skip elements that contain nested elements with text
-      if (el.children.length > 0 && el.querySelector("span, p, div")) continue;
-
-      const text = el.textContent?.trim() ?? "";
-
-      // Skip empty or too short
-      if (text.length < 3) continue;
-
-      // Skip if it's the lesson count
-      if (/^\d+\s*(?:LEKTION|Lektion)/i.test(text)) continue;
-
-      // Skip "X" close button
-      if (text === "X" || text === "×") continue;
-
-      // This should be the module title
-      if (text.length >= 5 && text.length <= 100) {
-        moduleTitle = text;
-        break;
-      }
-    }
-
-    // Find lesson cards - each card has an image (thumbnail) and title
-    // Locked lessons show "GESPERRT" text on the thumbnail
-    const lessons: Array<{
-      title: string;
-      lessonId: string | null;
-      moduleId: string | null;
-      isLocked: boolean;
-      isCompleted: boolean;
-    }> = [];
-
-    // Get all images in the dialog (each lesson has a thumbnail)
-    const images = dialog.querySelectorAll("img");
-    const seenTitles = new Set<string>();
-
-    for (const img of Array.from(images)) {
-      // Find the card container (parent that contains both image and title)
-      let card = img.parentElement;
-
-      // Walk up to find the clickable card container
-      while (card && card !== dialog) {
-        const rect = card.getBoundingClientRect();
-        // Card should be roughly 300-600px wide and 60-120px tall
-        if (rect.width >= 250 && rect.width <= 650 && rect.height >= 50 && rect.height <= 150) {
-          break;
-        }
-        card = card.parentElement;
-      }
-
-      if (!card || card === dialog) continue;
-
-      // Check if the lesson is locked (has "GESPERRT" or "LOCKED" text)
-      const cardText = card.textContent ?? "";
-      const isLocked = /GESPERRT|LOCKED/i.test(cardText);
-
-      // Check if the lesson is completed (has checkmark icon or completed indicator)
-      // Completed lessons typically have a check/tick icon or specific styling
-      const hasCheckmark =
-        card.querySelector('svg[class*="check"], [class*="complete"], [class*="done"]') !== null;
-      const isCompleted = hasCheckmark || card.classList.contains("completed");
-
-      // Get the text content of the card, excluding nested card text
-      // The title is usually in a sibling element to the image
-      let title = "";
-
-      // Try to find title text - look for text nodes near the image
-      const textNodes = card.querySelectorAll("span, p, div");
-      for (const textNode of Array.from(textNodes)) {
-        // Skip if this contains the image
-        if (textNode.querySelector("img")) continue;
-
-        const text = textNode.textContent?.trim() ?? "";
-
-        // Skip very short or very long text
-        if (text.length < 5 || text.length > 80) continue;
-
-        // Skip if it contains the module title + lesson count
-        if (text.includes("LEKTION")) continue;
-        if (text === moduleTitle) continue;
-
-        // Skip "GESPERRT" / "LOCKED" label
-        if (/^(GESPERRT|LOCKED)$/i.test(text)) continue;
-
-        // This is likely the title
-        title = text;
-        break;
-      }
-
-      // If no title found in children, use card's direct text
-      if (!title) {
-        const cleaned = cardText
-          .replace(moduleTitle, "")
-          .replace(/\d+\s*(?:LEKTION|Lektion)(?:EN)?/gi, "")
-          .replace(/GESPERRT|LOCKED/gi, "")
-          .trim();
-        if (cleaned.length >= 5 && cleaned.length <= 80) {
-          title = cleaned;
-        }
-      }
-
-      if (!title || seenTitles.has(title)) continue;
-
-      // Extract IDs from URL if card is clickable
-      let lessonId: string | null = null;
-      let cardModuleId: string | null = null;
-
-      const clickable = card.closest("a[href], [onclick]") ?? card.querySelector("a[href]");
-      if (clickable) {
-        const href =
-          (clickable as HTMLAnchorElement).href ?? clickable.getAttribute("onclick") ?? "";
-        const parts = href.split("/").filter(Boolean);
-        if (parts.length >= 6) {
-          cardModuleId = parts[4] ?? null;
-          lessonId = parts[5] ?? null;
-        }
-      }
-
-      // Use first module ID found
-      if (!moduleId && cardModuleId) {
-        moduleId = cardModuleId;
-      }
-
-      seenTitles.add(title);
-      lessons.push({
-        title,
-        lessonId: lessonId ?? `lesson-${lessons.length}`,
-        moduleId: cardModuleId,
-        isLocked,
-        isCompleted,
-      });
-    }
-
-    return { moduleTitle, lessonCount, lessons, moduleId };
-  });
-
-  // If no lessons found, return empty
-  if (data.lessons.length === 0) {
-    return [];
-  }
-
-  // Create module with lessons
-  const moduleId = data.moduleId ?? "module-0";
-
-  return [
-    {
-      id: moduleId,
-      title: data.moduleTitle || "Module",
-      description: `${data.lessonCount} Lektionen`,
-      position: 0,
-      isLocked: false,
-      lessons: data.lessons.map((l, idx) => ({
-        id: l.lessonId ?? `lesson-${idx}`,
-        title: l.title,
-        position: idx,
-        // Use the lesson's own moduleId (topicId) for URL generation
-        moduleId: l.moduleId ?? moduleId,
-        isLocked: l.isLocked,
-        isCompleted: l.isCompleted,
-      })),
-    },
-  ];
-}
-
-/**
- * Extracts modules from the course page by analyzing module cards.
- * Module cards have a specific structure:
- * - Available modules: card with thumbnail, title, and "X LEKTIONEN | Y MIN."
- * - Locked modules: card with thumbnail, title, and "Erscheint bald" label
+ * Extracts modules from the course page by analyzing text content.
+ * Modules are identified by their stats line: "X LEKTIONEN | Y MIN." or "ERSCHEINT BALD"
  */
 async function extractModulesFromCoursePage(
   page: Page,
@@ -893,117 +744,50 @@ async function extractModulesFromCoursePage(
   _courseSlug: string,
   _courseId: string
 ): Promise<LearningSuiteCourseStructure["modules"]> {
-  // Wait for modules section to load
-  await page.waitForTimeout(1000);
+  // Wait for content to load
+  await page.waitForTimeout(2000);
 
-  // Extract module cards from the page
+  // Extract modules by analyzing text content
   const modulesData = await page.evaluate(() => {
+    const text = document.body.innerText;
+    const lines = text
+      .split("\n")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+
     const modules: Array<{
       title: string;
       lessonCount: number;
       duration: string;
-      href: string | null;
-      moduleId: string | null;
       isLocked: boolean;
-      lockReason: string | null;
     }> = [];
 
-    const seen = new Set<string>();
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? "";
 
-    // Find all images on the page (module cards typically have thumbnails)
-    // Then check the surrounding text for module info
-    const images = document.querySelectorAll("img");
+      // Check for stats line pattern
+      const statsMatch = /(\d+)\s*LEKTIONEN?\s*\|\s*(\d+)\s*MIN/i.exec(line);
+      const isLocked = /ERSCHEINT\s*BALD|COMING\s*SOON/i.test(line);
 
-    for (const img of Array.from(images)) {
-      // Skip small images (icons)
-      const rect = img.getBoundingClientRect();
-      if (rect.width < 80 || rect.height < 50) continue;
+      if (statsMatch || isLocked) {
+        // The title is usually the line before the stats
+        const prevLine = lines[i - 1]?.trim() ?? "";
 
-      // Find the card container
-      let card = img.parentElement;
-      let level = 0;
-
-      // Walk up to find a reasonable card container (but not too far)
-      while (card && level < 6) {
-        const cardRect = card.getBoundingClientRect();
-        // A card should be at least 200px wide
-        if (cardRect.width >= 200 && cardRect.height >= 60) {
-          break;
-        }
-        card = card.parentElement;
-        level++;
-      }
-
-      if (!card) continue;
-
-      const cardText = card.textContent ?? "";
-
-      // Check if it's a module card (has lesson count or "Erscheint bald" / "Coming soon")
-      const lessonCountMatch =
-        /(\d+)\s*(?:LEKTION|Lektion|Lesson)(?:EN|s)?\s*\|\s*(\d+)\s*MIN/i.exec(cardText);
-      const isLocked = /Erscheint\s*bald|Coming\s*soon/i.test(cardText);
-
-      if (!lessonCountMatch && !isLocked) continue;
-
-      // Extract title from card
-      // Look for text that is NOT the lesson count or "Erscheint bald"
-      let title = "";
-
-      // Get all text nodes and find potential titles
-      const textParts = cardText
-        .split(/\n/)
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
-
-      for (const part of textParts) {
-        // Skip lesson count patterns
-        if (/\d+\s*(?:LEKTION|Lektion)/i.test(part)) continue;
-        // Skip "Erscheint bald"
-        if (/Erscheint\s*bald/i.test(part)) continue;
-        // Skip common UI elements
-        if (/^(Start|Fortsetzen|Module|Kurs)$/i.test(part)) continue;
-        // Skip very short or very long text
-        if (part.length < 3 || part.length > 80) continue;
-
-        // This could be the title
-        title = part;
-        break;
-      }
-
-      if (!title || seen.has(title)) continue;
-      seen.add(title);
-
-      // Get lesson count and duration for available modules
-      let lessonCount = 0;
-      let duration = "";
-
-      if (lessonCountMatch) {
-        lessonCount = parseInt(lessonCountMatch[1] ?? "0", 10);
-        duration = (lessonCountMatch[2] ?? "0") + " Min.";
-      }
-
-      // Try to find href
-      const linkEl = card.closest("a") ?? card.querySelector("a");
-      const href = linkEl?.getAttribute("href") ?? null;
-
-      // Extract module ID from href
-      let moduleId: string | null = null;
-      if (href) {
-        const parts = href.split("/").filter(Boolean);
-        if (parts.length >= 5) {
-          moduleId = parts[4] ?? null;
+        // Validate title
+        if (
+          prevLine &&
+          prevLine.length > 3 &&
+          prevLine.length < 100 &&
+          !/^(\d+%|START|FORTSETZEN)$/i.test(prevLine)
+        ) {
+          modules.push({
+            title: prevLine,
+            lessonCount: statsMatch ? parseInt(statsMatch[1] ?? "0", 10) : 0,
+            duration: statsMatch ? (statsMatch[2] ?? "0") + " Min." : "",
+            isLocked,
+          });
         }
       }
-
-      modules.push({
-        title,
-        lessonCount,
-        duration,
-        href,
-        moduleId,
-        isLocked,
-        lockReason: isLocked ? "Erscheint bald" : null,
-      });
     }
 
     return modules;
@@ -1016,11 +800,11 @@ async function extractModulesFromCoursePage(
     if (!mod) continue;
 
     const description = mod.isLocked
-      ? (mod.lockReason ?? "Gesperrt")
+      ? "Erscheint bald"
       : `${mod.lessonCount} Lektionen, ${mod.duration}`;
 
     modules.push({
-      id: mod.moduleId ?? `module-${i}`,
+      id: `module-${i}`, // Will be updated when we navigate to the module
       title: mod.title,
       description,
       position: i,
@@ -1050,16 +834,17 @@ export function getLearningSuiteCourseUrl(
 
 /**
  * Constructs the URL for a LearningSuite lesson.
- * URL format: /student/course/{slug}/{courseId}/{moduleId}/{lessonId}
+ * URL format: /student/course/{slug}/{courseId}/{topicId}
+ * Note: The topicId (lessonId from module page) is enough - the server redirects to the full URL.
  */
 export function getLearningSuiteLessonUrl(
   domain: string,
   courseSlug: string,
   courseId: string,
-  moduleId: string,
-  lessonId: string
+  _moduleId: string, // Unused - kept for API compatibility
+  lessonId: string // This is actually the topicId
 ): string {
-  return `https://${domain}/student/course/${courseSlug}/${courseId}/${moduleId}/${lessonId}`;
+  return `https://${domain}/student/course/${courseSlug}/${courseId}/${lessonId}`;
 }
 
 // ============================================================================
