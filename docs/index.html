@@ -67,7 +67,7 @@
       <div class="flex items-center gap-6">
         <a href="#features" class="text-slate-400 hover:text-white transition-colors hidden sm:block">Features</a>
         <a href="#platforms" class="text-slate-400 hover:text-white transition-colors hidden sm:block">Platforms</a>
-        <a href="#usage" class="text-slate-400 hover:text-white transition-colors hidden sm:block">Usage</a>
+        <a href="#architecture" class="text-slate-400 hover:text-white transition-colors hidden sm:block">How It Works</a>
         <a href="#install" class="text-slate-400 hover:text-white transition-colors hidden sm:block">Install</a>
         <a href="https://github.com/sebastian-software/offcourse" class="flex items-center gap-2 text-slate-400 hover:text-white transition-colors">
           <img src="icon-github.svg" alt="GitHub" class="w-5 h-5 opacity-70">
@@ -469,6 +469,118 @@
           <div class="mt-4 pt-4 border-t border-slate-700/50">
             <p class="text-slate-500 text-xs">Install ffmpeg: <code class="text-slate-400">brew install ffmpeg</code> (macOS) · <code class="text-slate-400">apt install ffmpeg</code> (Linux)</p>
           </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Under the Hood Section -->
+  <section id="architecture" class="py-24 px-6 bg-gradient-to-b from-slate-900/50 to-slate-950">
+    <div class="max-w-4xl mx-auto">
+      <h2 class="text-3xl sm:text-4xl font-bold text-center mb-4">Under the Hood</h2>
+      <p class="text-slate-400 text-center mb-6 max-w-2xl mx-auto">Scraping modern learning platforms isn't trivial. Here's how Offcourse solves real-world challenges.</p>
+      <p class="text-slate-500 text-center mb-16 max-w-2xl mx-auto text-sm">
+        Each platform has its own authentication, content locking, and video delivery quirks.
+        We handle them all so you don't have to.
+      </p>
+
+      <div class="space-y-8">
+        <!-- Challenge 1: Encrypted HLS -->
+        <div class="bg-slate-800/20 rounded-2xl p-6 border border-slate-700/30">
+          <div class="flex items-start gap-4">
+            <div class="w-10 h-10 bg-brand-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
+              <img src="icon-lock.svg" alt="" class="w-5 h-5" style="filter: invert(70%) sepia(80%) saturate(500%) hue-rotate(330deg);">
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold mb-2">Encrypted HLS Streams</h3>
+              <p class="text-slate-400 text-sm mb-3">Some platforms serve encrypted HLS playlists that are decrypted client-side. Standard downloaders fail because the playlist data is gibberish.</p>
+              <div class="bg-slate-900/50 rounded-lg p-4 border border-slate-700/30">
+                <p class="text-slate-500 text-xs mb-2 font-mono">Our approach:</p>
+                <p class="text-slate-300 text-sm">We intercept the actual <code class="bg-slate-800 px-1.5 py-0.5 rounded text-xs">.ts</code> video segments as the browser plays them, capture their individual auth tokens, download each segment, then concatenate them with <code class="bg-slate-800 px-1.5 py-0.5 rounded text-xs">ffmpeg</code>.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Challenge 2: GraphQL Persisted Queries -->
+        <div class="bg-slate-800/20 rounded-2xl p-6 border border-slate-700/30">
+          <div class="flex items-start gap-4">
+            <div class="w-10 h-10 bg-purple-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
+              <img src="icon-terminal.svg" alt="" class="w-5 h-5" style="filter: invert(70%) sepia(50%) saturate(500%) hue-rotate(240deg);">
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold mb-2">Persisted GraphQL Queries</h3>
+              <p class="text-slate-400 text-sm mb-3">Modern SPAs often use GraphQL with "persisted queries"—the server only accepts pre-registered query hashes, rejecting arbitrary queries.</p>
+              <div class="bg-slate-900/50 rounded-lg p-4 border border-slate-700/30">
+                <p class="text-slate-500 text-xs mb-2 font-mono">Our approach:</p>
+                <p class="text-slate-300 text-sm">Instead of reverse-engineering GraphQL, we drive a real browser and extract data from the rendered DOM. This approach is more robust and survives API changes.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Challenge 3: Sequential Locking -->
+        <div class="bg-slate-800/20 rounded-2xl p-6 border border-slate-700/30">
+          <div class="flex items-start gap-4">
+            <div class="w-10 h-10 bg-emerald-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
+              <img src="icon-check.svg" alt="" class="w-5 h-5" style="filter: invert(70%) sepia(50%) saturate(500%) hue-rotate(110deg);">
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold mb-2">Sequential Content Locking</h3>
+              <p class="text-slate-400 text-sm mb-3">Some courses lock lessons until previous ones are "completed". You might own the course but can't access lesson 10 until you've watched lessons 1-9.</p>
+              <div class="bg-slate-900/50 rounded-lg p-4 border border-slate-700/30">
+                <p class="text-slate-500 text-xs mb-2 font-mono">Our approach:</p>
+                <p class="text-slate-300 text-sm">The <code class="bg-slate-800 px-1.5 py-0.5 rounded text-xs">complete</code> command iteratively marks lessons as done, triggering the platform to unlock subsequent content. It loops until no new content appears.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Challenge 4: Session Management -->
+        <div class="bg-slate-800/20 rounded-2xl p-6 border border-slate-700/30">
+          <div class="flex items-start gap-4">
+            <div class="w-10 h-10 bg-yellow-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
+              <img src="icon-zap.svg" alt="" class="w-5 h-5" style="filter: invert(70%) sepia(80%) saturate(500%) hue-rotate(10deg);">
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold mb-2">Persistent Session Management</h3>
+              <p class="text-slate-400 text-sm mb-3">Re-authenticating for every sync is tedious. Sessions need to persist, but also detect when they've expired.</p>
+              <div class="bg-slate-900/50 rounded-lg p-4 border border-slate-700/30">
+                <p class="text-slate-500 text-xs mb-2 font-mono">Our approach:</p>
+                <p class="text-slate-300 text-sm">We cache browser state (cookies, localStorage) per-platform. On each run, we validate the session and only prompt for login when truly needed. Interactive logins happen in a visible browser window you control.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Challenge 5: Token Expiry -->
+        <div class="bg-slate-800/20 rounded-2xl p-6 border border-slate-700/30">
+          <div class="flex items-start gap-4">
+            <div class="w-10 h-10 bg-cyan-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
+              <img src="icon-video.svg" alt="" class="w-5 h-5" style="filter: invert(70%) sepia(50%) saturate(500%) hue-rotate(170deg);">
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold mb-2">CDN Token Authentication</h3>
+              <p class="text-slate-400 text-sm mb-3">Video CDNs like Bunny require signed URLs with short-lived tokens, API keys, and specific headers. Simple wget/curl doesn't work.</p>
+              <div class="bg-slate-900/50 rounded-lg p-4 border border-slate-700/30">
+                <p class="text-slate-500 text-xs mb-2 font-mono">Our approach:</p>
+                <p class="text-slate-300 text-sm">We extract all auth artifacts (cookies, tokens, API keys) from the browser session and pass them to <code class="bg-slate-800 px-1.5 py-0.5 rounded text-xs">ffmpeg</code> and our download handlers via headers.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tech Stack -->
+      <div class="mt-16 pt-12 border-t border-slate-700/30">
+        <h3 class="text-lg font-semibold text-center mb-8">Built With</h3>
+        <div class="flex flex-wrap justify-center gap-3">
+          <span class="bg-slate-800/50 px-4 py-2 rounded-full text-slate-300 text-sm border border-slate-700/50">TypeScript</span>
+          <span class="bg-slate-800/50 px-4 py-2 rounded-full text-slate-300 text-sm border border-slate-700/50">Playwright</span>
+          <span class="bg-slate-800/50 px-4 py-2 rounded-full text-slate-300 text-sm border border-slate-700/50">Commander.js</span>
+          <span class="bg-slate-800/50 px-4 py-2 rounded-full text-slate-300 text-sm border border-slate-700/50">Zod</span>
+          <span class="bg-slate-800/50 px-4 py-2 rounded-full text-slate-300 text-sm border border-slate-700/50">ffmpeg</span>
+          <span class="bg-slate-800/50 px-4 py-2 rounded-full text-slate-300 text-sm border border-slate-700/50">hls-parser</span>
         </div>
       </div>
     </div>
