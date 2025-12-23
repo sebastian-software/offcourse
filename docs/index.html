@@ -12,8 +12,8 @@
       theme: {
         extend: {
           fontFamily: {
-            sans: ['system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'Noto Sans', 'sans-serif', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'],
-            mono: ['ui-monospace', 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', 'monospace'],
+            sans: ['system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+            mono: ['ui-monospace', 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'monospace'],
           },
           colors: {
             brand: {
@@ -36,7 +36,7 @@
   </script>
   <style>
     .gradient-text {
-      background: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #6366f1 100%);
+      background: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
@@ -45,31 +45,39 @@
       background: linear-gradient(135deg, #6366f1, #a855f7);
     }
     .code-block {
-      background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+      background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
     }
     .feature-card:hover {
       transform: translateY(-4px);
+      border-color: rgba(99, 102, 241, 0.5);
     }
     .glow {
-      box-shadow: 0 0 60px rgba(99, 102, 241, 0.3);
+      box-shadow: 0 0 80px rgba(99, 102, 241, 0.4), 0 0 120px rgba(168, 85, 247, 0.2);
+    }
+    .beam-animation {
+      animation: beam 3s ease-in-out infinite;
+    }
+    @keyframes beam {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 0.8; }
     }
   </style>
 </head>
 <body class="bg-slate-950 text-slate-100 antialiased">
   <!-- Navigation -->
-  <nav class="fixed top-0 left-0 right-0 z-50 bg-slate-950/80 backdrop-blur-lg border-b border-slate-800">
+  <nav class="fixed top-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-lg border-b border-slate-800/50">
     <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
       <a href="#" class="flex items-center gap-3">
-        <img src="logo.svg" alt="Offcourse Logo" class="w-10 h-10">
+        <img src="logo.svg" alt="Offcourse Logo" class="w-9 h-9">
         <span class="font-bold text-xl">Offcourse</span>
       </a>
       <div class="flex items-center gap-6">
         <a href="#features" class="text-slate-400 hover:text-white transition-colors hidden sm:block">Features</a>
         <a href="#platforms" class="text-slate-400 hover:text-white transition-colors hidden sm:block">Platforms</a>
+        <a href="#usage" class="text-slate-400 hover:text-white transition-colors hidden sm:block">Usage</a>
         <a href="#install" class="text-slate-400 hover:text-white transition-colors hidden sm:block">Install</a>
         <a href="https://github.com/sebastian-software/offcourse" class="flex items-center gap-2 text-slate-400 hover:text-white transition-colors">
           <img src="icon-github.svg" alt="GitHub" class="w-5 h-5 opacity-70">
-          <span class="hidden sm:inline">GitHub</span>
         </a>
       </div>
     </div>
@@ -79,43 +87,44 @@
   <header class="min-h-screen flex items-center justify-center pt-20 pb-16 px-6 relative overflow-hidden">
     <!-- Background decoration -->
     <div class="absolute inset-0 overflow-hidden pointer-events-none">
-      <div class="absolute top-1/4 left-1/4 w-96 h-96 bg-brand-500/20 rounded-full blur-3xl"></div>
-      <div class="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl"></div>
+      <div class="absolute top-1/3 left-1/4 w-[500px] h-[500px] bg-brand-500/10 rounded-full blur-[100px]"></div>
+      <div class="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-purple-500/10 rounded-full blur-[100px]"></div>
+      <div class="absolute top-1/2 right-1/3 w-[300px] h-[300px] bg-emerald-500/5 rounded-full blur-[80px]"></div>
     </div>
 
     <div class="max-w-4xl mx-auto text-center relative z-10">
-      <div class="mb-8 flex justify-center">
-        <img src="logo.svg" alt="Offcourse Logo" class="w-32 h-32 glow rounded-2xl">
+      <div class="mb-10 flex justify-center">
+        <img src="logo.svg" alt="Offcourse Logo" class="w-36 h-36 glow rounded-3xl beam-animation">
       </div>
 
       <h1 class="text-5xl sm:text-7xl font-extrabold mb-6 tracking-tight">
         <span class="gradient-text">Offcourse</span>
       </h1>
 
-      <p class="text-xl sm:text-2xl text-slate-400 mb-4 font-medium">
+      <p class="text-xl sm:text-2xl text-slate-300 mb-3 font-medium">
         Download online courses for offline access
       </p>
       <p class="text-lg text-slate-500 mb-10">
         — of course! 📚
       </p>
 
-      <div class="flex flex-col sm:flex-row gap-4 justify-center mb-12">
+      <div class="flex flex-col sm:flex-row gap-4 justify-center mb-14">
         <a href="#install" class="gradient-border text-white px-8 py-4 rounded-xl font-semibold text-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
           <img src="icon-download.svg" alt="" class="w-5 h-5 invert">
           Get Started
         </a>
-        <a href="https://github.com/sebastian-software/offcourse" class="bg-slate-800 hover:bg-slate-700 text-white px-8 py-4 rounded-xl font-semibold text-lg transition-colors flex items-center justify-center gap-2">
+        <a href="https://github.com/sebastian-software/offcourse" class="bg-slate-800/80 hover:bg-slate-700 text-white px-8 py-4 rounded-xl font-semibold text-lg transition-colors flex items-center justify-center gap-2 border border-slate-700/50">
           <img src="icon-github.svg" alt="" class="w-5 h-5 invert">
           View on GitHub
         </a>
       </div>
 
       <!-- Code preview -->
-      <div class="code-block rounded-2xl p-6 text-left max-w-xl mx-auto border border-slate-700/50">
+      <div class="code-block rounded-2xl p-6 text-left max-w-xl mx-auto border border-slate-700/50 shadow-2xl">
         <div class="flex items-center gap-2 mb-4">
-          <div class="w-3 h-3 rounded-full bg-red-500"></div>
-          <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
-          <div class="w-3 h-3 rounded-full bg-green-500"></div>
+          <div class="w-3 h-3 rounded-full bg-red-500/80"></div>
+          <div class="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+          <div class="w-3 h-3 rounded-full bg-green-500/80"></div>
           <span class="ml-2 text-slate-500 text-sm font-mono">Terminal</span>
         </div>
         <code class="font-mono text-sm sm:text-base">
@@ -126,23 +135,21 @@
   </header>
 
   <!-- Features Section -->
-  <section id="features" class="py-24 px-6 bg-slate-900/50">
+  <section id="features" class="py-24 px-6 bg-gradient-to-b from-slate-900/50 to-slate-950">
     <div class="max-w-6xl mx-auto">
       <h2 class="text-3xl sm:text-4xl font-bold text-center mb-4">Features</h2>
       <p class="text-slate-400 text-center mb-16 max-w-2xl mx-auto">Everything you need to save your courses for offline learning</p>
 
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        <!-- Feature 1 -->
-        <div class="feature-card bg-slate-800/50 border border-slate-700/50 rounded-2xl p-6 transition-all duration-300">
+        <div class="feature-card bg-slate-800/30 border border-slate-700/50 rounded-2xl p-6 transition-all duration-300">
           <div class="w-12 h-12 bg-brand-500/20 rounded-xl flex items-center justify-center mb-4">
-            <img src="icon-lock.svg" alt="" class="w-6 h-6 text-brand-400" style="filter: invert(60%) sepia(98%) saturate(1000%) hue-rotate(210deg);">
+            <img src="icon-lock.svg" alt="" class="w-6 h-6" style="filter: invert(60%) sepia(98%) saturate(1000%) hue-rotate(210deg);">
           </div>
           <h3 class="text-lg font-semibold mb-2">Browser-Based Auth</h3>
           <p class="text-slate-400 text-sm">Log in once through a real browser. Sessions are cached for future syncs.</p>
         </div>
 
-        <!-- Feature 2 -->
-        <div class="feature-card bg-slate-800/50 border border-slate-700/50 rounded-2xl p-6 transition-all duration-300">
+        <div class="feature-card bg-slate-800/30 border border-slate-700/50 rounded-2xl p-6 transition-all duration-300">
           <div class="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center mb-4">
             <img src="icon-folder.svg" alt="" class="w-6 h-6" style="filter: invert(60%) sepia(98%) saturate(1000%) hue-rotate(250deg);">
           </div>
@@ -150,8 +157,7 @@
           <p class="text-slate-400 text-sm">Maintains module/lesson hierarchy. Navigate your course just like online.</p>
         </div>
 
-        <!-- Feature 3 -->
-        <div class="feature-card bg-slate-800/50 border border-slate-700/50 rounded-2xl p-6 transition-all duration-300">
+        <div class="feature-card bg-slate-800/30 border border-slate-700/50 rounded-2xl p-6 transition-all duration-300">
           <div class="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center mb-4">
             <img src="icon-video.svg" alt="" class="w-6 h-6" style="filter: invert(60%) sepia(98%) saturate(1000%) hue-rotate(110deg);">
           </div>
@@ -159,8 +165,7 @@
           <p class="text-slate-400 text-sm">Supports HLS streams, Vimeo, Loom, and native MP4/WebM files.</p>
         </div>
 
-        <!-- Feature 4 -->
-        <div class="feature-card bg-slate-800/50 border border-slate-700/50 rounded-2xl p-6 transition-all duration-300">
+        <div class="feature-card bg-slate-800/30 border border-slate-700/50 rounded-2xl p-6 transition-all duration-300">
           <div class="w-12 h-12 bg-orange-500/20 rounded-xl flex items-center justify-center mb-4">
             <img src="icon-book.svg" alt="" class="w-6 h-6" style="filter: invert(60%) sepia(98%) saturate(1000%) hue-rotate(350deg);">
           </div>
@@ -168,8 +173,7 @@
           <p class="text-slate-400 text-sm">Lesson text converted to clean Markdown. Read anywhere, even offline.</p>
         </div>
 
-        <!-- Feature 5 -->
-        <div class="feature-card bg-slate-800/50 border border-slate-700/50 rounded-2xl p-6 transition-all duration-300">
+        <div class="feature-card bg-slate-800/30 border border-slate-700/50 rounded-2xl p-6 transition-all duration-300">
           <div class="w-12 h-12 bg-cyan-500/20 rounded-xl flex items-center justify-center mb-4">
             <img src="icon-zap.svg" alt="" class="w-6 h-6" style="filter: invert(60%) sepia(98%) saturate(1000%) hue-rotate(160deg);">
           </div>
@@ -177,13 +181,12 @@
           <p class="text-slate-400 text-sm">Already downloaded content is skipped. Sync incrementally as courses update.</p>
         </div>
 
-        <!-- Feature 6 -->
-        <div class="feature-card bg-slate-800/50 border border-slate-700/50 rounded-2xl p-6 transition-all duration-300">
+        <div class="feature-card bg-slate-800/30 border border-slate-700/50 rounded-2xl p-6 transition-all duration-300">
           <div class="w-12 h-12 bg-pink-500/20 rounded-xl flex items-center justify-center mb-4">
             <img src="icon-terminal.svg" alt="" class="w-6 h-6" style="filter: invert(60%) sepia(98%) saturate(1000%) hue-rotate(290deg);">
           </div>
-          <h3 class="text-lg font-semibold mb-2">CLI Interface</h3>
-          <p class="text-slate-400 text-sm">Simple commands. Auto-detects platform from URL. Just paste and sync.</p>
+          <h3 class="text-lg font-semibold mb-2">Auto-Detection</h3>
+          <p class="text-slate-400 text-sm">Just paste a URL. Platform is detected automatically. Simple as that.</p>
         </div>
       </div>
     </div>
@@ -195,48 +198,184 @@
       <h2 class="text-3xl sm:text-4xl font-bold text-center mb-4">Supported Platforms</h2>
       <p class="text-slate-400 text-center mb-16 max-w-2xl mx-auto">Works with popular course platforms out of the box</p>
 
-      <div class="grid sm:grid-cols-3 gap-8 max-w-4xl mx-auto">
+      <div class="grid lg:grid-cols-3 gap-8 max-w-5xl mx-auto">
         <!-- Skool -->
-        <div class="text-center">
-          <div class="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-2xl flex items-center justify-center text-3xl font-bold text-white shadow-lg">
-            S
+        <div class="bg-slate-800/30 border border-slate-700/50 rounded-2xl p-8">
+          <div class="flex items-center gap-4 mb-6">
+            <div class="w-14 h-14 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-xl flex items-center justify-center text-2xl font-bold text-white shadow-lg">S</div>
+            <div>
+              <h3 class="text-xl font-semibold">Skool</h3>
+              <span class="text-emerald-400 text-sm">✓ Supported</span>
+            </div>
           </div>
-          <h3 class="text-xl font-semibold mb-2">Skool</h3>
-          <p class="text-slate-400 text-sm">Community courses</p>
-          <span class="inline-block mt-3 px-3 py-1 bg-emerald-500/20 text-emerald-400 text-xs font-medium rounded-full">✓ Supported</span>
+          <p class="text-slate-400 text-sm mb-4">Community-based learning platform with courses and classroom content.</p>
+          <div class="text-xs text-slate-500 font-mono bg-slate-900/50 rounded-lg p-3">
+            skool.com/community/classroom
+          </div>
         </div>
 
         <!-- HighLevel -->
-        <div class="text-center">
-          <div class="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl flex items-center justify-center text-3xl font-bold text-white shadow-lg">
-            HL
+        <div class="bg-slate-800/30 border border-slate-700/50 rounded-2xl p-8">
+          <div class="flex items-center gap-4 mb-6">
+            <div class="w-14 h-14 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center text-xl font-bold text-white shadow-lg">HL</div>
+            <div>
+              <h3 class="text-xl font-semibold">HighLevel</h3>
+              <span class="text-emerald-400 text-sm">✓ Supported</span>
+            </div>
           </div>
-          <h3 class="text-xl font-semibold mb-2">HighLevel</h3>
-          <p class="text-slate-400 text-sm">Membership portals</p>
-          <span class="inline-block mt-3 px-3 py-1 bg-emerald-500/20 text-emerald-400 text-xs font-medium rounded-full">✓ Supported</span>
+          <p class="text-slate-400 text-sm mb-4">Marketing platform with membership portals. Firebase auth, HLS native videos.</p>
+          <div class="text-xs text-slate-500 font-mono bg-slate-900/50 rounded-lg p-3">
+            member.domain.com/courses/...
+          </div>
         </div>
 
         <!-- LearningSuite -->
-        <div class="text-center">
-          <div class="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-brand-500 to-purple-500 rounded-2xl flex items-center justify-center text-3xl font-bold text-white shadow-lg">
-            LS
+        <div class="bg-slate-800/30 border border-slate-700/50 rounded-2xl p-8">
+          <div class="flex items-center gap-4 mb-6">
+            <div class="w-14 h-14 bg-gradient-to-br from-brand-500 to-purple-500 rounded-xl flex items-center justify-center text-xl font-bold text-white shadow-lg">LS</div>
+            <div>
+              <h3 class="text-xl font-semibold">LearningSuite</h3>
+              <span class="text-emerald-400 text-sm">✓ Supported</span>
+            </div>
           </div>
-          <h3 class="text-xl font-semibold mb-2">LearningSuite</h3>
-          <p class="text-slate-400 text-sm">German LMS</p>
-          <span class="inline-block mt-3 px-3 py-1 bg-emerald-500/20 text-emerald-400 text-xs font-medium rounded-full">✓ Supported</span>
+          <p class="text-slate-400 text-sm mb-4">German LMS with sequential unlocking. Bunny CDN videos, PDF attachments.</p>
+          <div class="text-xs text-slate-500 font-mono bg-slate-900/50 rounded-lg p-3">
+            *.learningsuite.io/student/...
+          </div>
         </div>
       </div>
     </div>
   </section>
 
+  <!-- Video Providers Section -->
+  <section class="py-24 px-6 bg-gradient-to-b from-slate-950 to-slate-900/50">
+    <div class="max-w-6xl mx-auto">
+      <h2 class="text-3xl sm:text-4xl font-bold text-center mb-4">Video Support</h2>
+      <p class="text-slate-400 text-center mb-16 max-w-2xl mx-auto">Downloads videos from various providers and CDNs</p>
+
+      <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 max-w-4xl mx-auto">
+        <div class="bg-slate-800/30 border border-slate-700/50 rounded-xl p-5 text-center">
+          <div class="text-2xl mb-2">📺</div>
+          <h4 class="font-semibold mb-1">HLS Streams</h4>
+          <p class="text-slate-500 text-xs">via ffmpeg</p>
+        </div>
+        <div class="bg-slate-800/30 border border-slate-700/50 rounded-xl p-5 text-center">
+          <div class="text-2xl mb-2">▶️</div>
+          <h4 class="font-semibold mb-1">Vimeo</h4>
+          <p class="text-slate-500 text-xs">embedded players</p>
+        </div>
+        <div class="bg-slate-800/30 border border-slate-700/50 rounded-xl p-5 text-center">
+          <div class="text-2xl mb-2">🎬</div>
+          <h4 class="font-semibold mb-1">Loom</h4>
+          <p class="text-slate-500 text-xs">share links</p>
+        </div>
+        <div class="bg-slate-800/30 border border-slate-700/50 rounded-xl p-5 text-center">
+          <div class="text-2xl mb-2">📁</div>
+          <h4 class="font-semibold mb-1">MP4/WebM</h4>
+          <p class="text-slate-500 text-xs">direct downloads</p>
+        </div>
+      </div>
+
+      <div class="mt-10 text-center">
+        <p class="text-slate-500 text-sm">CDN Support: <span class="text-slate-400">Bunny CDN</span> · <span class="text-slate-400">Cloudflare Stream</span> · <span class="text-slate-400">Vimeo CDN</span></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Usage Section -->
+  <section id="usage" class="py-24 px-6">
+    <div class="max-w-4xl mx-auto">
+      <h2 class="text-3xl sm:text-4xl font-bold text-center mb-4">Usage</h2>
+      <p class="text-slate-400 text-center mb-16 max-w-2xl mx-auto">Simple commands for common tasks</p>
+
+      <div class="space-y-8">
+        <!-- Sync -->
+        <div>
+          <h3 class="text-xl font-semibold mb-4 flex items-center gap-2">
+            <span class="w-8 h-8 bg-brand-500/20 rounded-lg flex items-center justify-center text-brand-400 text-sm font-mono">1</span>
+            Sync a Course
+          </h3>
+          <div class="code-block rounded-xl p-5 border border-slate-700/50">
+            <pre class="font-mono text-sm overflow-x-auto"><span class="text-slate-500"># Auto-detect platform and download everything</span>
+<span class="text-emerald-400">offcourse</span> <span class="text-white">sync</span> <span class="text-brand-400">&lt;url&gt;</span>
+
+<span class="text-slate-500"># Skip videos (text only)</span>
+<span class="text-emerald-400">offcourse</span> <span class="text-white">sync</span> <span class="text-brand-400">&lt;url&gt;</span> <span class="text-yellow-400">--skip-videos</span>
+
+<span class="text-slate-500"># Preview without downloading</span>
+<span class="text-emerald-400">offcourse</span> <span class="text-white">sync</span> <span class="text-brand-400">&lt;url&gt;</span> <span class="text-yellow-400">--dry-run</span>
+
+<span class="text-slate-500"># Limit to first 5 lessons (testing)</span>
+<span class="text-emerald-400">offcourse</span> <span class="text-white">sync</span> <span class="text-brand-400">&lt;url&gt;</span> <span class="text-yellow-400">--limit 5</span></pre>
+          </div>
+        </div>
+
+        <!-- Complete -->
+        <div>
+          <h3 class="text-xl font-semibold mb-4 flex items-center gap-2">
+            <span class="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center text-emerald-400 text-sm font-mono">2</span>
+            Unlock Locked Content
+          </h3>
+          <p class="text-slate-400 text-sm mb-4">Some platforms lock lessons sequentially. The <code class="bg-slate-800 px-2 py-0.5 rounded text-brand-400">complete</code> command marks lessons as done to unlock more content:</p>
+          <div class="code-block rounded-xl p-5 border border-slate-700/50">
+            <pre class="font-mono text-sm overflow-x-auto"><span class="text-slate-500"># Iterates until all content is unlocked</span>
+<span class="text-emerald-400">offcourse</span> <span class="text-white">complete</span> <span class="text-brand-400">&lt;url&gt;</span>
+
+<span class="text-slate-500"># Show browser window</span>
+<span class="text-emerald-400">offcourse</span> <span class="text-white">complete</span> <span class="text-brand-400">&lt;url&gt;</span> <span class="text-yellow-400">--visible</span></pre>
+          </div>
+        </div>
+
+        <!-- Config -->
+        <div>
+          <h3 class="text-xl font-semibold mb-4 flex items-center gap-2">
+            <span class="w-8 h-8 bg-purple-500/20 rounded-lg flex items-center justify-center text-purple-400 text-sm font-mono">3</span>
+            Configuration
+          </h3>
+          <div class="code-block rounded-xl p-5 border border-slate-700/50">
+            <pre class="font-mono text-sm overflow-x-auto"><span class="text-slate-500"># Set output directory</span>
+<span class="text-emerald-400">offcourse</span> <span class="text-white">config set outputDir</span> <span class="text-brand-400">~/Courses</span>
+
+<span class="text-slate-500"># Set video quality (1080p, 720p, 480p)</span>
+<span class="text-emerald-400">offcourse</span> <span class="text-white">config set videoQuality</span> <span class="text-brand-400">720p</span>
+
+<span class="text-slate-500"># Set download concurrency</span>
+<span class="text-emerald-400">offcourse</span> <span class="text-white">config set concurrency</span> <span class="text-brand-400">3</span></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Output Structure -->
+  <section class="py-24 px-6 bg-gradient-to-b from-slate-900/50 to-slate-950">
+    <div class="max-w-4xl mx-auto">
+      <h2 class="text-3xl sm:text-4xl font-bold text-center mb-4">Output Structure</h2>
+      <p class="text-slate-400 text-center mb-12">Clean, organized folder structure</p>
+
+      <div class="code-block rounded-2xl p-6 border border-slate-700/50 font-mono text-sm">
+        <pre class="text-slate-300">~/Downloads/offcourse/
+└── <span class="text-brand-400">course-name</span>/
+    ├── <span class="text-purple-400">01-module-name</span>/
+    │   ├── <span class="text-emerald-400">01-lesson-name</span>/
+    │   │   ├── <span class="text-slate-400">content.md</span>
+    │   │   ├── <span class="text-yellow-400">video.mp4</span>
+    │   │   └── <span class="text-cyan-400">attachment.pdf</span>
+    │   └── <span class="text-emerald-400">02-another-lesson</span>/
+    │       └── ...
+    └── <span class="text-purple-400">02-next-module</span>/
+        └── ...</pre>
+      </div>
+    </div>
+  </section>
+
   <!-- Installation Section -->
-  <section id="install" class="py-24 px-6 bg-slate-900/50">
+  <section id="install" class="py-24 px-6">
     <div class="max-w-3xl mx-auto">
       <h2 class="text-3xl sm:text-4xl font-bold text-center mb-4">Installation</h2>
       <p class="text-slate-400 text-center mb-12">Get started in seconds</p>
 
       <div class="space-y-6">
-        <!-- NPM Install -->
         <div class="code-block rounded-xl p-5 border border-slate-700/50">
           <div class="flex items-center justify-between mb-3">
             <span class="text-slate-500 text-sm font-mono">Install globally</span>
@@ -246,36 +385,48 @@
           </code>
         </div>
 
-        <!-- Or npx -->
-        <div class="text-center text-slate-500">or run directly with npx</div>
+        <div class="text-center text-slate-500">or run directly</div>
 
-        <!-- NPX -->
         <div class="code-block rounded-xl p-5 border border-slate-700/50">
           <div class="flex items-center justify-between mb-3">
-            <span class="text-slate-500 text-sm font-mono">Run without installing</span>
+            <span class="text-slate-500 text-sm font-mono">Without installing</span>
           </div>
           <code class="font-mono text-base">
             <span class="text-slate-500">$</span> <span class="text-emerald-400">npx</span> <span class="text-white">offcourse sync</span> <span class="text-brand-400">&lt;url&gt;</span>
           </code>
         </div>
 
-        <!-- Requirements -->
-        <div class="bg-slate-800/30 rounded-xl p-5 border border-slate-700/30">
-          <h4 class="font-semibold mb-3 flex items-center gap-2">
+        <div class="bg-slate-800/30 rounded-xl p-6 border border-slate-700/30">
+          <h4 class="font-semibold mb-4 flex items-center gap-2">
             <img src="icon-check.svg" alt="" class="w-5 h-5" style="filter: invert(60%) sepia(98%) saturate(1000%) hue-rotate(110deg);">
             Requirements
           </h4>
-          <ul class="text-slate-400 text-sm space-y-2">
-            <li>• Node.js 22 or higher</li>
-            <li>• ffmpeg (for HLS video downloads)</li>
-          </ul>
+          <div class="grid sm:grid-cols-2 gap-4 text-sm">
+            <div class="flex items-start gap-3">
+              <span class="text-emerald-400">✓</span>
+              <div>
+                <p class="text-slate-200">Node.js 22+</p>
+                <p class="text-slate-500 text-xs">Required</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <span class="text-emerald-400">✓</span>
+              <div>
+                <p class="text-slate-200">ffmpeg</p>
+                <p class="text-slate-500 text-xs">For HLS video downloads</p>
+              </div>
+            </div>
+          </div>
+          <div class="mt-4 pt-4 border-t border-slate-700/50">
+            <p class="text-slate-500 text-xs">Install ffmpeg: <code class="text-slate-400">brew install ffmpeg</code> (macOS) · <code class="text-slate-400">apt install ffmpeg</code> (Linux)</p>
+          </div>
         </div>
       </div>
     </div>
   </section>
 
   <!-- CTA Section -->
-  <section class="py-24 px-6">
+  <section class="py-24 px-6 bg-gradient-to-b from-slate-950 to-slate-900">
     <div class="max-w-4xl mx-auto text-center">
       <h2 class="text-3xl sm:text-4xl font-bold mb-6">Ready to learn offline?</h2>
       <p class="text-slate-400 mb-10 text-lg">Save your courses and access them anytime, anywhere.</p>
@@ -285,7 +436,7 @@
           <img src="icon-npm.svg" alt="" class="w-5 h-5 invert">
           View on npm
         </a>
-        <a href="https://github.com/sebastian-software/offcourse" class="bg-slate-800 hover:bg-slate-700 text-white px-8 py-4 rounded-xl font-semibold text-lg transition-colors flex items-center justify-center gap-2">
+        <a href="https://github.com/sebastian-software/offcourse" class="bg-slate-800 hover:bg-slate-700 text-white px-8 py-4 rounded-xl font-semibold text-lg transition-colors flex items-center justify-center gap-2 border border-slate-700/50">
           <img src="icon-github.svg" alt="" class="w-5 h-5 invert">
           Star on GitHub
         </a>
@@ -294,7 +445,7 @@
   </section>
 
   <!-- Footer -->
-  <footer class="py-12 px-6 border-t border-slate-800">
+  <footer class="py-12 px-6 border-t border-slate-800/50">
     <div class="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
       <div class="flex items-center gap-3">
         <img src="logo.svg" alt="Offcourse" class="w-8 h-8">
