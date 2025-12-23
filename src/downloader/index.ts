@@ -22,6 +22,8 @@ export interface VideoDownloadTask {
   outputPath: string;
   /** Optional preferred quality (e.g., "720p", "1080p") */
   preferredQuality?: string | undefined;
+  /** Optional cookies for authenticated downloads */
+  cookies?: string | undefined;
 }
 
 export interface DownloadResult {
@@ -38,7 +40,7 @@ export async function downloadVideo(
   task: VideoDownloadTask,
   onProgress?: (progress: DownloadProgress) => void
 ): Promise<DownloadResult> {
-  const { videoUrl, videoType, outputPath, preferredQuality } = task;
+  const { videoUrl, videoType, outputPath, preferredQuality, cookies } = task;
 
   switch (videoType) {
     case "loom":
@@ -49,15 +51,15 @@ export async function downloadVideo(
 
     case "native":
       // Direct MP4/WebM URL - download directly
-      return downloadFile(videoUrl, outputPath, onProgress);
+      return downloadFile(videoUrl, outputPath, onProgress, cookies);
 
     case "hls":
       // Generic HLS stream
-      return downloadHLSVideo(videoUrl, outputPath, onProgress);
+      return downloadHLSVideo(videoUrl, outputPath, onProgress, cookies);
 
     case "highlevel":
       // HighLevel HLS video with quality selection
-      return downloadHighLevelVideo(videoUrl, outputPath, preferredQuality, onProgress);
+      return downloadHighLevelVideo(videoUrl, outputPath, preferredQuality, onProgress, cookies);
 
     case "youtube":
     case "wistia":
@@ -72,11 +74,11 @@ export async function downloadVideo(
     default:
       // Try direct download as fallback
       if (/\.(mp4|webm|mov)(\?|$)/i.exec(videoUrl)) {
-        return downloadFile(videoUrl, outputPath, onProgress);
+        return downloadFile(videoUrl, outputPath, onProgress, cookies);
       }
       // Try HLS if it looks like a playlist
       if (/\.m3u8(\?|$)/i.exec(videoUrl)) {
-        return downloadHLSVideo(videoUrl, outputPath, onProgress);
+        return downloadHLSVideo(videoUrl, outputPath, onProgress, cookies);
       }
       return {
         success: false,

@@ -616,6 +616,15 @@ export async function syncLearningSuiteCommand(
 
     // Phase 3: Download videos
     if (!options.skipVideos && videoTasks.length > 0) {
+      // Extract cookies from session for authenticated video downloads
+      const browserCookies = await session.page.context().cookies();
+      const cookieString = browserCookies.map((c) => `${c.name}=${c.value}`).join("; ");
+
+      // Add cookies to all video tasks
+      for (const task of videoTasks) {
+        task.cookies = cookieString;
+      }
+
       await downloadVideos(videoTasks, config);
     }
 

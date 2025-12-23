@@ -673,7 +673,8 @@ export async function downloadLoomVideo(
 export async function downloadFile(
   url: string,
   outputPath: string,
-  onProgress?: (progress: DownloadProgress) => void
+  onProgress?: (progress: DownloadProgress) => void,
+  cookies?: string
 ): Promise<{ success: boolean; error?: string }> {
   if (existsSync(outputPath)) {
     return { success: true };
@@ -687,12 +688,15 @@ export async function downloadFile(
   const tempPath = `${outputPath}.tmp`;
 
   try {
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": USER_AGENT,
-        Referer: "https://www.loom.com/",
-      },
-    });
+    const headers: Record<string, string> = {
+      "User-Agent": USER_AGENT,
+      Referer: "https://www.loom.com/",
+    };
+    if (cookies) {
+      headers.Cookie = cookies;
+    }
+
+    const response = await fetch(url, { headers });
 
     if (!response.ok) {
       return { success: false, error: `HTTP ${response.status}` };

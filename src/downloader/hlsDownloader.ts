@@ -36,10 +36,18 @@ export async function checkFfmpeg(): Promise<boolean> {
 /**
  * Fetches an HLS master playlist and parses quality variants.
  */
-/* v8 ignore next 14 */
-export async function fetchHLSQualities(masterUrl: string): Promise<HLSQuality[]> {
+/* v8 ignore next 18 */
+export async function fetchHLSQualities(
+  masterUrl: string,
+  cookies?: string
+): Promise<HLSQuality[]> {
   try {
-    const response = await fetch(masterUrl);
+    const headers: Record<string, string> = {};
+    if (cookies) {
+      headers.Cookie = cookies;
+    }
+
+    const response = await fetch(masterUrl, { headers });
     if (!response.ok) {
       throw new Error(`Failed to fetch playlist: ${response.status}`);
     }
@@ -101,13 +109,15 @@ export function parseHLSPlaylist(content: string, baseUrl: string): HLSQuality[]
  * Gets the best quality URL from a master playlist.
  * @param masterUrl The master playlist URL
  * @param preferredHeight Preferred video height (e.g., 720, 1080)
+ * @param cookies Optional cookies for authenticated requests
  */
 /* v8 ignore start */
 export async function getBestQualityUrl(
   masterUrl: string,
-  preferredHeight?: number
+  preferredHeight?: number,
+  cookies?: string
 ): Promise<string> {
-  const qualities = await fetchHLSQualities(masterUrl);
+  const qualities = await fetchHLSQualities(masterUrl, cookies);
 
   if (qualities.length === 0) {
     // Assume it's a direct media playlist
@@ -136,11 +146,13 @@ export async function getBestQualityUrl(
  * @param hlsUrl The HLS playlist URL (master or media)
  * @param outputPath The output file path (should end in .mp4)
  * @param onProgress Progress callback
+ * @param cookies Optional cookies for authenticated requests
  */
 export async function downloadHLSVideo(
   hlsUrl: string,
   outputPath: string,
-  onProgress?: (progress: DownloadProgress) => void
+  onProgress?: (progress: DownloadProgress) => void,
+  cookies?: string
 ): Promise<HLSDownloadResult> {
   // Check if ffmpeg is available
   const hasFfmpeg = await checkFfmpeg();
@@ -165,14 +177,22 @@ export async function downloadHLSVideo(
     "-loglevel",
     "warning",
     "-stats",
+  ];
+
+  // Add cookies header if provided
+  if (cookies) {
+    args.push("-headers", `Cookie: ${cookies}\r\n`);
+  }
+
+  args.push(
     "-i",
     hlsUrl,
     "-c",
     "copy", // Copy streams without re-encoding
     "-bsf:a",
     "aac_adtstoasc", // Fix AAC stream
-    outputPath,
-  ];
+    outputPath
+  );
 
   let duration = 0;
   let currentTime = 0;
@@ -259,12 +279,14 @@ export async function downloadHLSVideo(
  * @param outputPath The output file path
  * @param preferredQuality Preferred quality label (e.g., "720p", "1080p")
  * @param onProgress Progress callback
+ * @param cookies Optional cookies for authenticated requests
  */
 export async function downloadHighLevelVideo(
   masterUrl: string,
   outputPath: string,
   preferredQuality?: string,
-  onProgress?: (progress: DownloadProgress) => void
+  onProgress?: (progress: DownloadProgress) => void,
+  cookies?: string
 ): Promise<HLSDownloadResult> {
   // Report start
   onProgress?.({
@@ -284,13 +306,13 @@ export async function downloadHighLevelVideo(
   // Get the best quality URL
   let downloadUrl = masterUrl;
   try {
-    downloadUrl = await getBestQualityUrl(masterUrl, preferredHeight);
+    downloadUrl = await getBestQualityUrl(masterUrl, preferredHeight, cookies);
   } catch (error) {
     console.warn("Failed to fetch quality options, using master URL:", error);
   }
 
   // Download using ffmpeg
-  return downloadHLSVideo(downloadUrl, outputPath, onProgress);
+  return downloadHLSVideo(downloadUrl, outputPath, onProgress, cookies);
 }
 /* v8 ignore stop */
 
