@@ -102,12 +102,26 @@ program
   .option("--course-name <name>", "Override detected course name")
   .action(syncLearningSuiteCommand);
 
-// Complete command - mark lessons as complete to unlock content (LearningSuite)
+// Complete command - mark lessons as complete to unlock content
 program
   .command("complete <url>")
-  .description("Mark lessons as complete to unlock sequential content (LearningSuite)")
+  .description("Mark lessons as complete to unlock sequential content")
   .option("--visible", "Show browser window (default: headless)")
-  .action(completeLearningSuiteCommand);
+  .action((url: string, options: { visible?: boolean }) => {
+    if (isLearningSuitePortal(url)) {
+      return completeLearningSuiteCommand(url, options);
+    } else if (url.includes("skool.com")) {
+      console.log("\n⚠️  Auto-complete for Skool coming soon!\n");
+      console.log("   Skool lessons can be marked complete manually in the browser.");
+      console.log("   This feature will be added in a future update.\n");
+      process.exit(0);
+    } else {
+      console.log("\n❌ Platform not supported for auto-complete.\n");
+      console.log("   Currently supported: LearningSuite");
+      console.log("   Coming soon: Skool\n");
+      process.exit(1);
+    }
+  });
 
 // Status command
 program
