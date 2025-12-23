@@ -52,14 +52,7 @@
       border-color: rgba(99, 102, 241, 0.5);
     }
     .glow {
-      box-shadow: 0 0 80px rgba(99, 102, 241, 0.4), 0 0 120px rgba(168, 85, 247, 0.2);
-    }
-    .beam-animation {
-      animation: beam 3s ease-in-out infinite;
-    }
-    @keyframes beam {
-      0%, 100% { opacity: 0.4; }
-      50% { opacity: 0.8; }
+      box-shadow: 0 0 60px rgba(99, 102, 241, 0.5), 0 0 100px rgba(168, 85, 247, 0.3);
     }
   </style>
 </head>
@@ -68,7 +61,7 @@
   <nav class="fixed top-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-lg border-b border-slate-800/50">
     <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
       <a href="#" class="flex items-center gap-3">
-        <img src="logo.svg" alt="Offcourse Logo" class="w-9 h-9">
+        <img src="logo.svg" alt="Offcourse Logo" class="w-8 h-8" style="filter: invert(1);">
         <span class="font-bold text-xl">Offcourse</span>
       </a>
       <div class="flex items-center gap-6">
@@ -94,7 +87,9 @@
 
     <div class="max-w-4xl mx-auto text-center relative z-10">
       <div class="mb-10 flex justify-center">
-        <img src="logo.svg" alt="Offcourse Logo" class="w-36 h-36 glow rounded-3xl beam-animation">
+        <div class="w-32 h-32 bg-gradient-to-br from-brand-500 to-purple-500 rounded-3xl flex items-center justify-center glow">
+          <img src="logo.svg" alt="Offcourse Logo" class="w-20 h-20" style="filter: invert(1);">
+        </div>
       </div>
 
       <h1 class="text-5xl sm:text-7xl font-extrabold mb-6 tracking-tight">
@@ -448,7 +443,7 @@
   <footer class="py-12 px-6 border-t border-slate-800/50">
     <div class="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
       <div class="flex items-center gap-3">
-        <img src="logo.svg" alt="Offcourse" class="w-8 h-8">
+        <img src="logo.svg" alt="Offcourse" class="w-6 h-6" style="filter: invert(0.6);">
         <span class="text-slate-400">© 2025 Sebastian Software GmbH</span>
       </div>
       <div class="flex items-center gap-6">
