@@ -57,13 +57,35 @@ export async function fetchHLSQualities(
 
     const response = await fetch(masterUrl, { headers });
     if (!response.ok) {
-      throw new Error(`Failed to fetch playlist: ${response.status}`);
+      console.error(`[HLS] Fetch failed: ${response.status} for ${masterUrl}`);
+      return [];
     }
 
     const content = await response.text();
+
+    // Debug: Check if response is valid HLS
+    if (!content.startsWith("#EXTM3U")) {
+      // Check if it's JSON (Bunny CDN API response)
+      if (content.startsWith("{") || content.startsWith("[")) {
+        try {
+          const json = JSON.parse(content) as { playlist?: string; url?: string };
+          // Try to extract actual playlist URL from JSON
+          const playlistUrl = json.playlist ?? json.url;
+          if (playlistUrl && typeof playlistUrl === "string") {
+            // Recursively fetch the actual playlist
+            return await fetchHLSQualities(playlistUrl, cookies, referer);
+          }
+        } catch {
+          // Not valid JSON
+        }
+      }
+      console.error(`[HLS] Invalid playlist (starts with: ${content.substring(0, 50)}...)`);
+      return [];
+    }
+
     return parseHLSPlaylist(content, masterUrl);
   } catch (error) {
-    console.error("Failed to fetch HLS qualities:", error);
+    console.error("[HLS] Failed to fetch qualities:", error);
     return [];
   }
 }
@@ -173,6 +195,35 @@ export async function downloadHLSVideo(
       success: false,
       error: "ffmpeg is not installed. Please install ffmpeg to download HLS videos.",
       errorCode: "FFMPEG_NOT_FOUND",
+    };
+  }
+
+  // Pre-validate the HLS URL before downloading
+  try {
+    const urlObj = new URL(hlsUrl);
+    const origin = referer ?? `${urlObj.protocol}//${urlObj.host}/`;
+
+    const headers: Record<string, string> = {
+      Origin: new URL(origin).origin,
+      Referer: origin,
+    };
+    if (cookies) {
+      headers.Cookie = cookies;
+    }
+
+    const testResponse = await fetch(hlsUrl, { headers, method: "HEAD" });
+    if (!testResponse.ok) {
+      return {
+        success: false,
+        error: `HLS URL returned ${testResponse.status}: ${hlsUrl}`,
+        errorCode: "HLS_FETCH_FAILED",
+      };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: `Failed to validate HLS URL: ${error instanceof Error ? error.message : String(error)}`,
+      errorCode: "HLS_VALIDATION_FAILED",
     };
   }
 

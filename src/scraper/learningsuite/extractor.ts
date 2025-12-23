@@ -357,9 +357,17 @@ export async function extractLearningSuitePostContent(
   const hlsUrls: string[] = [];
   const requestHandler = (request: { url: () => string }) => {
     const url = request.url();
-    // Capture HLS playlists from Bunny API or direct m3u8
-    if (url.includes("/playlist/master") || url.includes(".m3u8")) {
-      hlsUrls.push(url);
+    // Capture actual HLS playlists from Bunny CDN or direct m3u8 files
+    // Prioritize actual .m3u8 files over API endpoints
+    if (
+      url.includes(".m3u8") || // Direct HLS playlist
+      url.includes("b-cdn.net") || // Bunny CDN
+      url.includes("mediadelivery.net") // Bunny video delivery
+    ) {
+      // Skip API responses, only capture actual playlist URLs
+      if (!url.includes("/embed/") && !url.includes("/play/")) {
+        hlsUrls.push(url);
+      }
     }
   };
 
@@ -403,14 +411,21 @@ export async function extractLearningSuitePostContent(
 
   // Try to get video from intercepted requests first
   let video: LearningSuiteVideoInfo | null = null;
-  const masterPlaylist = hlsUrls.find((url) => url.includes("/playlist/master"));
-  if (masterPlaylist) {
+
+  // Prioritize actual .m3u8 files from CDN
+  const actualPlaylist = hlsUrls.find(
+    (url) =>
+      url.includes(".m3u8") && (url.includes("b-cdn.net") || url.includes("mediadelivery.net"))
+  );
+
+  if (actualPlaylist) {
     video = {
       type: "hls",
-      url: masterPlaylist,
-      hlsUrl: masterPlaylist,
+      url: actualPlaylist,
+      hlsUrl: actualPlaylist,
     };
   } else if (hlsUrls.length > 0 && hlsUrls[0]) {
+    // Fallback to any captured HLS URL
     video = {
       type: "hls",
       url: hlsUrls[0],
