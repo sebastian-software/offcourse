@@ -24,6 +24,8 @@ export interface VideoDownloadTask {
   preferredQuality?: string | undefined;
   /** Optional cookies for authenticated downloads */
   cookies?: string | undefined;
+  /** Optional referer URL for authenticated downloads */
+  referer?: string | undefined;
 }
 
 export interface DownloadResult {
@@ -40,7 +42,7 @@ export async function downloadVideo(
   task: VideoDownloadTask,
   onProgress?: (progress: DownloadProgress) => void
 ): Promise<DownloadResult> {
-  const { videoUrl, videoType, outputPath, preferredQuality, cookies } = task;
+  const { videoUrl, videoType, outputPath, preferredQuality, cookies, referer } = task;
 
   switch (videoType) {
     case "loom":
@@ -51,15 +53,22 @@ export async function downloadVideo(
 
     case "native":
       // Direct MP4/WebM URL - download directly
-      return downloadFile(videoUrl, outputPath, onProgress, cookies);
+      return downloadFile(videoUrl, outputPath, onProgress, cookies, referer);
 
     case "hls":
       // Generic HLS stream
-      return downloadHLSVideo(videoUrl, outputPath, onProgress, cookies);
+      return downloadHLSVideo(videoUrl, outputPath, onProgress, cookies, referer);
 
     case "highlevel":
       // HighLevel HLS video with quality selection
-      return downloadHighLevelVideo(videoUrl, outputPath, preferredQuality, onProgress, cookies);
+      return downloadHighLevelVideo(
+        videoUrl,
+        outputPath,
+        preferredQuality,
+        onProgress,
+        cookies,
+        referer
+      );
 
     case "youtube":
     case "wistia":
@@ -74,11 +83,11 @@ export async function downloadVideo(
     default:
       // Try direct download as fallback
       if (/\.(mp4|webm|mov)(\?|$)/i.exec(videoUrl)) {
-        return downloadFile(videoUrl, outputPath, onProgress, cookies);
+        return downloadFile(videoUrl, outputPath, onProgress, cookies, referer);
       }
       // Try HLS if it looks like a playlist
       if (/\.m3u8(\?|$)/i.exec(videoUrl)) {
-        return downloadHLSVideo(videoUrl, outputPath, onProgress, cookies);
+        return downloadHLSVideo(videoUrl, outputPath, onProgress, cookies, referer);
       }
       return {
         success: false,

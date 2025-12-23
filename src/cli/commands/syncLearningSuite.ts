@@ -619,10 +619,12 @@ export async function syncLearningSuiteCommand(
       // Extract cookies from session for authenticated video downloads
       const browserCookies = await session.page.context().cookies();
       const cookieString = browserCookies.map((c) => `${c.name}=${c.value}`).join("; ");
+      const refererUrl = `https://${courseStructure.domain}/`;
 
-      // Add cookies to all video tasks
+      // Add cookies and referer to all video tasks
       for (const task of videoTasks) {
         task.cookies = cookieString;
+        task.referer = refererUrl;
       }
 
       await downloadVideos(videoTasks, config);

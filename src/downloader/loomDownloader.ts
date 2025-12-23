@@ -674,7 +674,8 @@ export async function downloadFile(
   url: string,
   outputPath: string,
   onProgress?: (progress: DownloadProgress) => void,
-  cookies?: string
+  cookies?: string,
+  referer?: string
 ): Promise<{ success: boolean; error?: string }> {
   if (existsSync(outputPath)) {
     return { success: true };
@@ -690,7 +691,7 @@ export async function downloadFile(
   try {
     const headers: Record<string, string> = {
       "User-Agent": USER_AGENT,
-      Referer: "https://www.loom.com/",
+      Referer: referer ?? "https://www.loom.com/",
     };
     if (cookies) {
       headers.Cookie = cookies;

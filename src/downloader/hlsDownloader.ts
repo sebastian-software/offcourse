@@ -39,16 +39,17 @@ export async function checkFfmpeg(): Promise<boolean> {
 /* v8 ignore next 24 */
 export async function fetchHLSQualities(
   masterUrl: string,
-  cookies?: string
+  cookies?: string,
+  referer?: string
 ): Promise<HLSQuality[]> {
   try {
-    // Extract origin from URL for proper CORS headers
+    // Use provided referer or extract origin from URL
     const urlObj = new URL(masterUrl);
-    const origin = `${urlObj.protocol}//${urlObj.host}`;
+    const origin = referer ?? `${urlObj.protocol}//${urlObj.host}/`;
 
     const headers: Record<string, string> = {
-      Origin: origin,
-      Referer: origin + "/",
+      Origin: new URL(origin).origin,
+      Referer: origin,
     };
     if (cookies) {
       headers.Cookie = cookies;
@@ -117,14 +118,16 @@ export function parseHLSPlaylist(content: string, baseUrl: string): HLSQuality[]
  * @param masterUrl The master playlist URL
  * @param preferredHeight Preferred video height (e.g., 720, 1080)
  * @param cookies Optional cookies for authenticated requests
+ * @param referer Optional referer URL
  */
 /* v8 ignore start */
 export async function getBestQualityUrl(
   masterUrl: string,
   preferredHeight?: number,
-  cookies?: string
+  cookies?: string,
+  referer?: string
 ): Promise<string> {
-  const qualities = await fetchHLSQualities(masterUrl, cookies);
+  const qualities = await fetchHLSQualities(masterUrl, cookies, referer);
 
   if (qualities.length === 0) {
     // Assume it's a direct media playlist
@@ -154,12 +157,14 @@ export async function getBestQualityUrl(
  * @param outputPath The output file path (should end in .mp4)
  * @param onProgress Progress callback
  * @param cookies Optional cookies for authenticated requests
+ * @param referer Optional referer URL
  */
 export async function downloadHLSVideo(
   hlsUrl: string,
   outputPath: string,
   onProgress?: (progress: DownloadProgress) => void,
-  cookies?: string
+  cookies?: string,
+  referer?: string
 ): Promise<HLSDownloadResult> {
   // Check if ffmpeg is available
   const hasFfmpeg = await checkFfmpeg();
@@ -177,9 +182,10 @@ export async function downloadHLSVideo(
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
-  // Extract origin from URL for proper headers
+  // Use provided referer or extract origin from URL
   const urlObj = new URL(hlsUrl);
-  const origin = `${urlObj.protocol}//${urlObj.host}`;
+  const origin = referer ?? `${urlObj.protocol}//${urlObj.host}/`;
+  const originHost = new URL(origin).origin;
 
   // Build ffmpeg command
   const args = [
@@ -191,7 +197,7 @@ export async function downloadHLSVideo(
   ];
 
   // Add headers for authenticated requests
-  const headerParts: string[] = [`Origin: ${origin}`, `Referer: ${origin}/`];
+  const headerParts: string[] = [`Origin: ${originHost}`, `Referer: ${origin}`];
   if (cookies) {
     headerParts.push(`Cookie: ${cookies}`);
   }
@@ -293,13 +299,15 @@ export async function downloadHLSVideo(
  * @param preferredQuality Preferred quality label (e.g., "720p", "1080p")
  * @param onProgress Progress callback
  * @param cookies Optional cookies for authenticated requests
+ * @param referer Optional referer URL
  */
 export async function downloadHighLevelVideo(
   masterUrl: string,
   outputPath: string,
   preferredQuality?: string,
   onProgress?: (progress: DownloadProgress) => void,
-  cookies?: string
+  cookies?: string,
+  referer?: string
 ): Promise<HLSDownloadResult> {
   // Report start
   onProgress?.({
@@ -319,13 +327,13 @@ export async function downloadHighLevelVideo(
   // Get the best quality URL
   let downloadUrl = masterUrl;
   try {
-    downloadUrl = await getBestQualityUrl(masterUrl, preferredHeight, cookies);
+    downloadUrl = await getBestQualityUrl(masterUrl, preferredHeight, cookies, referer);
   } catch (error) {
     console.warn("Failed to fetch quality options, using master URL:", error);
   }
 
   // Download using ffmpeg
-  return downloadHLSVideo(downloadUrl, outputPath, onProgress, cookies);
+  return downloadHLSVideo(downloadUrl, outputPath, onProgress, cookies, referer);
 }
 /* v8 ignore stop */
 
