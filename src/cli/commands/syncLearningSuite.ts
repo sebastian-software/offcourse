@@ -457,7 +457,10 @@ export async function syncLearningSuiteCommand(
     }
 
     // Phase 2: Extract content and queue downloads
-    console.log(chalk.blue(`\n📝 Extracting content for ${totalToProcess} lessons...\n`));
+    const phase2Label = options.skipContent
+      ? `🎬 Scanning ${totalToProcess} lessons for videos...`
+      : `📝 Extracting content for ${totalToProcess} lessons...`;
+    console.log(chalk.blue(`\n${phase2Label}\n`));
 
     const contentProgressBar = new cliProgress.SingleBar(
       {

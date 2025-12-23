@@ -593,9 +593,10 @@ async function extractContentAndQueueVideos(
     return [];
   }
 
-  console.log(
-    chalk.blue(`\n📝 Phase 3: Extracting content for ${lessonsToProcess.length} lessons...\n`)
-  );
+  const phase3Label = options.skipContent
+    ? `🎬 Scanning ${lessonsToProcess.length} lessons for videos...`
+    : `📝 Extracting content for ${lessonsToProcess.length} lessons...`;
+  console.log(chalk.blue(`\n${phase3Label}\n`));
 
   // Create progress bar
   const progressBar = new cliProgress.SingleBar(
