@@ -15,7 +15,8 @@ Saves video content and lesson text as Markdown files, organized by module struc
 
 - 🔐 **Browser-based authentication** – Log in once, sessions are cached
 - 📚 **Course structure preservation** – Maintains module/lesson hierarchy
-- 🎬 **Video downloads** – Supports HLS streams, Loom and Vimeo
+- 🎬 **Video downloads** – HLS, Vimeo, Loom, native MP4/WebM
+- 📎 **Attachments** – Downloads PDFs and other course materials
 - 📝 **Content extraction** – Converts lesson text to clean Markdown
 - ⏸️ **Resumable syncs** – Skips already downloaded content
 - ⚡ **Concurrent downloads** – Configurable parallelism
@@ -176,35 +177,97 @@ offcourse inspect <url> --full
         └── ...
 ```
 
+## Video Providers
+
+Offcourse supports downloading videos from various providers, regardless of which platform hosts the course:
+
+| Provider | Status | Notes |
+|----------|--------|-------|
+| **HLS Streams** | ✅ Supported | Requires ffmpeg. Used by HighLevel, LearningSuite (via Bunny CDN) |
+| **Vimeo** | ✅ Supported | Embedded players, extracts best quality |
+| **Loom** | ✅ Supported | Share links and embeds |
+| **Native MP4/WebM** | ✅ Supported | Direct file downloads |
+| **YouTube** | 🚧 Planned | Requires yt-dlp |
+| **Wistia** | 🚧 Planned | Requires special handling |
+
+### CDN Support
+
+Videos are often served through CDNs for better performance:
+
+- **Bunny CDN** – Used by LearningSuite for HLS streams (requires session cookies)
+- **Cloudflare Stream** – Common for HighLevel native videos
+- **Vimeo CDN** – For embedded Vimeo players
+
 ## Platform Notes
 
 ### HighLevel (GoHighLevel)
 
-HighLevel is an all-in-one marketing platform with a "Memberships" feature for hosting courses. Offcourse supports:
+HighLevel is an all-in-one marketing platform with a "Memberships" feature for hosting courses.
 
-- **Authentication**: Firebase-based login via browser
-- **Course structure**: Extracts products, categories, and posts via API
-- **Video downloads**: Native HLS videos with quality selection (requires ffmpeg)
-- **Embedded videos**: Vimeo, Loom, and other embedded players
+| Feature | Support |
+|---------|---------|
+| Authentication | Firebase-based login via browser |
+| Course structure | API-based extraction (products, categories, posts) |
+| Videos | Native HLS with quality selection, Vimeo, Loom embeds |
+| Attachments | ✅ Supported |
 
-Common HighLevel portal URLs:
+**URL patterns:**
 - `https://member.yourdomain.com/courses/...`
 - `https://portal.yourdomain.com/courses/...`
 - `https://courses.yourdomain.com/...`
 
 ### LearningSuite
 
-LearningSuite is a German LMS platform popular with coaches and course creators. Offcourse supports:
+LearningSuite is a German LMS platform popular with coaches and course creators.
 
-- **Authentication**: Browser-based login with session caching
-- **Course structure**: Extracts courses, modules, and lessons via DOM parsing
-- **Video downloads**: HLS streams from Bunny CDN (requires ffmpeg)
-- **Attachments**: Downloads PDFs and other course materials
-- **Sequential unlocking**: Use `offcourse complete <url>` to unlock all content
+| Feature | Support |
+|---------|---------|
+| Authentication | Browser-based with session caching |
+| Course structure | DOM-based extraction |
+| Videos | HLS streams via Bunny CDN (requires ffmpeg + cookies) |
+| Attachments | ✅ PDFs and course materials |
+| Sequential unlocking | Use `offcourse complete <url>` |
 
-URL format: `https://{subdomain}.learningsuite.io/student/course/{slug}/{courseId}`
+**URL format:** `https://{subdomain}.learningsuite.io/student/course/{slug}/{courseId}`
 
-**Note**: LearningSuite videos require session cookies for download. The sync command automatically extracts cookies from the browser session.
+**Note:** Videos require session cookies which are automatically extracted from the browser session.
+
+## Architecture
+
+```
+src/
+├── cli/              # Command-line interface
+│   ├── commands/     # Individual commands (sync, login, config, etc.)
+│   └── index.ts      # CLI entry point
+├── config/           # Configuration management
+├── downloader/       # Video download handlers
+│   ├── hlsDownloader.ts    # HLS/m3u8 streams (ffmpeg)
+│   ├── vimeoDownloader.ts  # Vimeo video extraction
+│   ├── loomDownloader.ts   # Loom video extraction
+│   └── queue.ts            # Download queue with concurrency
+├── scraper/          # Platform-specific scrapers
+│   ├── highlevel/    # HighLevel/GoHighLevel support
+│   ├── learningsuite/# LearningSuite support
+│   ├── extractor.ts  # Common content extraction
+│   └── navigator.ts  # Common navigation utilities
+├── shared/           # Shared utilities
+│   ├── auth.ts       # Authentication helpers
+│   ├── url.ts        # URL parsing utilities
+│   └── slug.ts       # Filename sanitization
+├── state/            # SQLite database for tracking
+└── storage/          # File system operations
+```
+
+### Adding a New Platform
+
+1. Create a new directory under `src/scraper/` (e.g., `src/scraper/newplatform/`)
+2. Implement required modules:
+   - `auth.ts` – Session detection and validation
+   - `navigator.ts` – Course structure extraction
+   - `extractor.ts` – Lesson content extraction
+   - `schemas.ts` – Zod schemas for API responses
+3. Add CLI command in `src/cli/commands/`
+4. Register in `src/cli/index.ts`
 
 ## Development
 
