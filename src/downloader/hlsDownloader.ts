@@ -40,7 +40,8 @@ export async function checkFfmpeg(): Promise<boolean> {
 export async function fetchHLSQualities(
   masterUrl: string,
   cookies?: string,
-  referer?: string
+  referer?: string,
+  authToken?: string
 ): Promise<HLSQuality[]> {
   try {
     // Use provided referer or extract origin from URL
@@ -54,6 +55,11 @@ export async function fetchHLSQualities(
     };
     if (cookies) {
       headers.Cookie = cookies;
+    }
+    // Add auth token as APIKEY header (used by LearningSuite)
+    if (authToken) {
+      headers.APIKEY = authToken;
+      headers.Authorization = `Bearer ${authToken}`;
     }
 
     // Follow redirects manually to capture the final URL
@@ -86,14 +92,14 @@ export async function fetchHLSQualities(
             (json.source as string | undefined);
           if (playlistUrl && typeof playlistUrl === "string") {
             // Recursively fetch the actual playlist
-            return await fetchHLSQualities(playlistUrl, cookies, referer);
+            return await fetchHLSQualities(playlistUrl, cookies, referer, authToken);
           }
           // Look for CDN URL anywhere in the JSON string
           const jsonStr = JSON.stringify(json);
           const cdnMatch =
             /(https?:\/\/[^"'\s]*(?:b-cdn\.net|mediadelivery\.net|vz-)[^"'\s]*)/i.exec(jsonStr);
           if (cdnMatch?.[1]) {
-            return await fetchHLSQualities(cdnMatch[1], cookies, referer);
+            return await fetchHLSQualities(cdnMatch[1], cookies, referer, authToken);
           }
         } catch {
           // Not valid JSON
@@ -106,7 +112,7 @@ export async function fetchHLSQualities(
           content
         );
       if (cdnMatch?.[1]) {
-        return await fetchHLSQualities(cdnMatch[1], cookies, referer);
+        return await fetchHLSQualities(cdnMatch[1], cookies, referer, authToken);
       }
 
       console.error(`[HLS] Invalid playlist (starts with: ${content.substring(0, 50)}...)`);
@@ -177,9 +183,10 @@ export async function getBestQualityUrl(
   masterUrl: string,
   preferredHeight?: number,
   cookies?: string,
-  referer?: string
+  referer?: string,
+  authToken?: string
 ): Promise<string> {
-  const qualities = await fetchHLSQualities(masterUrl, cookies, referer);
+  const qualities = await fetchHLSQualities(masterUrl, cookies, referer, authToken);
 
   if (qualities.length === 0) {
     // Assume it's a direct media playlist
@@ -216,7 +223,8 @@ export async function downloadHLSVideo(
   outputPath: string,
   onProgress?: (progress: DownloadProgress) => void,
   cookies?: string,
-  referer?: string
+  referer?: string,
+  authToken?: string
 ): Promise<HLSDownloadResult> {
   // Check if ffmpeg is available
   const hasFfmpeg = await checkFfmpeg();
@@ -239,6 +247,10 @@ export async function downloadHLSVideo(
     };
     if (cookies) {
       headers.Cookie = cookies;
+    }
+    if (authToken) {
+      headers.APIKEY = authToken;
+      headers.Authorization = `Bearer ${authToken}`;
     }
 
     const testResponse = await fetch(hlsUrl, { headers, method: "HEAD" });
@@ -281,6 +293,10 @@ export async function downloadHLSVideo(
   const headerParts: string[] = [`Origin: ${originHost}`, `Referer: ${origin}`];
   if (cookies) {
     headerParts.push(`Cookie: ${cookies}`);
+  }
+  if (authToken) {
+    headerParts.push(`APIKEY: ${authToken}`);
+    headerParts.push(`Authorization: Bearer ${authToken}`);
   }
   args.push("-headers", headerParts.join("\r\n") + "\r\n");
 
@@ -388,7 +404,8 @@ export async function downloadHighLevelVideo(
   preferredQuality?: string,
   onProgress?: (progress: DownloadProgress) => void,
   cookies?: string,
-  referer?: string
+  referer?: string,
+  authToken?: string
 ): Promise<HLSDownloadResult> {
   // Report start
   onProgress?.({
@@ -408,13 +425,13 @@ export async function downloadHighLevelVideo(
   // Get the best quality URL
   let downloadUrl = masterUrl;
   try {
-    downloadUrl = await getBestQualityUrl(masterUrl, preferredHeight, cookies, referer);
+    downloadUrl = await getBestQualityUrl(masterUrl, preferredHeight, cookies, referer, authToken);
   } catch (error) {
     console.warn("Failed to fetch quality options, using master URL:", error);
   }
 
   // Download using ffmpeg
-  return downloadHLSVideo(downloadUrl, outputPath, onProgress, cookies, referer);
+  return downloadHLSVideo(downloadUrl, outputPath, onProgress, cookies, referer, authToken);
 }
 /* v8 ignore stop */
 

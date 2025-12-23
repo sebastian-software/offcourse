@@ -26,6 +26,8 @@ export interface VideoDownloadTask {
   cookies?: string | undefined;
   /** Optional referer URL for authenticated downloads */
   referer?: string | undefined;
+  /** Optional auth token (API key) for authenticated downloads */
+  authToken?: string | undefined;
 }
 
 export interface DownloadResult {
@@ -42,7 +44,7 @@ export async function downloadVideo(
   task: VideoDownloadTask,
   onProgress?: (progress: DownloadProgress) => void
 ): Promise<DownloadResult> {
-  const { videoUrl, videoType, outputPath, preferredQuality, cookies, referer } = task;
+  const { videoUrl, videoType, outputPath, preferredQuality, cookies, referer, authToken } = task;
 
   switch (videoType) {
     case "loom":
@@ -57,7 +59,7 @@ export async function downloadVideo(
 
     case "hls":
       // Generic HLS stream
-      return downloadHLSVideo(videoUrl, outputPath, onProgress, cookies, referer);
+      return downloadHLSVideo(videoUrl, outputPath, onProgress, cookies, referer, authToken);
 
     case "highlevel":
       // HighLevel HLS video with quality selection
@@ -67,7 +69,8 @@ export async function downloadVideo(
         preferredQuality,
         onProgress,
         cookies,
-        referer
+        referer,
+        authToken
       );
 
     case "youtube":
@@ -87,7 +90,7 @@ export async function downloadVideo(
       }
       // Try HLS if it looks like a playlist
       if (/\.m3u8(\?|$)/i.exec(videoUrl)) {
-        return downloadHLSVideo(videoUrl, outputPath, onProgress, cookies, referer);
+        return downloadHLSVideo(videoUrl, outputPath, onProgress, cookies, referer, authToken);
       }
       return {
         success: false,

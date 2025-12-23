@@ -9,6 +9,7 @@ import {
   buildLearningSuiteCourseStructure,
   createFolderName,
   extractLearningSuitePostContent,
+  getAuthToken,
   getLearningSuiteLessonUrl,
   slugify,
   type LearningSuiteCourseStructure,
@@ -518,15 +519,19 @@ export async function syncLearningSuiteCommand(
 
     // Phase 3: Download videos
     if (!options.skipVideos && videoTasks.length > 0) {
-      // Extract cookies from session for authenticated video downloads
+      // Extract cookies and auth token from session for authenticated video downloads
       const browserCookies = await session.page.context().cookies();
       const cookieString = browserCookies.map((c) => `${c.name}=${c.value}`).join("; ");
       const refererUrl = `https://${courseStructure.domain}/`;
+      const authToken = await getAuthToken(session.page);
 
-      // Add cookies and referer to all video tasks
+      // Add cookies, referer, and auth token to all video tasks
       for (const task of videoTasks) {
         task.cookies = cookieString;
         task.referer = refererUrl;
+        if (authToken) {
+          task.authToken = authToken;
+        }
       }
 
       await downloadVideos(videoTasks, config);
