@@ -193,10 +193,58 @@ export async function extractVideoFromPage(page: Page): Promise<LearningSuiteVid
 
 /**
  * Extracts HTML content from the lesson page.
+ * LearningSuite uses Slate.js editor with data-slate-node attributes.
  */
 export async function extractHtmlContent(page: Page): Promise<string | null> {
   return page.evaluate(() => {
-    // Look for content containers
+    // LearningSuite uses Slate.js - look for elements with data-slate-node or data-cy attributes
+    const slateElements = document.querySelectorAll(
+      '[data-cy="paragraph-element"], [data-cy="heading-element"], [data-cy="list-item"], ul[data-slate-node="element"], ol[data-slate-node="element"]'
+    );
+
+    if (slateElements.length > 0) {
+      // Build HTML from Slate elements
+      const htmlParts: string[] = [];
+      const processedTexts = new Set<string>();
+
+      for (const el of Array.from(slateElements)) {
+        const tag = el.tagName.toLowerCase();
+        const text = el.textContent?.trim() ?? "";
+
+        // Skip empty or duplicate content
+        if (!text || processedTexts.has(text)) continue;
+        processedTexts.add(text);
+
+        // Convert to HTML based on element type
+        if (tag === "p") {
+          htmlParts.push(`<p>${text}</p>`);
+        } else if (
+          tag === "h1" ||
+          tag === "h2" ||
+          tag === "h3" ||
+          tag === "h4" ||
+          tag === "h5" ||
+          tag === "h6"
+        ) {
+          htmlParts.push(`<${tag}>${text}</${tag}>`);
+        } else if (tag === "ul" || tag === "ol") {
+          // Get list items
+          const items = el.querySelectorAll("li");
+          const listItems = Array.from(items)
+            .map((li) => `<li>${li.textContent?.trim() ?? ""}</li>`)
+            .join("");
+          htmlParts.push(`<${tag}>${listItems}</${tag}>`);
+        } else if (tag === "li") {
+          // Skip individual LI if we already processed the parent list
+        }
+      }
+
+      if (htmlParts.length > 0) {
+        return htmlParts.join("\n");
+      }
+    }
+
+    // Fallback: Look for traditional content containers
     const contentSelectors = [
       '[class*="lesson-content"]',
       '[class*="LessonContent"]',
@@ -365,10 +413,31 @@ export async function extractLearningSuitePostContent(
   const htmlContent = await extractHtmlContent(page);
   const attachments = await extractAttachmentsFromPage(page);
 
-  // Get title from page
+  // Get title from page - LearningSuite uses h3.MuiTypography-h3 or breadcrumb
   const title = await page.evaluate(() => {
-    const titleEl = document.querySelector("h1, [class*='title'], [class*='Title']");
-    return titleEl?.textContent?.trim() ?? document.title.split(" - ")[0] ?? "Untitled";
+    // Try h3 heading first (main lesson title)
+    const h3Title = document.querySelector("h3.MuiTypography-h3, h3[class*='MuiTypography']");
+    if (h3Title?.textContent?.trim()) {
+      return h3Title.textContent.trim();
+    }
+
+    // Try breadcrumb (last item is usually the lesson title)
+    const breadcrumbItems = document.querySelectorAll(".MuiBreadcrumbs-li");
+    if (breadcrumbItems.length > 0) {
+      const lastBreadcrumb = breadcrumbItems[breadcrumbItems.length - 1];
+      if (lastBreadcrumb?.textContent?.trim()) {
+        return lastBreadcrumb.textContent.trim();
+      }
+    }
+
+    // Try h1 as fallback
+    const h1 = document.querySelector("h1");
+    if (h1?.textContent?.trim()) {
+      return h1.textContent.trim();
+    }
+
+    // Use page title as last resort
+    return document.title.split(" - ")[0] ?? "Untitled";
   });
 
   return {
