@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.0](https://github.com/sebastian-software/offcourse/compare/v1.1.0...v1.2.0) (2025-12-23)
+
+### Features
+
+* add GitHub Pages homepage with logo ([a121038](https://github.com/sebastian-software/offcourse/commit/a121038e455b1d2d66c3c98bcef7ee3920f908a0))
+
+### Bug Fixes
+
+* **hls:** improve video URL detection and error handling ([7b9b0cc](https://github.com/sebastian-software/offcourse/commit/7b9b0cc8b9c875bf0575ef55eb925005a819a5e0))
+
 ## [1.1.0](https://github.com/sebastian-software/offcourse/compare/v1.0.1...v1.1.0) (2025-12-23)
 
 ### Features
