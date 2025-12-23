@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.2](https://github.com/sebastian-software/offcourse/compare/v1.2.1...v1.2.2) (2025-12-23)
+
+### Bug Fixes
+
+* **downloader:** add -nostdin to ffmpeg to prevent hanging ([3dd95eb](https://github.com/sebastian-software/offcourse/commit/3dd95ebfb4ed273083574d1aac2e94dae9a624b8))
+* **learningsuite:** add auth token (APIKEY) to video downloads ([4f4f963](https://github.com/sebastian-software/offcourse/commit/4f4f963ec5d1d190a155d249d4f18825b7d0efb1))
+* **learningsuite:** capture API proxy URLs and follow redirects ([6301013](https://github.com/sebastian-software/offcourse/commit/630101348324d636e673488a9af850505de6bc65))
+* **learningsuite:** download encrypted HLS videos via segment capture ([d0c0f0a](https://github.com/sebastian-software/offcourse/commit/d0c0f0a9c4b34fef10511445e0395aae6ff2f83f))
+
 ## [1.2.1](https://github.com/sebastian-software/offcourse/compare/v1.2.0...v1.2.1) (2025-12-23)
 
 ### Bug Fixes
