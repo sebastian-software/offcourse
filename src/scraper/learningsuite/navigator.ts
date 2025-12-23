@@ -655,12 +655,12 @@ export async function buildLearningSuiteCourseStructure(
       // Lessons are listed as links with format: /{courseId}/{lessonId}
       const lessonsData = await page.evaluate((cId) => {
         const links = document.querySelectorAll("a");
-        const lessons: Array<{
+        const lessons: {
           title: string;
           lessonId: string;
           duration: string;
           isCompleted: boolean;
-        }> = [];
+        }[] = [];
         const seenIds = new Set<string>();
 
         for (const link of Array.from(links)) {
@@ -755,12 +755,12 @@ async function extractModulesFromCoursePage(
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
 
-    const modules: Array<{
+    const modules: {
       title: string;
       lessonCount: number;
       duration: string;
       isLocked: boolean;
-    }> = [];
+    }[] = [];
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i] ?? "";
@@ -919,16 +919,13 @@ export async function markLessonComplete(page: Page, lessonUrl: string): Promise
  */
 export async function autoCompleteLessons(
   page: Page,
-  lessons: Array<{ url: string; title: string; isLocked: boolean }>,
+  lessons: { url: string; title: string; isLocked: boolean }[],
   onProgress?: (completed: number, total: number, currentLesson: string) => void
 ): Promise<number> {
   let completedCount = 0;
   const unlocked = lessons.filter((l) => !l.isLocked);
 
-  for (let i = 0; i < unlocked.length; i++) {
-    const lesson = unlocked[i];
-    if (!lesson) continue;
-
+  for (const lesson of unlocked) {
     onProgress?.(completedCount, unlocked.length, lesson.title);
 
     const success = await markLessonComplete(page, lesson.url);

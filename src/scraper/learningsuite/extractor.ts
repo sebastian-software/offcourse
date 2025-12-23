@@ -251,7 +251,9 @@ export async function extractHtmlContent(page: Page): Promise<string | null> {
       "script, style, nav, video, iframe, svg, button, input, " +
         '[role="navigation"], [role="button"], [role="menuitem"], [role="menu"]'
     );
-    unwanted.forEach((el) => el.remove());
+    unwanted.forEach((el) => {
+      el.remove();
+    });
 
     const text = clone.textContent?.trim();
     if (text && text.length > 50) {
@@ -300,7 +302,7 @@ export async function extractAttachmentsFromPage(
       if (!name) {
         // Try to get name from visible text (often the file name is shown)
         const textContent = anchor.textContent?.trim() ?? "";
-        if (textContent && textContent.includes(".")) {
+        if (textContent?.includes(".")) {
           name = textContent;
         }
       }
@@ -389,9 +391,7 @@ export async function extractLearningSuitePostContent(
   }
 
   // Fallback to DOM extraction if no HLS found
-  if (!video) {
-    video = await extractVideoFromPage(page);
-  }
+  video ??= await extractVideoFromPage(page);
 
   const htmlContent = await extractHtmlContent(page);
   const attachments = await extractAttachmentsFromPage(page);

@@ -372,9 +372,9 @@ export async function syncLearningSuiteCommand(
 
           const breadcrumb = document.querySelector("nav li:last-child");
           const title = breadcrumb?.textContent?.trim() ?? "Unknown";
-          const btn = document.querySelector(
+          const btn = document.querySelector<HTMLButtonElement>(
             "button.MuiButton-colorSuccess:not([disabled])"
-          ) as HTMLButtonElement | null;
+          );
 
           if (btn) {
             btn.click();
