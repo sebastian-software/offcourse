@@ -1,6 +1,4 @@
 import type { Page } from "playwright";
-import { safeParse, LessonContentSchema, type LessonContent } from "./schemas.js";
-import { graphqlRequest } from "./navigator.js";
 
 export interface LearningSuiteVideoInfo {
   type: "hls" | "vimeo" | "loom" | "youtube" | "wistia" | "native" | "unknown";
@@ -29,97 +27,6 @@ export interface LearningSuitePostContent {
 // Browser/API Automation
 // ============================================================================
 /* v8 ignore start */
-
-/**
- * Fetches lesson content from the GraphQL API.
- */
-export async function fetchLessonContent(
-  page: Page,
-  tenantId: string,
-  courseId: string,
-  lessonId: string
-): Promise<LessonContent | null> {
-  const query = `
-    query GetLessonContent($courseId: ID!, $lessonId: ID!) {
-      course(id: $courseId) {
-        lesson(id: $lessonId) {
-          id
-          title
-          description
-          htmlContent
-          content
-          video {
-            id
-            url
-            hlsUrl
-            thumbnailUrl
-            duration
-            provider
-            type
-          }
-          videoUrl
-          attachments {
-            id
-            name
-            url
-            type
-            size
-          }
-          materials {
-            id
-            name
-            url
-            type
-            size
-          }
-        }
-      }
-    }
-  `;
-
-  const response = await graphqlRequest<{ data: { course: { lesson: unknown } } }>(
-    page,
-    tenantId,
-    query,
-    { courseId, lessonId }
-  );
-
-  if (!response?.data?.course?.lesson) {
-    // Try alternative query
-    const altQuery = `
-      query GetLesson($lessonId: ID!) {
-        lesson(id: $lessonId) {
-          id
-          title
-          description
-          content
-          videoUrl
-          attachments {
-            id
-            name
-            url
-            type
-          }
-        }
-      }
-    `;
-
-    const altResponse = await graphqlRequest<{ data: { lesson: unknown } }>(
-      page,
-      tenantId,
-      altQuery,
-      { lessonId }
-    );
-
-    if (altResponse?.data?.lesson) {
-      return safeParse(LessonContentSchema, altResponse.data.lesson, "fetchLessonContent.alt");
-    }
-
-    return null;
-  }
-
-  return safeParse(LessonContentSchema, response.data.course.lesson, "fetchLessonContent");
-}
 
 /**
  * Detects the video type from a URL.
@@ -382,76 +289,25 @@ export async function extractAttachmentsFromPage(
 }
 
 /**
- * Extracts complete lesson content.
+ * Extracts complete lesson content using DOM-based extraction.
+ * Note: LearningSuite uses persisted GraphQL queries, so we can't make arbitrary API calls.
  */
 export async function extractLearningSuitePostContent(
   page: Page,
   lessonUrl: string,
-  tenantId: string,
-  courseId: string,
+  _tenantId: string,
+  _courseId: string,
   lessonId: string
 ): Promise<LearningSuitePostContent | null> {
   // Navigate to lesson page
   await page.goto(lessonUrl, { timeout: 30000 });
   await page.waitForLoadState("domcontentloaded");
-  await page.waitForTimeout(3000);
+  await page.waitForTimeout(2000);
 
-  // Try API first
-  const apiContent = await fetchLessonContent(page, tenantId, courseId, lessonId);
-
-  let video: LearningSuiteVideoInfo | null = null;
-  let htmlContent: string | null = null;
-  let attachments: LearningSuitePostContent["attachments"] = [];
-
-  if (apiContent) {
-    // Process video from API response
-    if (apiContent.video) {
-      const videoUrl = apiContent.video.hlsUrl ?? apiContent.video.url ?? "";
-      if (videoUrl) {
-        const videoInfo: LearningSuiteVideoInfo = {
-          type: detectVideoType(videoUrl),
-          url: videoUrl,
-        };
-        if (apiContent.video.hlsUrl) videoInfo.hlsUrl = apiContent.video.hlsUrl;
-        if (apiContent.video.thumbnailUrl) videoInfo.thumbnailUrl = apiContent.video.thumbnailUrl;
-        if (apiContent.video.duration) videoInfo.duration = apiContent.video.duration;
-        video = videoInfo;
-      }
-    } else if (apiContent.videoUrl) {
-      video = {
-        type: detectVideoType(apiContent.videoUrl),
-        url: apiContent.videoUrl,
-      };
-    }
-
-    htmlContent = apiContent.htmlContent ?? apiContent.content ?? null;
-    attachments = (apiContent.attachments ?? apiContent.materials ?? []).map((a) => {
-      const attachment: LearningSuitePostContent["attachments"][number] = {
-        id: a.id,
-        name: a.name,
-        url: a.url,
-        type: a.type ?? "file",
-      };
-      if (a.size !== undefined && a.size !== null) {
-        attachment.size = a.size;
-      }
-      return attachment;
-    });
-
-    return {
-      id: apiContent.id,
-      title: apiContent.title,
-      description: apiContent.description ?? null,
-      htmlContent,
-      video,
-      attachments,
-    };
-  }
-
-  // Fallback to DOM extraction
-  video = await extractVideoFromPage(page);
-  htmlContent = await extractHtmlContent(page);
-  attachments = await extractAttachmentsFromPage(page);
+  // Extract content from DOM (GraphQL API uses persisted queries only)
+  const video = await extractVideoFromPage(page);
+  const htmlContent = await extractHtmlContent(page);
+  const attachments = await extractAttachmentsFromPage(page);
 
   // Get title from page
   const title = await page.evaluate(() => {

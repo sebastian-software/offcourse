@@ -333,86 +333,73 @@ export async function syncLearningSuiteCommand(
       console.log(chalk.blue(`\n🔓 Auto-completing lessons to unlock content...\n`));
 
       let totalCompleted = 0;
-      const maxLessons = 100; // Safety limit
+      const maxLessons = 1000; // Safety limit
 
-      // Navigate to course page and click "Fortsetzen" to start
+      // Navigate to course page
       const courseUrl = `https://${courseStructure.domain}/student/course/${courseStructure.courseSlug ?? courseStructure.course.id}/${courseStructure.course.id}`;
-      await session.page.goto(courseUrl);
+      await session.page.goto(courseUrl, { waitUntil: "load" });
 
-      // Wait for Continue button using data-cy attribute (language-independent)
-      const fortsetzenButton = session.page.locator('[data-cy="continue-lesson"]').first();
-      const hasFortsetzen = await fortsetzenButton
-        .waitFor({ state: "visible", timeout: 5000 })
-        .then(() => true)
-        .catch(() => false);
-
-      if (!hasFortsetzen) {
+      // Wait for continue button to appear then click
+      try {
+        await session.page.waitForSelector('[data-cy="continue-lesson"]', { timeout: 8000 });
+        await session.page.click('[data-cy="continue-lesson"]');
+      } catch {
         console.log(chalk.gray(`   No lessons to complete.`));
-      } else {
-        await fortsetzenButton.click();
+        return;
+      }
 
-        // Wait for lesson page to load (breadcrumb appears)
-        await session.page.waitForSelector("nav li:last-child", { timeout: 10000 });
+      // Wait for navigation to lesson page
+      await session.page.waitForURL(/\/student\/course\/[^/]+\/[^/]+\/[^/]+\/[^/]+/);
 
-        let lastUrl = "";
+      let lastUrl = "";
 
-        while (totalCompleted < maxLessons) {
-          const currentUrl = session.page.url();
+      while (totalCompleted < maxLessons) {
+        const currentUrl = session.page.url();
 
-          // Loop detection
-          if (currentUrl === lastUrl) {
-            console.log(chalk.gray(`   Detected loop, stopping.`));
-            break;
-          }
-          lastUrl = currentUrl;
+        // Loop detection
+        if (currentUrl === lastUrl) {
+          console.log(chalk.gray(`   Detected loop, stopping.`));
+          break;
+        }
+        lastUrl = currentUrl;
 
-          // Get lesson title from breadcrumb
-          const lessonTitle =
-            (await session.page.locator("nav li:last-child").textContent()) ?? "Unknown";
-          const shortName =
-            lessonTitle.length > 50 ? lessonTitle.substring(0, 47) + "..." : lessonTitle;
-          process.stdout.write(chalk.gray(`   ⏳ ${shortName}...`));
-
-          // First, try to check any checkboxes (AGBs, etc.)
-          await session.page.evaluate(() => {
-            const checkboxes = document.querySelectorAll('input[type="checkbox"]:not(:checked)');
-            checkboxes.forEach((cb) => {
-              (cb as HTMLInputElement).click();
-            });
+        // All in one evaluate: get title, check checkboxes, click button
+        const result = await session.page.evaluate(() => {
+          // Check any unchecked checkboxes
+          document.querySelectorAll('input[type="checkbox"]:not(:checked)').forEach((cb) => {
+            (cb as HTMLInputElement).click();
           });
 
-          // Wait for the complete button (green success button, language-independent)
-          const completeButton = session.page
-            .locator("button.MuiButton-colorSuccess:not([disabled])")
-            .first();
-          const hasButton = await completeButton
-            .waitFor({ state: "visible", timeout: 3000 })
-            .then(() => true)
-            .catch(() => false);
+          const breadcrumb = document.querySelector("nav li:last-child");
+          const title = breadcrumb?.textContent?.trim() ?? "Unknown";
+          const btn = document.querySelector(
+            "button.MuiButton-colorSuccess:not([disabled])"
+          ) as HTMLButtonElement | null;
 
-          if (!hasButton) {
-            // Button might be disabled (video not watched, etc.) - skip this lesson
-            process.stdout.write(chalk.yellow(` locked/disabled\n`));
-            break;
+          if (btn) {
+            btn.click();
+            return { title, clicked: true };
           }
+          return { title, clicked: false };
+        });
 
-          // Click and wait for URL to change (navigation to next lesson)
-          const urlBefore = session.page.url();
-          await completeButton.click();
+        const shortName =
+          result.title.length > 50 ? result.title.substring(0, 47) + "..." : result.title;
+        process.stdout.write(chalk.gray(`   ⏳ ${shortName}...`));
 
-          // Wait for URL to change or timeout
-          const urlChanged = await session.page
-            .waitForURL((url) => url.href !== urlBefore, { timeout: 5000 })
-            .then(() => true)
-            .catch(() => false);
+        if (!result.clicked) {
+          process.stdout.write(chalk.yellow(` locked/disabled\n`));
+          break;
+        }
 
-          if (urlChanged) {
-            totalCompleted++;
-            process.stdout.write(chalk.green(` ✓\n`));
-          } else {
-            process.stdout.write(chalk.yellow(` no navigation\n`));
-            break;
-          }
+        // Wait for URL to change (navigation to next lesson)
+        try {
+          await session.page.waitForURL((url) => url.href !== currentUrl);
+          totalCompleted++;
+          process.stdout.write(chalk.green(` ✓\n`));
+        } catch {
+          process.stdout.write(chalk.yellow(` no navigation\n`));
+          break;
         }
       }
 

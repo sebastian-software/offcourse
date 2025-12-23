@@ -232,7 +232,8 @@ export async function graphqlRequest<T>(
   );
 
   if ("error" in result) {
-    console.error(`[GraphQL] Request failed: ${result.error}`);
+    // Note: LearningSuite uses persisted queries, so most custom queries will fail with HTTP 400.
+    // This is expected behavior - we fall back to DOM-based extraction.
     return null;
   }
 
