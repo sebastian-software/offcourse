@@ -368,7 +368,35 @@ export async function extractLearningSuitePostContent(
   // Navigate to lesson page
   await page.goto(lessonUrl, { timeout: 30000 });
   await page.waitForLoadState("domcontentloaded");
-  await page.waitForTimeout(3000); // Wait for video to start loading
+
+  // Wait for video player to appear (if any)
+  const hasVideoPlayer = await page
+    .locator("video, [class*='video'], [class*='Video'], [class*='player'], [class*='Player']")
+    .first()
+    .waitFor({ state: "attached", timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+
+  // If video player exists but no HLS URL captured yet, try to trigger video load
+  if (hasVideoPlayer && hlsUrls.length === 0) {
+    // Try clicking play button or video element to trigger load
+    const playButton = page.locator(
+      '[aria-label*="play" i], [aria-label*="Play" i], [class*="play" i], button[class*="Play"], video'
+    );
+
+    try {
+      await playButton.first().click({ timeout: 2000 });
+      // Wait for HLS URL to be captured after clicking play
+      await page.waitForTimeout(2000);
+    } catch {
+      // Play button not found or not clickable, continue anyway
+    }
+  }
+
+  // Give a bit more time for lazy-loaded videos
+  if (hlsUrls.length === 0 && hasVideoPlayer) {
+    await page.waitForTimeout(2000);
+  }
 
   // Remove handler
   page.off("request", requestHandler);
