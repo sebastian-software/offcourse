@@ -81,7 +81,10 @@ export interface SyncLearningSuiteOptions {
   visible?: boolean;
   quality?: string;
   courseName?: string;
-  autoComplete?: boolean;
+}
+
+export interface CompleteLearningSuiteOptions {
+  visible?: boolean;
 }
 
 /**
@@ -316,121 +319,12 @@ export async function syncLearningSuiteCommand(
     if (lockedLessons > 0) parts.push(chalk.yellow(`${lockedLessons} lessons locked`));
     console.log(`   Found: ${parts.join(", ")}`);
 
-    if (lockedLessons > 0 && !options.autoComplete) {
-      console.log(
-        chalk.gray(`   💡 Tip: Use --auto-complete to unlock lessons by completing them`)
-      );
+    if (lockedLessons > 0) {
+      console.log(chalk.gray(`   💡 Tip: Use 'offcourse complete <url>' to unlock lessons first`));
     }
 
     if (options.dryRun) {
       printCourseStructure(courseStructure);
-      await browser.close();
-      return;
-    }
-
-    // Auto-complete mode: batch complete all accessible lessons to unlock more content
-    if (options.autoComplete) {
-      console.log(chalk.blue(`\n🔓 Auto-completing lessons to unlock content...\n`));
-
-      let totalCompleted = 0;
-      const maxLessons = 1000; // Safety limit
-
-      // Navigate to course page
-      const courseUrl = `https://${courseStructure.domain}/student/course/${courseStructure.courseSlug ?? courseStructure.course.id}/${courseStructure.course.id}`;
-      await session.page.goto(courseUrl, { waitUntil: "load" });
-
-      // Wait for continue button to appear then click
-      try {
-        await session.page.waitForSelector('[data-cy="continue-lesson"]', { timeout: 8000 });
-        await session.page.click('[data-cy="continue-lesson"]');
-      } catch {
-        console.log(chalk.gray(`   No lessons to complete.`));
-        return;
-      }
-
-      // Wait for navigation to lesson page
-      await session.page.waitForURL(/\/student\/course\/[^/]+\/[^/]+\/[^/]+\/[^/]+/);
-
-      let lastUrl = "";
-
-      while (totalCompleted < maxLessons) {
-        const currentUrl = session.page.url();
-
-        // Loop detection
-        if (currentUrl === lastUrl) {
-          console.log(chalk.gray(`   Detected loop, stopping.`));
-          break;
-        }
-        lastUrl = currentUrl;
-
-        // All in one evaluate: get title, check checkboxes, click button
-        const result = await session.page.evaluate(() => {
-          // Check any unchecked checkboxes
-          document.querySelectorAll('input[type="checkbox"]:not(:checked)').forEach((cb) => {
-            (cb as HTMLInputElement).click();
-          });
-
-          const breadcrumb = document.querySelector("nav li:last-child");
-          const title = breadcrumb?.textContent?.trim() ?? "Unknown";
-          const btn = document.querySelector<HTMLButtonElement>(
-            "button.MuiButton-colorSuccess:not([disabled])"
-          );
-
-          if (btn) {
-            btn.click();
-            return { title, clicked: true };
-          }
-          return { title, clicked: false };
-        });
-
-        const shortName =
-          result.title.length > 50 ? result.title.substring(0, 47) + "..." : result.title;
-        process.stdout.write(chalk.gray(`   ⏳ ${shortName}...`));
-
-        if (!result.clicked) {
-          process.stdout.write(chalk.yellow(` locked/disabled\n`));
-          break;
-        }
-
-        // Wait for URL to change (navigation to next lesson)
-        try {
-          await session.page.waitForURL((url) => url.href !== currentUrl);
-          totalCompleted++;
-          process.stdout.write(chalk.green(` ✓\n`));
-        } catch {
-          process.stdout.write(chalk.yellow(` no navigation\n`));
-          break;
-        }
-      }
-
-      if (totalCompleted > 0) {
-        console.log(chalk.green(`\n   ✓ Total: ${totalCompleted} lessons completed\n`));
-
-        // Final re-scan to get updated structure
-        console.log(chalk.gray(`   Re-scanning course structure...\n`));
-        const updatedStructure = await buildLearningSuiteCourseStructure(session.page, url);
-        if (updatedStructure) {
-          courseStructure.modules = updatedStructure.modules;
-
-          // Update counts
-          const newLockedLessons = courseStructure.modules.reduce(
-            (sum, mod) => sum + mod.lessons.filter((l) => l.isLocked).length,
-            0
-          );
-          const newTotalLessons = courseStructure.modules.reduce(
-            (sum, mod) => sum + mod.lessons.length,
-            0
-          );
-          console.log(
-            chalk.gray(`   Updated: ${newTotalLessons} lessons, ${newLockedLessons} still locked`)
-          );
-        }
-      } else {
-        console.log(chalk.gray(`   No lessons needed completion.`));
-      }
-
-      // Auto-complete only mode - exit after completing
-      console.log(chalk.green("\n✅ Auto-complete finished!\n"));
       await browser.close();
       return;
     }
@@ -838,5 +732,179 @@ function printCourseStructure(structure: LearningSuiteCourseStructure): void {
       console.log(chalk.gray(`       ... and ${module.lessons.length - 5} more`));
     }
     console.log();
+  }
+}
+
+/**
+ * Complete command - mark lessons as complete to unlock sequential content.
+ */
+export async function completeLearningSuiteCommand(
+  url: string,
+  options: CompleteLearningSuiteOptions
+): Promise<void> {
+  console.log(chalk.cyan("\n🔓 LearningSuite Complete\n"));
+
+  if (!isLearningSuitePortal(url)) {
+    console.error(chalk.red("Error: URL does not appear to be a LearningSuite portal"));
+    process.exit(1);
+  }
+
+  const domain = extractDomain(url);
+  console.log(chalk.gray(`   Domain: ${domain}`));
+
+  // Get authenticated session
+  const useHeadless = !options.visible;
+  const spinner = ora("Connecting to LearningSuite...").start();
+
+  let browser: import("playwright").Browser;
+  let session: { page: import("playwright").Page; context: import("playwright").BrowserContext };
+
+  try {
+    const result = await getAuthenticatedSession(
+      {
+        domain,
+        loginUrl: url,
+        isLoginPage: isLearningSuiteLoginPage,
+        verifySession: hasValidLearningSuiteSession,
+      },
+      { headless: useHeadless }
+    );
+    browser = result.browser;
+    session = result.session;
+    spinner.succeed("Connected to LearningSuite");
+  } catch (error) {
+    spinner.fail("Failed to connect");
+    console.log(chalk.red("\n❌ Authentication failed.\n"));
+    if (error instanceof Error) {
+      console.log(chalk.gray(`   Error: ${error.message}`));
+    }
+    process.exit(1);
+  }
+
+  try {
+    // Scan course structure
+    console.log(chalk.blue("\n📊 Scanning course structure...\n"));
+    const courseStructure = await buildLearningSuiteCourseStructure(session.page, url);
+
+    if (!courseStructure) {
+      console.error(chalk.red("Failed to build course structure"));
+      await browser.close();
+      process.exit(1);
+    }
+
+    const lockedLessons = courseStructure.modules.reduce(
+      (sum, mod) => sum + mod.lessons.filter((l) => l.isLocked).length,
+      0
+    );
+    const totalLessons = courseStructure.modules.reduce((sum, mod) => sum + mod.lessons.length, 0);
+
+    console.log(chalk.gray(`   Found: ${totalLessons} lessons, ${lockedLessons} locked`));
+
+    if (lockedLessons === 0) {
+      console.log(chalk.green("\n✅ All lessons are already unlocked!\n"));
+      await browser.close();
+      return;
+    }
+
+    console.log(chalk.blue(`\n🔓 Completing lessons to unlock content...\n`));
+
+    let totalCompleted = 0;
+    const maxLessons = 1000; // Safety limit
+
+    // Navigate to course page
+    const courseUrl = `https://${courseStructure.domain}/student/course/${courseStructure.courseSlug ?? courseStructure.course.id}/${courseStructure.course.id}`;
+    await session.page.goto(courseUrl, { waitUntil: "load" });
+
+    // Wait for continue button to appear then click
+    try {
+      await session.page.waitForSelector('[data-cy="continue-lesson"]', { timeout: 8000 });
+      await session.page.click('[data-cy="continue-lesson"]');
+    } catch {
+      console.log(chalk.gray(`   No lessons to complete.`));
+      await browser.close();
+      return;
+    }
+
+    // Wait for navigation to lesson page
+    await session.page.waitForURL(/\/student\/course\/[^/]+\/[^/]+\/[^/]+\/[^/]+/);
+
+    let lastUrl = "";
+
+    while (totalCompleted < maxLessons) {
+      const currentUrl = session.page.url();
+
+      // Loop detection
+      if (currentUrl === lastUrl) {
+        console.log(chalk.gray(`   Detected loop, stopping.`));
+        break;
+      }
+      lastUrl = currentUrl;
+
+      // All in one evaluate: get title, check checkboxes, click button
+      const result = await session.page.evaluate(() => {
+        // Check any unchecked checkboxes
+        document.querySelectorAll('input[type="checkbox"]:not(:checked)').forEach((cb) => {
+          (cb as HTMLInputElement).click();
+        });
+
+        const breadcrumb = document.querySelector("nav li:last-child");
+        const title = breadcrumb?.textContent?.trim() ?? "Unknown";
+        const btn = document.querySelector<HTMLButtonElement>(
+          "button.MuiButton-colorSuccess:not([disabled])"
+        );
+
+        if (btn) {
+          btn.click();
+          return { title, clicked: true };
+        }
+        return { title, clicked: false };
+      });
+
+      const shortName =
+        result.title.length > 50 ? result.title.substring(0, 47) + "..." : result.title;
+      process.stdout.write(chalk.gray(`   ⏳ ${shortName}...`));
+
+      if (!result.clicked) {
+        process.stdout.write(chalk.yellow(` locked/disabled\n`));
+        break;
+      }
+
+      // Wait for URL to change (navigation to next lesson)
+      try {
+        await session.page.waitForURL((url) => url.href !== currentUrl);
+        totalCompleted++;
+        process.stdout.write(chalk.green(` ✓\n`));
+      } catch {
+        process.stdout.write(chalk.yellow(` no navigation\n`));
+        break;
+      }
+    }
+
+    if (totalCompleted > 0) {
+      console.log(chalk.green(`\n   ✓ Total: ${totalCompleted} lessons completed\n`));
+
+      // Final re-scan to get updated structure
+      console.log(chalk.gray(`   Re-scanning course structure...\n`));
+      const updatedStructure = await buildLearningSuiteCourseStructure(session.page, url);
+      if (updatedStructure) {
+        const newLockedLessons = updatedStructure.modules.reduce(
+          (sum, mod) => sum + mod.lessons.filter((l) => l.isLocked).length,
+          0
+        );
+        const newTotalLessons = updatedStructure.modules.reduce(
+          (sum, mod) => sum + mod.lessons.length,
+          0
+        );
+        console.log(
+          chalk.gray(`   Updated: ${newTotalLessons} lessons, ${newLockedLessons} still locked`)
+        );
+      }
+    } else {
+      console.log(chalk.gray(`   No lessons needed completion.`));
+    }
+
+    console.log(chalk.green("\n✅ Complete finished!\n"));
+  } finally {
+    await browser.close();
   }
 }
