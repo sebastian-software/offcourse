@@ -83,6 +83,57 @@ export function extractTenantFromUrl(url: string): { subdomain: string; tenantId
 /* v8 ignore start */
 
 /**
+ * Dismisses any open MUI modal dialogs that might block interactions.
+ * These are notification/welcome modals that appear dynamically.
+ */
+async function dismissMuiDialogs(page: Page): Promise<void> {
+  try {
+    // Check if there's an open MUI dialog
+    const dialog = page.locator('[role="presentation"].MuiDialog-root, .MuiModal-root');
+    if (await dialog.isVisible({ timeout: 500 }).catch(() => false)) {
+      // Try different ways to close the dialog:
+
+      // 1. Press Escape key (most reliable)
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+
+      // Check if still visible
+      if (await dialog.isVisible({ timeout: 200 }).catch(() => false)) {
+        // 2. Try clicking the backdrop/overlay
+        const backdrop = page.locator(".MuiBackdrop-root, .MuiDialog-container");
+        if (await backdrop.isVisible({ timeout: 200 }).catch(() => false)) {
+          // Click outside the dialog content
+          await page.mouse.click(10, 10);
+          await page.waitForTimeout(300);
+        }
+      }
+
+      // Check again and try close button
+      if (await dialog.isVisible({ timeout: 200 }).catch(() => false)) {
+        // 3. Try clicking a close button if present
+        const closeBtn = page.locator(
+          '[aria-label="close"], [aria-label="Close"], .MuiDialogTitle-root button, .MuiIconButton-root'
+        );
+        if (
+          await closeBtn
+            .first()
+            .isVisible({ timeout: 200 })
+            .catch(() => false)
+        ) {
+          await closeBtn
+            .first()
+            .click({ timeout: 1000 })
+            .catch(() => {});
+          await page.waitForTimeout(300);
+        }
+      }
+    }
+  } catch {
+    // Ignore errors - dialog might have closed naturally
+  }
+}
+
+/**
  * Extracts the tenant ID from the page by inspecting network requests or localStorage.
  */
 export async function extractTenantId(page: Page): Promise<string | null> {
@@ -506,6 +557,9 @@ export async function buildLearningSuiteCourseStructure(
   await page.waitForLoadState("networkidle").catch(() => {});
   await page.waitForTimeout(3000);
 
+  // Dismiss any modal dialogs (e.g., welcome/notification modals)
+  await dismissMuiDialogs(page);
+
   // Extract tenant ID from page
   const tenantId = (await extractTenantId(page)) ?? (await extractTenantIdFromPage(page));
 
@@ -640,6 +694,8 @@ export async function buildLearningSuiteCourseStructure(
     const moduleTitle = page.locator(`text="${module.title}"`).first();
 
     if (await moduleTitle.isVisible().catch(() => false)) {
+      // Dismiss any modal dialogs that might block the click
+      await dismissMuiDialogs(page);
       await moduleTitle.click();
       await page.waitForLoadState("domcontentloaded").catch(() => {});
       await page.waitForTimeout(2000);
@@ -716,6 +772,9 @@ export async function buildLearningSuiteCourseStructure(
       // Go back to the course page
       await page.goto(courseUrl, { waitUntil: "domcontentloaded" }).catch(() => {});
       await page.waitForTimeout(1500);
+
+      // Dismiss any modal dialogs that appeared
+      await dismissMuiDialogs(page);
     }
   }
 
@@ -860,12 +919,18 @@ export function getLearningSuiteLessonUrl(
  */
 export async function markLessonComplete(page: Page, lessonUrl: string): Promise<boolean> {
   try {
+    // Dismiss any modal dialogs first
+    await dismissMuiDialogs(page);
+
     // Navigate to the lesson if not already there
     const currentUrl = page.url();
     if (!currentUrl.includes(lessonUrl)) {
       await page.goto(lessonUrl, { timeout: 30000 });
       await page.waitForLoadState("networkidle").catch(() => {});
       await page.waitForTimeout(2000);
+
+      // Dismiss any dialogs that appeared after navigation
+      await dismissMuiDialogs(page);
     }
 
     // Find and click the complete button using evaluate
