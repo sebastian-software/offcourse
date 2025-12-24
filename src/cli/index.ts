@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
+import chalk from "chalk";
 import { configGetCommand, configSetCommand, configShowCommand } from "./commands/config.js";
 import { inspectCommand } from "./commands/inspect.js";
 import { loginCommand, logoutCommand } from "./commands/login.js";
@@ -17,6 +18,33 @@ import {
   isLearningSuitePortal,
   type SyncLearningSuiteOptions,
 } from "./commands/syncLearningSuite.js";
+
+// Global error handler to ensure clean exit
+process.on("unhandledRejection", (reason) => {
+  console.error(chalk.red("\n❌ Unhandled error"));
+  if (reason instanceof Error) {
+    console.error(chalk.gray(`   ${reason.message}`));
+  }
+  process.exit(1);
+});
+
+// Helper to wrap async actions and handle errors
+function wrapAction<T extends unknown[]>(fn: (...args: T) => Promise<void>): (...args: T) => void {
+  return (...args: T) => {
+    fn(...args).catch((error: unknown) => {
+      // Error already logged by command, just exit
+      if (error instanceof Error && error.message.includes("already logged")) {
+        process.exit(1);
+      }
+      // Unlogged error
+      console.error(chalk.red("\n❌ Command failed"));
+      if (error instanceof Error) {
+        console.error(chalk.gray(`   ${error.message}`));
+      }
+      process.exit(1);
+    });
+  };
+}
 
 const program = new Command();
 
@@ -48,20 +76,27 @@ program
   .option("--visible", "Show browser window (default: headless)")
   .option("-q, --quality <quality>", "Preferred video quality (e.g., 720p, 1080p)")
   .option("--course-name <name>", "Override detected course name")
-  .action((url: string, options: SyncOptions & SyncHighLevelOptions & SyncLearningSuiteOptions) => {
-    // Auto-detect platform
-    if (url.includes("skool.com")) {
-      return syncCommand(url, options);
-    } else if (isLearningSuitePortal(url)) {
-      return syncLearningSuiteCommand(url, options);
-    } else if (isHighLevelPortal(url)) {
-      return syncHighLevelCommand(url, options);
-    } else {
-      // Default: try HighLevel (most generic)
-      console.log("Platform not recognized, trying as HighLevel portal...");
-      return syncHighLevelCommand(url, options);
-    }
-  });
+  .action(
+    wrapAction(
+      async (
+        url: string,
+        options: SyncOptions & SyncHighLevelOptions & SyncLearningSuiteOptions
+      ) => {
+        // Auto-detect platform
+        if (url.includes("skool.com")) {
+          await syncCommand(url, options);
+        } else if (isLearningSuitePortal(url)) {
+          await syncLearningSuiteCommand(url, options);
+        } else if (isHighLevelPortal(url)) {
+          await syncHighLevelCommand(url, options);
+        } else {
+          // Default: try HighLevel (most generic)
+          console.log("Platform not recognized, trying as HighLevel portal...");
+          await syncHighLevelCommand(url, options);
+        }
+      }
+    )
+  );
 
 // Explicit Skool sync command
 program
@@ -74,7 +109,7 @@ program
   .option("-f, --force", "Force full rescan of all lessons")
   .option("--retry-failed", "Retry failed lessons with detailed diagnostics")
   .option("--visible", "Show browser window (default: headless)")
-  .action(syncCommand);
+  .action(wrapAction(syncCommand));
 
 // Explicit HighLevel sync command
 program
@@ -87,7 +122,7 @@ program
   .option("--visible", "Show browser window (default: headless)")
   .option("-q, --quality <quality>", "Preferred video quality (e.g., 720p, 1080p)")
   .option("--course-name <name>", "Override detected course name")
-  .action(syncHighLevelCommand);
+  .action(wrapAction(syncHighLevelCommand));
 
 // Explicit LearningSuite sync command
 program
@@ -100,28 +135,30 @@ program
   .option("--visible", "Show browser window (default: headless)")
   .option("-q, --quality <quality>", "Preferred video quality (e.g., 720p, 1080p)")
   .option("--course-name <name>", "Override detected course name")
-  .action(syncLearningSuiteCommand);
+  .action(wrapAction(syncLearningSuiteCommand));
 
 // Complete command - mark lessons as complete to unlock content
 program
   .command("complete <url>")
   .description("Mark lessons as complete to unlock sequential content")
   .option("--visible", "Show browser window (default: headless)")
-  .action((url: string, options: { visible?: boolean }) => {
-    if (isLearningSuitePortal(url)) {
-      return completeLearningSuiteCommand(url, options);
-    } else if (url.includes("skool.com")) {
-      console.log("\n⚠️  Auto-complete for Skool coming soon!\n");
-      console.log("   Skool lessons can be marked complete manually in the browser.");
-      console.log("   This feature will be added in a future update.\n");
-      process.exit(0);
-    } else {
-      console.log("\n❌ Platform not supported for auto-complete.\n");
-      console.log("   Currently supported: LearningSuite");
-      console.log("   Coming soon: Skool\n");
-      process.exit(1);
-    }
-  });
+  .action(
+    wrapAction(async (url: string, options: { visible?: boolean }) => {
+      if (isLearningSuitePortal(url)) {
+        await completeLearningSuiteCommand(url, options);
+      } else if (url.includes("skool.com")) {
+        console.log("\n⚠️  Auto-complete for Skool coming soon!\n");
+        console.log("   Skool lessons can be marked complete manually in the browser.");
+        console.log("   This feature will be added in a future update.\n");
+        process.exit(0);
+      } else {
+        console.log("\n❌ Platform not supported for auto-complete.\n");
+        console.log("   Currently supported: LearningSuite");
+        console.log("   Coming soon: Skool\n");
+        process.exit(1);
+      }
+    })
+  );
 
 // Status command
 program

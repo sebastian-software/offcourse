@@ -204,8 +204,8 @@ export async function syncLearningSuiteCommand(
   const useHeadless = options.visible ? false : config.headless;
   const spinner = ora("Connecting to LearningSuite...").start();
 
-  let browser;
-  let session;
+  let browser: Awaited<ReturnType<typeof getAuthenticatedSession>>["browser"] | undefined;
+  let session: Awaited<ReturnType<typeof getAuthenticatedSession>>["session"] | undefined;
 
   try {
     const result = await getAuthenticatedSession(
@@ -541,8 +541,21 @@ export async function syncLearningSuiteCommand(
 
     console.log(chalk.green("\n✅ Sync complete!\n"));
     console.log(chalk.gray(`   Output: ${courseDir}\n`));
+  } catch (error) {
+    console.error(chalk.red("\n❌ Sync failed"));
+    if (error instanceof Error) {
+      console.error(chalk.gray(`   Error: ${error.message}`));
+    }
+    throw error;
   } finally {
-    await browser.close();
+    // Always close the browser to prevent hanging
+    if (browser) {
+      try {
+        await browser.close();
+      } catch {
+        // Ignore errors during browser close
+      }
+    }
   }
 }
 
@@ -998,7 +1011,20 @@ export async function completeLearningSuiteCommand(
       console.log(chalk.green(`\n🎉 Total: ${grandTotalCompleted} lessons marked as complete!\n`));
     }
     console.log(chalk.green("✅ Complete finished!\n"));
+  } catch (error) {
+    console.error(chalk.red("\n❌ Complete failed"));
+    if (error instanceof Error) {
+      console.error(chalk.gray(`   Error: ${error.message}`));
+    }
+    throw error;
   } finally {
-    await browser.close();
+    // Always close the browser to prevent hanging
+    if (browser) {
+      try {
+        await browser.close();
+      } catch {
+        // Ignore errors during browser close
+      }
+    }
   }
 }
