@@ -481,26 +481,55 @@ async function downloadHLSSegments(
   outputPath: string,
   onProgress?: (progress: DownloadProgress) => void
 ): Promise<HLSDownloadResult> {
+  // Decode segment URLs from base64-encoded JSON
+  let segmentUrls: string[];
   try {
-    // Decode segment URLs from base64-encoded JSON
     const base64Data = segmentsUrl.replace("segments:", "");
     const segmentData = Buffer.from(base64Data, "base64").toString("utf-8");
-    const segmentUrls: string[] = JSON.parse(segmentData) as string[];
+    segmentUrls = JSON.parse(segmentData) as string[];
+  } catch {
+    return {
+      success: false,
+      error: "Failed to decode segment URLs",
+      errorCode: "SEGMENT_DECODE_FAILED",
+    };
+  }
 
-    if (segmentUrls.length === 0) {
-      return {
-        success: false,
-        error: "No segment URLs provided",
-        errorCode: "NO_SEGMENTS",
-      };
+  if (segmentUrls.length === 0) {
+    return {
+      success: false,
+      error: "No segment URLs provided",
+      errorCode: "NO_SEGMENTS",
+    };
+  }
+
+  // Create unique temp directory for segments (per video to avoid conflicts with parallel downloads)
+  const videoBaseName = path.basename(outputPath, path.extname(outputPath));
+  const uniqueId = `${videoBaseName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const tempDir = path.join(path.dirname(outputPath), `.hls-segments-${uniqueId}`);
+  fs.mkdirSync(tempDir, { recursive: true });
+
+  // Helper to clean up temp directory
+  const cleanupTempDir = () => {
+    try {
+      // Remove all files in temp directory
+      if (fs.existsSync(tempDir)) {
+        const files = fs.readdirSync(tempDir);
+        for (const file of files) {
+          try {
+            fs.unlinkSync(path.join(tempDir, file));
+          } catch {
+            /* ignore */
+          }
+        }
+        fs.rmdirSync(tempDir);
+      }
+    } catch {
+      /* ignore cleanup errors */
     }
+  };
 
-    // Create temp directory for segments
-    const tempDir = path.join(path.dirname(outputPath), ".hls-segments");
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-
+  try {
     // Download all segments
     const segmentPaths: string[] = [];
     for (let i = 0; i < segmentUrls.length; i++) {
@@ -510,13 +539,9 @@ async function downloadHLSSegments(
       const segmentPath = path.join(tempDir, `segment${String(i).padStart(4, "0")}.ts`);
       segmentPaths.push(segmentPath);
 
-      // Skip if already downloaded
-      if (fs.existsSync(segmentPath)) {
-        continue;
-      }
-
       const response = await fetch(segmentUrl);
       if (!response.ok) {
+        cleanupTempDir();
         return {
           success: false,
           error: `Failed to download segment ${i}: HTTP ${response.status}`,
@@ -560,24 +585,8 @@ async function downloadHLSSegments(
       outputPath,
     ]);
 
-    // Clean up temp files
-    for (const p of segmentPaths) {
-      try {
-        fs.unlinkSync(p);
-      } catch {
-        /* ignore */
-      }
-    }
-    try {
-      fs.unlinkSync(concatPath);
-    } catch {
-      /* ignore */
-    }
-    try {
-      fs.rmdirSync(tempDir);
-    } catch {
-      /* ignore */
-    }
+    // Clean up temp files on success
+    cleanupTempDir();
 
     if (onProgress) {
       onProgress({ percent: 100, phase: "complete" });
@@ -588,6 +597,9 @@ async function downloadHLSSegments(
       outputPath,
     };
   } catch (e) {
+    // Clean up temp files on error
+    cleanupTempDir();
+
     const error = e instanceof Error ? e.message : String(e);
     return {
       success: false,
