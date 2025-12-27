@@ -271,24 +271,46 @@ export async function syncHighLevelCommand(
     const courseDir = await createCourseDirectory(config.outputDir, courseSlug);
     console.log(chalk.gray(`\n📁 Output: ${courseDir}\n`));
 
-    // Process lessons
+    // Process lessons - build task list first, then process in parallel
     const videoTasks: VideoDownloadTask[] = [];
     let contentExtracted = 0;
     let skipped = 0;
-    let processed = 0;
+
+    // Build list of posts to process with their metadata
+    interface PostTask {
+      post: (typeof courseStructure.categories)[0]["posts"][0];
+      postIndex: number;
+      category: (typeof courseStructure.categories)[0];
+      categoryIndex: number;
+      moduleDir: string;
+    }
+    const postTasks: PostTask[] = [];
+
+    // Build task list and create module directories
+    for (const [catIndex, category] of courseStructure.categories.entries()) {
+      if (category.isLocked) continue;
+
+      const moduleDir = await createModuleDirectory(courseDir, catIndex, category.title);
+
+      for (const [postIndex, post] of category.posts.entries()) {
+        postTasks.push({ post, postIndex, category, categoryIndex: catIndex, moduleDir });
+      }
+    }
 
     // Apply limit
     const lessonLimit = options.limit;
-    let totalToProcess = totalLessons;
+    let totalToProcess = postTasks.length;
     if (lessonLimit) {
-      totalToProcess = Math.min(totalLessons, lessonLimit);
+      totalToProcess = Math.min(postTasks.length, lessonLimit);
+      postTasks.splice(lessonLimit); // Trim to limit
       console.log(chalk.yellow(`   Limiting to ${totalToProcess} lessons\n`));
     }
 
-    // Phase 2: Extract content and queue downloads
+    // Phase 2: Extract content and queue downloads (parallel)
+    const extractionConcurrency = config.extractionConcurrency;
     const phase2Label = options.skipContent
-      ? `🎬 Scanning ${totalToProcess} lessons for videos...`
-      : `📝 Extracting content for ${totalToProcess} lessons...`;
+      ? `🎬 Scanning ${totalToProcess} lessons for videos (${extractionConcurrency}x parallel)...`
+      : `📝 Extracting content for ${totalToProcess} lessons (${extractionConcurrency}x parallel)...`;
     console.log(chalk.blue(`\n${phase2Label}\n`));
 
     const contentProgressBar = new cliProgress.SingleBar(
@@ -304,140 +326,146 @@ export async function syncHighLevelCommand(
 
     contentProgressBar.start(totalToProcess, 0, { status: "Starting..." });
 
-    for (const [catIndex, category] of courseStructure.categories.entries()) {
-      if (!shouldContinue()) break;
-      if (lessonLimit && processed >= lessonLimit) break;
-
-      if (category.isLocked) {
-        continue;
+    // Create worker pages for parallel extraction
+    const workerPages: import("playwright").Page[] = [];
+    try {
+      for (let i = 0; i < extractionConcurrency; i++) {
+        const page = await session.context.newPage();
+        workerPages.push(page);
       }
+    } catch {
+      console.error(
+        chalk.yellow("\n   Could not create parallel tabs, falling back to sequential")
+      );
+      workerPages.push(session.page);
+    }
 
-      const moduleDir = await createModuleDirectory(courseDir, catIndex, category.title);
+    // Thread-safe counters and task queue
+    let processed = 0;
+    const taskQueue = [...postTasks];
+    const resultsLock = { videoTasks, contentExtracted: 0, skipped: 0 };
 
-      for (const [postIndex, post] of category.posts.entries()) {
-        if (!shouldContinue()) break;
-        if (lessonLimit && processed >= lessonLimit) break;
+    // Worker function to process a single post
+    const processPost = async (page: import("playwright").Page, task: PostTask): Promise<void> => {
+      const { post, postIndex, category, moduleDir } = task;
 
-        const shortName = post.title.length > 40 ? post.title.substring(0, 37) + "..." : post.title;
-        contentProgressBar.update(processed, { status: shortName });
-
-        // Check if already synced
+      try {
         const syncStatus = await isLessonSynced(moduleDir, postIndex, post.title);
+        const needsContent = !options.skipContent && !syncStatus.content;
+        const needsVideo = !options.skipVideos && !syncStatus.video;
 
-        if (!options.skipContent && !syncStatus.content) {
-          try {
-            // Get full post URL
-            const postUrl = getHighLevelPostUrl(
-              courseStructure.domain,
-              courseStructure.course.id,
-              category.id,
-              post.id
+        if (!needsContent && !needsVideo) {
+          resultsLock.skipped++;
+          return;
+        }
+
+        // Get full post URL
+        const postUrl = getHighLevelPostUrl(
+          courseStructure.domain,
+          courseStructure.course.id,
+          category.id,
+          post.id
+        );
+
+        // Extract content
+        const content = await extractHighLevelPostContent(
+          page,
+          postUrl,
+          courseStructure.locationId,
+          courseStructure.course.id,
+          post.id,
+          category.id
+        );
+
+        if (content) {
+          // Save markdown if needed
+          if (needsContent) {
+            const markdown = formatHighLevelMarkdown(
+              content.title,
+              content.description,
+              content.htmlContent,
+              content.video?.url
             );
 
-            // Extract content
-            const content = await extractHighLevelPostContent(
-              session.page,
-              postUrl,
-              courseStructure.locationId,
-              courseStructure.course.id,
-              post.id,
-              category.id
+            await saveMarkdown(
+              moduleDir,
+              createFolderName(postIndex, post.title) + ".md",
+              markdown
             );
 
-            if (content) {
-              // Save markdown
-              const markdown = formatHighLevelMarkdown(
-                content.title,
-                content.description,
-                content.htmlContent,
-                content.video?.url
-              );
-
-              await saveMarkdown(
-                moduleDir,
-                createFolderName(postIndex, post.title) + ".md",
-                markdown
-              );
-
-              // Download attachments
-              for (const attachment of content.attachments) {
-                if (attachment.url) {
-                  const attachmentPath = join(
-                    moduleDir,
-                    `${createFolderName(postIndex, post.title)}-${attachment.name}`
-                  );
-                  await downloadFile(attachment.url, attachmentPath);
-                }
+            // Download attachments
+            for (const attachment of content.attachments) {
+              if (attachment.url) {
+                const attachmentPath = join(
+                  moduleDir,
+                  `${createFolderName(postIndex, post.title)}-${attachment.name}`
+                );
+                await downloadFile(attachment.url, attachmentPath);
               }
-
-              // Queue video download
-              if (!options.skipVideos && !syncStatus.video && content.video?.url) {
-                videoTasks.push({
-                  lessonId: post.id as unknown as number, // Using string ID
-                  lessonName: post.title,
-                  videoUrl: content.video.url,
-                  videoType:
-                    content.video.type === "hls"
-                      ? "highlevel"
-                      : (content.video.type as VideoDownloadTask["videoType"]),
-                  outputPath: getVideoPath(moduleDir, postIndex, post.title),
-                  preferredQuality: options.quality,
-                });
-              }
-
-              contentExtracted++;
             }
-          } catch (error) {
-            console.error(`\nError extracting ${post.title}:`, error);
+
+            resultsLock.contentExtracted++;
+          } else {
+            resultsLock.skipped++;
           }
-        } else {
-          skipped++;
 
-          // Still queue video if content was skipped but video not downloaded
-          if (!options.skipVideos && !syncStatus.video) {
-            // We need to get the video URL
-            try {
-              const postUrl = getHighLevelPostUrl(
-                courseStructure.domain,
-                courseStructure.course.id,
-                category.id,
-                post.id
-              );
-
-              const content = await extractHighLevelPostContent(
-                session.page,
-                postUrl,
-                courseStructure.locationId,
-                courseStructure.course.id,
-                post.id,
-                category.id
-              );
-
-              if (content?.video?.url) {
-                videoTasks.push({
-                  lessonId: post.id as unknown as number,
-                  lessonName: post.title,
-                  videoUrl: content.video.url,
-                  videoType:
-                    content.video.type === "hls"
-                      ? "highlevel"
-                      : (content.video.type as VideoDownloadTask["videoType"]),
-                  outputPath: getVideoPath(moduleDir, postIndex, post.title),
-                  preferredQuality: options.quality,
-                });
-              }
-            } catch {
-              // Skip if we can't get video URL
-            }
+          // Queue video download
+          if (needsVideo && content.video?.url) {
+            resultsLock.videoTasks.push({
+              lessonId: post.id as unknown as number,
+              lessonName: post.title,
+              videoUrl: content.video.url,
+              videoType:
+                content.video.type === "hls"
+                  ? "highlevel"
+                  : (content.video.type as VideoDownloadTask["videoType"]),
+              outputPath: getVideoPath(moduleDir, postIndex, post.title),
+              preferredQuality: options.quality,
+            });
           }
         }
+      } catch {
+        const shortName = post.title.length > 30 ? post.title.substring(0, 27) + "..." : post.title;
+        console.error(`\n   ⚠️ Error: ${shortName}`);
+      }
+    };
+
+    // Process tasks with worker pool
+    const runWorker = async (page: import("playwright").Page): Promise<void> => {
+      while (shouldContinue() && taskQueue.length > 0) {
+        const task = taskQueue.shift();
+        if (!task) break;
+
+        const shortName =
+          task.post.title.length > 40 ? task.post.title.substring(0, 37) + "..." : task.post.title;
+
+        await processPost(page, task);
 
         processed++;
         contentProgressBar.update(processed, { status: shortName });
       }
+    };
+
+    // Start all workers
+    const workerPromises = workerPages.map((page) => runWorker(page));
+    await Promise.all(workerPromises);
+
+    // Close worker pages (except the main session page)
+    for (const page of workerPages) {
+      if (page !== session.page) {
+        try {
+          await page.close();
+        } catch {
+          // Ignore close errors
+        }
+      }
     }
 
     contentProgressBar.stop();
+
+    // Update counters from results lock
+    contentExtracted = resultsLock.contentExtracted;
+    skipped = resultsLock.skipped;
 
     // Print content summary
     console.log();

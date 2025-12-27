@@ -8,6 +8,7 @@ describe("configSchema", () => {
       outputDir: "~/Downloads/offcourse",
       videoQuality: "highest",
       concurrency: 2,
+      extractionConcurrency: 4,
       retryAttempts: 3,
       headless: true,
     });
@@ -18,11 +19,17 @@ describe("configSchema", () => {
       outputDir: "/custom/path",
       videoQuality: "720p" as const,
       concurrency: 4,
+      extractionConcurrency: 6,
       retryAttempts: 5,
       headless: false,
     };
     const result = configSchema.parse(input);
     expect(result).toEqual(input);
+  });
+
+  it("rejects extractionConcurrency outside valid range", () => {
+    expect(() => configSchema.parse({ extractionConcurrency: 0 })).toThrow();
+    expect(() => configSchema.parse({ extractionConcurrency: 9 })).toThrow();
   });
 
   it("rejects invalid video quality", () => {

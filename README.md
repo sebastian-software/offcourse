@@ -51,7 +51,12 @@ offcourse complete <url>
 # Configuration
 offcourse config set outputDir ~/Courses
 offcourse config set videoQuality 720p
+offcourse config set extractionConcurrency 4  # Parallel browser tabs (1-8)
 ```
+
+## Performance
+
+Content extraction runs in parallel using multiple browser tabs (default: 4). This speeds up extraction by ~4x compared to sequential processing. All tabs share the same session, so authentication works seamlessly.
 
 ## Development
 

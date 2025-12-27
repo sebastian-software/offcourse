@@ -1,54 +1,56 @@
-import { createWriteStream, existsSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
+/**
+ * Vimeo video downloader.
+ * Downloads videos from Vimeo using progressive or HLS streaming.
+ */
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { USER_AGENT } from "../shared/http.js";
 import { getBaseUrl } from "../shared/url.js";
+import {
+  downloadProgressiveVideo,
+  downloadSegmentsToFile,
+  type DownloadResult,
+  type FetchResult,
+  type ProgressCallback,
+  type VideoInfo,
+} from "./shared/index.js";
 
-export interface VimeoVideoInfo {
-  id: string;
-  title: string;
-  duration: number;
-  width: number;
-  height: number;
-  hlsUrl: string | null;
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface VimeoVideoInfo extends VideoInfo {
   progressiveUrl: string | null;
 }
 
-export interface VimeoFetchResult {
-  success: boolean;
-  info?: VimeoVideoInfo;
-  error?: string;
+export interface VimeoFetchResult extends FetchResult<VimeoVideoInfo> {
   errorCode?:
     | "VIDEO_NOT_FOUND"
     | "DRM_PROTECTED"
     | "PRIVATE_VIDEO"
     | "RATE_LIMITED"
     | "NETWORK_ERROR"
-    | "PARSE_ERROR";
-  details?: string;
+    | "PARSE_ERROR"
+    | undefined;
 }
 
-export interface DownloadProgress {
-  percent: number;
-  downloaded: number;
-  total: number;
+export interface VimeoDownloadResult extends DownloadResult {
+  errorCode?:
+    | VimeoFetchResult["errorCode"]
+    | "INVALID_URL"
+    | "NO_STREAM"
+    | "DOWNLOAD_FAILED"
+    | undefined;
 }
 
-export interface VimeoDownloadResult {
-  success: boolean;
-  error?: string;
-  errorCode?: VimeoFetchResult["errorCode"] | "INVALID_URL" | "NO_STREAM" | "DOWNLOAD_FAILED";
-  details?: string;
-}
+// ============================================================================
+// URL Extraction
+// ============================================================================
 
 /**
  * Extracts the Vimeo video ID from various URL formats.
  */
 export function extractVimeoId(url: string): string | null {
-  // Handle various Vimeo URL formats:
-  // https://vimeo.com/123456789
-  // https://vimeo.com/123456789?share=copy
-  // https://player.vimeo.com/video/123456789
-  // https://vimeo.com/channels/xxx/123456789
   const patterns = [
     /vimeo\.com\/(?:video\/)?(\d+)/,
     /player\.vimeo\.com\/video\/(\d+)/,
@@ -66,16 +68,17 @@ export function extractVimeoId(url: string): string | null {
   return null;
 }
 
+// ============================================================================
+// Video Info Fetching
+// ============================================================================
+
 // Network I/O and file operations - excluded from coverage
 /* v8 ignore start */
 
 /**
  * Extracts the unlisted hash from a Vimeo URL if present.
- * Unlisted videos require this hash to access.
  */
 function extractUnlistedHash(url: string): string | null {
-  // Format: https://vimeo.com/123456789/abcdef1234
-  // Or in player: https://player.vimeo.com/video/123456789?h=abcdef1234
   const pathMatch = /vimeo\.com\/\d+\/([a-f0-9]+)/.exec(url);
   if (pathMatch?.[1]) {
     return pathMatch[1];
@@ -91,26 +94,22 @@ function extractUnlistedHash(url: string): string | null {
 
 /**
  * Fetches video information from Vimeo's player config.
- * @param referer - Optional referer URL (e.g., the Skool page URL) for domain-restricted videos
  */
 export async function getVimeoVideoInfo(
   videoId: string,
   unlistedHash?: string | null,
   referer?: string
 ): Promise<VimeoFetchResult> {
-  // Try the config endpoint first
   let configUrl = `https://player.vimeo.com/video/${videoId}/config`;
   if (unlistedHash) {
     configUrl += `?h=${unlistedHash}`;
   }
 
-  // Build headers - use provided referer for domain-restricted videos
   const headers: Record<string, string> = {
     "User-Agent": USER_AGENT,
     Accept: "application/json",
   };
 
-  // Try with Skool referer first if provided, otherwise use Vimeo's player
   if (referer) {
     headers.Referer = referer;
     headers.Origin = new URL(referer).origin;
@@ -121,8 +120,6 @@ export async function getVimeoVideoInfo(
   try {
     let response = await fetch(configUrl, { headers });
 
-    // If we got 403 with a custom referer, the video might be strictly domain-locked
-    // Try with the embed page URL as referer
     if (response.status === 403 && referer) {
       headers.Referer = `https://player.vimeo.com/video/${videoId}`;
       headers.Origin = "https://player.vimeo.com";
@@ -166,29 +163,25 @@ export async function getVimeoVideoInfo(
 
     const config = (await response.json()) as VimeoConfig;
 
-    // Check for DRM
     if (
       config.request?.files?.dash?.cdns &&
       !config.request?.files?.hls &&
       !config.request?.files?.progressive
     ) {
-      // Only DASH with no HLS/progressive usually means DRM
       const hasDrm = config.video?.drm ?? config.request?.drm;
       if (hasDrm) {
         return {
           success: false,
           error: "Video is DRM protected and cannot be downloaded",
           errorCode: "DRM_PROTECTED",
-          details: `Video "${config.video?.title ?? videoId}" uses DRM protection. This video cannot be downloaded without the content provider's authorization.`,
+          details: `Video "${config.video?.title ?? videoId}" uses DRM protection.`,
         };
       }
     }
 
-    // Extract HLS URL
     let hlsUrl: string | null = null;
     const hlsCdns = config.request?.files?.hls?.cdns;
     if (hlsCdns) {
-      // Prefer akamai_live, then fastly, then any available CDN
       const preferredCdns = ["akfire_interconnect_quic", "akamai_live", "fastly_skyfire", "fastly"];
       for (const cdn of preferredCdns) {
         if (hlsCdns[cdn]?.url) {
@@ -196,36 +189,29 @@ export async function getVimeoVideoInfo(
           break;
         }
       }
-      // Fallback to any CDN
       if (!hlsUrl) {
         const cdnKeys = Object.keys(hlsCdns);
         const firstCdn = cdnKeys[0];
         if (firstCdn) {
-          const cdnUrl = hlsCdns[firstCdn]?.url;
-          if (cdnUrl) {
-            hlsUrl = cdnUrl;
-          }
+          hlsUrl = hlsCdns[firstCdn]?.url ?? null;
         }
       }
     }
 
-    // Extract progressive (direct MP4) URL - prefer highest quality
     let progressiveUrl: string | null = null;
     const progressive = config.request?.files?.progressive;
     if (progressive && Array.isArray(progressive) && progressive.length > 0) {
-      // Sort by height descending to get best quality
       const sorted = [...progressive].sort((a, b) => (b.height ?? 0) - (a.height ?? 0));
       progressiveUrl = sorted[0]?.url ?? null;
     }
 
     if (!hlsUrl && !progressiveUrl) {
-      // Check if this is a DRM-only video
       if (config.request?.files?.dash) {
         return {
           success: false,
           error: "Video only has DRM-protected DASH streams",
           errorCode: "DRM_PROTECTED",
-          details: `Video "${config.video?.title ?? videoId}" appears to use DRM protection. No downloadable streams available.`,
+          details: `Video "${config.video?.title ?? videoId}" uses DRM. Cannot download.`,
         };
       }
 
@@ -261,12 +247,6 @@ export async function getVimeoVideoInfo(
 
 /**
  * Fetches Vimeo config from within a Playwright browser context.
- * Uses page.request API which runs at browser level (no CORS restrictions)
- * and includes the browser's cookies/session.
- *
- * @param page - Playwright page (should be on the Skool lesson page)
- * @param videoId - Vimeo video ID
- * @param unlistedHash - Optional hash for unlisted videos
  */
 export async function getVimeoVideoInfoFromBrowser(
   page: import("playwright").Page,
@@ -279,8 +259,6 @@ export async function getVimeoVideoInfoFromBrowser(
   }
 
   try {
-    // Use page.request (Playwright API) - runs at browser level, no CORS issues
-    // and includes the browser's cookies/session
     const currentUrl = page.url();
     const response = await page.request.get(configUrl, {
       headers: {
@@ -319,7 +297,6 @@ export async function getVimeoVideoInfoFromBrowser(
 
     const config = (await response.json()) as VimeoConfig;
 
-    // Extract HLS URL (same logic as getVimeoVideoInfo)
     let hlsUrl: string | null = null;
     const hlsCdns = config.request?.files?.hls?.cdns;
     if (hlsCdns) {
@@ -334,15 +311,11 @@ export async function getVimeoVideoInfoFromBrowser(
         const cdnKeys = Object.keys(hlsCdns);
         const firstCdn = cdnKeys[0];
         if (firstCdn) {
-          const cdnUrl = hlsCdns[firstCdn]?.url;
-          if (cdnUrl) {
-            hlsUrl = cdnUrl;
-          }
+          hlsUrl = hlsCdns[firstCdn]?.url ?? null;
         }
       }
     }
 
-    // Extract progressive URL
     let progressiveUrl: string | null = null;
     const progressive = config.request?.files?.progressive;
     if (progressive && Array.isArray(progressive) && progressive.length > 0) {
@@ -387,6 +360,10 @@ export async function getVimeoVideoInfoFromBrowser(
   }
 }
 
+// ============================================================================
+// Video Download
+// ============================================================================
+
 /**
  * Downloads a Vimeo video.
  * Prefers progressive (direct MP4) download, falls back to HLS.
@@ -394,20 +371,17 @@ export async function getVimeoVideoInfoFromBrowser(
 export async function downloadVimeoVideo(
   url: string,
   outputPath: string,
-  onProgress?: (progress: DownloadProgress) => void
+  onProgress?: ProgressCallback
 ): Promise<VimeoDownloadResult> {
   if (existsSync(outputPath)) {
     return { success: true };
   }
 
-  // Check if this is already a direct HLS/CDN URL (from previous validation)
   if (url.includes("vimeocdn.com") && url.includes(".m3u8")) {
-    // Direct HLS download
     const dir = dirname(outputPath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
-
     return downloadHlsVideo(url, outputPath, onProgress);
   }
 
@@ -440,22 +414,21 @@ export async function downloadVimeoVideo(
 
   const info = fetchResult.info;
 
-  // Ensure output directory exists
   const dir = dirname(outputPath);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
 
-  // Prefer progressive (direct MP4) download - simpler and often better quality
   if (info.progressiveUrl) {
-    const result = await downloadProgressiveVideo(info.progressiveUrl, outputPath, onProgress);
+    const result = await downloadProgressiveVideo(info.progressiveUrl, outputPath, {
+      onProgress,
+      referer: "https://player.vimeo.com/",
+    });
     if (result.success) {
-      return result;
+      return { success: true };
     }
-    // Fall through to HLS if progressive fails
   }
 
-  // Try HLS download
   if (info.hlsUrl) {
     return downloadHlsVideo(info.hlsUrl, outputPath, onProgress);
   }
@@ -468,96 +441,14 @@ export async function downloadVimeoVideo(
 }
 
 /**
- * Downloads a progressive (direct) video file.
- */
-async function downloadProgressiveVideo(
-  url: string,
-  outputPath: string,
-  onProgress?: (progress: DownloadProgress) => void
-): Promise<VimeoDownloadResult> {
-  const tempPath = `${outputPath}.tmp`;
-
-  try {
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": USER_AGENT,
-        Referer: "https://player.vimeo.com/",
-      },
-    });
-
-    if (!response.ok) {
-      return {
-        success: false,
-        error: `Download failed: HTTP ${response.status}`,
-        errorCode: "DOWNLOAD_FAILED",
-      };
-    }
-
-    const contentLength = response.headers.get("content-length");
-    const total = contentLength ? parseInt(contentLength, 10) : 0;
-
-    if (!response.body) {
-      return {
-        success: false,
-        error: "No response body",
-        errorCode: "DOWNLOAD_FAILED",
-      };
-    }
-
-    const fileStream = createWriteStream(tempPath);
-    const reader = response.body.getReader();
-    let downloaded = 0;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      fileStream.write(Buffer.from(value));
-      downloaded += value.length;
-
-      if (onProgress && total > 0) {
-        onProgress({
-          percent: (downloaded / total) * 100,
-          downloaded,
-          total,
-        });
-      }
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      fileStream.end((err: Error | null) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
-      });
-    });
-
-    renameSync(tempPath, outputPath);
-    return { success: true };
-  } catch (error) {
-    if (existsSync(tempPath)) {
-      unlinkSync(tempPath);
-    }
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-      errorCode: "DOWNLOAD_FAILED",
-    };
-  }
-}
-
-/**
  * Downloads an HLS video stream.
  */
 async function downloadHlsVideo(
   masterUrl: string,
   outputPath: string,
-  onProgress?: (progress: DownloadProgress) => void
+  onProgress?: ProgressCallback
 ): Promise<VimeoDownloadResult> {
   try {
-    // Fetch master playlist
     const masterResponse = await fetch(masterUrl, {
       headers: {
         "User-Agent": USER_AGENT,
@@ -577,7 +468,6 @@ async function downloadHlsVideo(
     const lines = masterPlaylist.split("\n");
     const baseUrl = getBaseUrl(masterUrl);
 
-    // Find best quality video stream
     let bestBandwidth = 0;
     let videoPlaylistUrl: string | null = null;
 
@@ -605,7 +495,6 @@ async function downloadHlsVideo(
       };
     }
 
-    // Fetch video playlist and get segments
     const videoResponse = await fetch(videoPlaylistUrl, {
       headers: { "User-Agent": USER_AGENT },
     });
@@ -638,47 +527,26 @@ async function downloadHlsVideo(
       };
     }
 
-    // Download all segments
-    const tempPath = `${outputPath}.tmp`;
-    const fileStream = createWriteStream(tempPath);
-
-    for (let i = 0; i < segments.length; i++) {
-      const segmentUrl = segments[i];
-      if (!segmentUrl) continue;
-
-      const segResponse = await fetch(segmentUrl, {
-        headers: { "User-Agent": USER_AGENT },
-      });
-
-      if (!segResponse.ok || !segResponse.body) continue;
-
-      const reader = segResponse.body.getReader();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        fileStream.write(Buffer.from(value));
-      }
-
-      if (onProgress) {
-        onProgress({
-          percent: ((i + 1) / segments.length) * 100,
-          downloaded: i + 1,
-          total: segments.length,
+    const success = await downloadSegmentsToFile(segments, outputPath, {
+      onProgress: (curr, total) => {
+        onProgress?.({
+          percent: (curr / total) * 100,
+          phase: "downloading",
+          downloadedSegments: curr,
+          totalSegments: total,
         });
-      }
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      fileStream.end((err: Error | null) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
-      });
+      },
     });
 
-    renameSync(tempPath, outputPath);
+    if (!success) {
+      return {
+        success: false,
+        error: "Failed to download video segments",
+        errorCode: "DOWNLOAD_FAILED",
+      };
+    }
+
+    onProgress?.({ percent: 100, phase: "complete" });
     return { success: true };
   } catch (error) {
     return {
@@ -689,9 +557,10 @@ async function downloadHlsVideo(
   }
 }
 
-/**
- * Vimeo config response type (partial).
- */
+// ============================================================================
+// Internal Types
+// ============================================================================
+
 interface VimeoConfig {
   video?: {
     id?: number;
@@ -719,4 +588,5 @@ interface VimeoConfig {
     };
   };
 }
+
 /* v8 ignore stop */

@@ -1,44 +1,57 @@
-import { createWriteStream, existsSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
+/**
+ * Loom video downloader.
+ * Downloads videos from Loom using HLS streaming.
+ */
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { Readable } from "node:stream";
-import { finished } from "node:stream/promises";
 import delay from "delay";
-import { execa } from "execa";
 import pRetry, { AbortError } from "p-retry";
 import { USER_AGENT } from "../shared/http.js";
-import { extractQueryParams, getBaseUrl } from "../shared/url.js";
+import {
+  checkFfmpeg,
+  downloadSegmentsToFile,
+  getSegmentUrls,
+  mergeVideoAudio,
+  parseHlsMasterPlaylist,
+  type DownloadResult,
+  type FetchResult,
+  type ProgressCallback,
+  type VideoInfo,
+} from "./shared/index.js";
 
-export interface LoomVideoInfo {
-  id: string;
-  title: string;
-  duration: number;
-  width: number;
-  height: number;
-  hlsUrl: string;
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface LoomVideoInfo extends VideoInfo {
+  hlsUrl: string; // Loom always has HLS
 }
 
-export interface LoomFetchResult {
-  success: boolean;
-  info?: LoomVideoInfo;
-  error?: string;
+export interface LoomFetchResult extends FetchResult<LoomVideoInfo> {
   errorCode?:
     | "EMBED_FETCH_FAILED"
     | "HLS_NOT_FOUND"
     | "RATE_LIMITED"
     | "NETWORK_ERROR"
-    | "PARSE_ERROR";
-  statusCode?: number;
-  details?: string;
+    | "PARSE_ERROR"
+    | undefined;
+  statusCode?: number | undefined;
 }
 
-export interface DownloadProgress {
-  percent: number;
-  downloaded?: number | undefined;
-  total?: number | undefined;
-  phase?: "preparing" | "downloading" | "complete" | undefined;
-  currentBytes?: number | undefined;
-  totalBytes?: number | undefined;
+export interface LoomDownloadResult extends DownloadResult {
+  errorCode?:
+    | LoomFetchResult["errorCode"]
+    | "INVALID_URL"
+    | "NO_VIDEO_STREAM"
+    | "NO_SEGMENTS"
+    | "DOWNLOAD_FAILED"
+    | "MERGE_FAILED"
+    | undefined;
 }
+
+// ============================================================================
+// URL Extraction
+// ============================================================================
 
 /**
  * Extracts the Loom video ID from various URL formats.
@@ -47,6 +60,10 @@ export function extractLoomId(url: string): string | null {
   const match = /loom\.com\/(?:embed|share)\/([a-f0-9]+)/.exec(url);
   return match?.[1] ?? null;
 }
+
+// ============================================================================
+// Video Info Fetching
+// ============================================================================
 
 // Network I/O and file operations - excluded from coverage
 /* v8 ignore start */
@@ -103,12 +120,10 @@ async function fetchLoomVideoInfo(videoId: string): Promise<LoomVideoInfo> {
     },
   });
 
-  // Check for rate limiting - should retry
   if (embedResponse.status === 429) {
     throw new Error("Rate limited by Loom (429)");
   }
 
-  // For 4xx errors (except 429), don't retry
   if (embedResponse.status >= 400 && embedResponse.status < 500) {
     throw new AbortError(
       new LoomFetchError(
@@ -120,14 +135,12 @@ async function fetchLoomVideoInfo(videoId: string): Promise<LoomVideoInfo> {
     );
   }
 
-  // For 5xx errors, throw to trigger retry
   if (!embedResponse.ok) {
     throw new Error(`Loom embed request failed with HTTP ${embedResponse.status}`);
   }
 
   const embedHtml = await embedResponse.text();
 
-  // Check for various error states in the HTML - don't retry these
   if (embedHtml.includes("This video is private") || embedHtml.includes("video-not-found")) {
     throw new AbortError(
       new LoomFetchError(
@@ -139,12 +152,10 @@ async function fetchLoomVideoInfo(videoId: string): Promise<LoomVideoInfo> {
     );
   }
 
-  // Rate limit in HTML - should retry
   if (embedHtml.includes("rate limit") || embedHtml.includes("too many requests")) {
     throw new Error("Rate limited by Loom (detected in HTML)");
   }
 
-  // Extract HLS URL from the page - try multiple patterns
   const hlsPatterns = [
     /"url":"(https:\/\/luna\.loom\.com\/[^"]+playlist\.m3u8[^"]*)"/,
     /"hlsUrl":"(https:\/\/[^"]+\.m3u8[^"]*)"/,
@@ -177,7 +188,6 @@ async function fetchLoomVideoInfo(videoId: string): Promise<LoomVideoInfo> {
     );
   }
 
-  // Get metadata from OEmbed (non-critical)
   const oembedUrl = `https://www.loom.com/v1/oembed?url=https://www.loom.com/share/${videoId}`;
   let title = "Loom Video";
   let duration = 0;
@@ -223,7 +233,6 @@ export async function getLoomVideoInfoDetailed(
       minTimeout: retryDelayMs,
       maxTimeout: retryDelayMs * 4,
       onFailedAttempt: (error) => {
-        // Only log if not the last attempt
         if (error.retriesLeft > 0) {
           console.log(
             `Loom fetch attempt ${error.attemptNumber} failed, ${error.retriesLeft} retries left`
@@ -234,12 +243,10 @@ export async function getLoomVideoInfoDetailed(
 
     return { success: true, info };
   } catch (error) {
-    // Handle LoomFetchError directly
     if (error instanceof LoomFetchError) {
       return error.toResult();
     }
 
-    // Handle wrapped AbortError (p-retry wraps errors)
     if (error instanceof Error && error.cause instanceof LoomFetchError) {
       return error.cause.toResult();
     }
@@ -254,238 +261,9 @@ export async function getLoomVideoInfoDetailed(
   }
 }
 
-/**
- * Fetches video information from Loom's embed page.
- * @deprecated Use getLoomVideoInfoDetailed for better error reporting
- */
-export async function getLoomVideoInfo(videoId: string): Promise<LoomVideoInfo | null> {
-  const result = await getLoomVideoInfoDetailed(videoId);
-  return result.success ? (result.info ?? null) : null;
-}
-
-/**
- * Parses a master playlist to get video and audio playlist URLs.
- */
-async function parseHlsMasterPlaylist(
-  masterUrl: string
-): Promise<{ videoUrl: string | null; audioUrl: string | null }> {
-  try {
-    const response = await fetch(masterUrl, {
-      headers: { "User-Agent": USER_AGENT },
-    });
-
-    if (!response.ok) {
-      return { videoUrl: null, audioUrl: null };
-    }
-
-    const playlist = await response.text();
-    const lines = playlist.split("\n");
-
-    // Get base URL and query params (for signed URLs)
-    const baseUrl = getBaseUrl(masterUrl);
-    const queryParams = extractQueryParams(masterUrl);
-
-    let videoUrl: string | null = null;
-    let audioUrl: string | null = null;
-    let bestBandwidth = 0;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]?.trim();
-      if (!line) continue;
-
-      // Find audio stream
-      if (line.startsWith("#EXT-X-MEDIA:") && line.includes("TYPE=AUDIO")) {
-        const uriMatch = /URI="([^"]+)"/.exec(line);
-        if (uriMatch?.[1]) {
-          const uri = uriMatch[1];
-          // Append query params for authentication
-          audioUrl = (uri.startsWith("http") ? uri : baseUrl + uri) + queryParams;
-        }
-      }
-
-      // Find best quality video stream
-      if (line.startsWith("#EXT-X-STREAM-INF:")) {
-        const bandwidthMatch = /BANDWIDTH=(\d+)/.exec(line);
-        const bandwidth = bandwidthMatch?.[1] ? parseInt(bandwidthMatch[1], 10) : 0;
-
-        const nextLine = lines[i + 1]?.trim();
-        if (nextLine && !nextLine.startsWith("#") && bandwidth > bestBandwidth) {
-          bestBandwidth = bandwidth;
-          // Append query params for authentication
-          videoUrl = (nextLine.startsWith("http") ? nextLine : baseUrl + nextLine) + queryParams;
-        }
-      }
-    }
-
-    return { videoUrl, audioUrl };
-  } catch (error) {
-    console.error("Failed to parse master playlist:", error);
-    return { videoUrl: null, audioUrl: null };
-  }
-}
-
-/**
- * Gets all segment URLs from a media playlist.
- */
-async function getSegmentUrls(playlistUrl: string): Promise<string[]> {
-  try {
-    const response = await fetch(playlistUrl, {
-      headers: { "User-Agent": USER_AGENT },
-    });
-
-    if (!response.ok) {
-      console.error(
-        `Failed to fetch playlist: ${response.status} - ${playlistUrl.substring(0, 100)}...`
-      );
-      return [];
-    }
-
-    const playlist = await response.text();
-    const lines = playlist.split("\n");
-
-    // Get base URL and query params
-    const baseUrl = getBaseUrl(playlistUrl);
-    const queryParams = extractQueryParams(playlistUrl);
-
-    const segments: string[] = [];
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (
-        trimmed &&
-        !trimmed.startsWith("#") &&
-        (trimmed.endsWith(".ts") || trimmed.includes(".ts?"))
-      ) {
-        // Construct full URL with auth params
-        const segmentUrl = trimmed.startsWith("http") ? trimmed : baseUrl + trimmed;
-        // Add query params if segment URL doesn't have them
-        const fullUrl = segmentUrl.includes("?") ? segmentUrl : segmentUrl + queryParams;
-        segments.push(fullUrl);
-      }
-    }
-
-    return segments;
-  } catch (error) {
-    console.error("Failed to get segments:", error);
-    return [];
-  }
-}
-
-/**
- * Downloads segments and writes them to a file.
- */
-async function downloadSegmentsToFile(
-  segments: string[],
-  outputPath: string,
-  onProgress?: (current: number, total: number) => void
-): Promise<boolean> {
-  const tempPath = `${outputPath}.tmp`;
-  const fileStream = createWriteStream(tempPath);
-
-  try {
-    for (let i = 0; i < segments.length; i++) {
-      const segmentUrl = segments[i];
-      if (!segmentUrl) continue;
-
-      const response = await fetch(segmentUrl, {
-        headers: { "User-Agent": USER_AGENT },
-      });
-
-      if (!response.ok || !response.body) continue;
-
-      const reader = response.body.getReader();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        fileStream.write(Buffer.from(value));
-      }
-
-      if (onProgress) {
-        onProgress(i + 1, segments.length);
-      }
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      fileStream.end((err: Error | null) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
-      });
-    });
-
-    renameSync(tempPath, outputPath);
-    return true;
-  } catch {
-    if (existsSync(tempPath)) unlinkSync(tempPath);
-    return false;
-  }
-}
-
-/**
- * Checks if ffmpeg is available.
- */
-async function isFfmpegAvailable(): Promise<boolean> {
-  try {
-    await execa("ffmpeg", ["-version"]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Merges video and audio files using ffmpeg.
- */
-async function mergeWithFfmpeg(
-  videoPath: string,
-  audioPath: string,
-  outputPath: string
-): Promise<boolean> {
-  try {
-    await execa(
-      "ffmpeg",
-      [
-        "-nostdin",
-        "-i",
-        videoPath,
-        "-i",
-        audioPath,
-        "-c:v",
-        "copy",
-        "-c:a",
-        "aac",
-        "-y",
-        outputPath,
-      ],
-      { stdio: "ignore" }
-    );
-
-    // Clean up temp files
-    if (existsSync(videoPath)) unlinkSync(videoPath);
-    if (existsSync(audioPath)) unlinkSync(audioPath);
-    return true;
-  } catch {
-    // Clean up temp files on failure too
-    if (existsSync(videoPath)) unlinkSync(videoPath);
-    if (existsSync(audioPath)) unlinkSync(audioPath);
-    return false;
-  }
-}
-
-export interface LoomDownloadResult {
-  success: boolean;
-  error?: string;
-  errorCode?:
-    | LoomFetchResult["errorCode"]
-    | "INVALID_URL"
-    | "NO_VIDEO_STREAM"
-    | "NO_SEGMENTS"
-    | "DOWNLOAD_FAILED"
-    | "MERGE_FAILED";
-  details?: string;
-}
+// ============================================================================
+// Video Download
+// ============================================================================
 
 /**
  * Downloads a Loom video using HLS.
@@ -493,7 +271,7 @@ export interface LoomDownloadResult {
 export async function downloadLoomVideo(
   urlOrId: string,
   outputPath: string,
-  onProgress?: (progress: DownloadProgress) => void
+  onProgress?: ProgressCallback
 ): Promise<LoomDownloadResult> {
   if (existsSync(outputPath)) {
     return { success: true };
@@ -503,30 +281,21 @@ export async function downloadLoomVideo(
   let videoUrl: string | null = null;
   let audioUrl: string | null = null;
 
-  // Check if this is already a direct HLS URL (from previous validation)
   if (urlOrId.includes("luna.loom.com") && urlOrId.includes(".m3u8")) {
     hlsUrl = urlOrId;
 
-    // Check if this is a media playlist (not master playlist)
-    // Media playlists are named: mediaplaylist-video-bitrate*.m3u8 or mediaplaylist-audio.m3u8
     if (hlsUrl.includes("mediaplaylist-video-")) {
-      // This is already a video media playlist - use it directly
       videoUrl = hlsUrl;
-      // Try to get audio URL by replacing video playlist with audio playlist
       audioUrl = hlsUrl.replace(/mediaplaylist-video-bitrate\d+\.m3u8/, "mediaplaylist-audio.m3u8");
     } else if (hlsUrl.includes("mediaplaylist-audio")) {
-      // This is an audio-only playlist - convert to master playlist
       hlsUrl = hlsUrl.replace(/mediaplaylist-audio\.m3u8/, "playlist.m3u8");
     }
-    // Otherwise it's a master playlist (playlist.m3u8) - parse it below
   } else {
-    // Extract video ID and fetch HLS URL from Loom API
     const videoId = urlOrId.includes("loom.com") ? extractLoomId(urlOrId) : urlOrId;
     if (!videoId) {
       return { success: false, error: "Invalid Loom URL or ID", errorCode: "INVALID_URL" };
     }
 
-    // Add random delay to avoid concurrent rate limiting (200-800ms)
     await delay(200 + Math.random() * 600);
 
     const fetchResult = await getLoomVideoInfoDetailed(videoId);
@@ -547,7 +316,6 @@ export async function downloadLoomVideo(
     hlsUrl = fetchResult.info.hlsUrl;
   }
 
-  // Parse master playlist if we don't already have video URL
   if (!videoUrl) {
     const parsed = await parseHlsMasterPlaylist(hlsUrl);
     videoUrl = parsed.videoUrl;
@@ -563,7 +331,6 @@ export async function downloadLoomVideo(
     };
   }
 
-  // Get segments
   const videoSegments = await getSegmentUrls(videoUrl);
   if (videoSegments.length === 0) {
     return {
@@ -579,9 +346,8 @@ export async function downloadLoomVideo(
     mkdirSync(dir, { recursive: true });
   }
 
-  // If there's audio, we need ffmpeg to merge
   if (audioUrl) {
-    const hasFfmpeg = await isFfmpegAvailable();
+    const hasFfmpeg = await checkFfmpeg();
 
     if (hasFfmpeg) {
       const audioSegments = await getSegmentUrls(audioUrl);
@@ -589,24 +355,20 @@ export async function downloadLoomVideo(
       const tempVideoPath = join(dir, `.temp-video-${tempId}.ts`);
       const tempAudioPath = join(dir, `.temp-audio-${tempId}.ts`);
 
-      // Download video segments
       const totalSegments = videoSegments.length + audioSegments.length;
       let completed = 0;
 
-      const videoSuccess = await downloadSegmentsToFile(
-        videoSegments,
-        tempVideoPath,
-        (curr, _total) => {
+      const videoSuccess = await downloadSegmentsToFile(videoSegments, tempVideoPath, {
+        onProgress: (curr) => {
           completed = curr;
-          if (onProgress) {
-            onProgress({
-              percent: (completed / totalSegments) * 100,
-              downloaded: completed,
-              total: totalSegments,
-            });
-          }
-        }
-      );
+          onProgress?.({
+            percent: (completed / totalSegments) * 100,
+            phase: "downloading",
+            downloadedSegments: completed,
+            totalSegments,
+          });
+        },
+      });
 
       if (!videoSuccess) {
         return {
@@ -617,24 +379,19 @@ export async function downloadLoomVideo(
         };
       }
 
-      // Download audio segments
-      const audioSuccess = await downloadSegmentsToFile(
-        audioSegments,
-        tempAudioPath,
-        (curr, _total) => {
+      const audioSuccess = await downloadSegmentsToFile(audioSegments, tempAudioPath, {
+        onProgress: (curr) => {
           completed = videoSegments.length + curr;
-          if (onProgress) {
-            onProgress({
-              percent: (completed / totalSegments) * 100,
-              downloaded: completed,
-              total: totalSegments,
-            });
-          }
-        }
-      );
+          onProgress?.({
+            percent: (completed / totalSegments) * 100,
+            phase: "downloading",
+            downloadedSegments: completed,
+            totalSegments,
+          });
+        },
+      });
 
       if (!audioSuccess) {
-        if (existsSync(tempVideoPath)) unlinkSync(tempVideoPath);
         return {
           success: false,
           error: "Failed to download audio segments",
@@ -643,8 +400,8 @@ export async function downloadLoomVideo(
         };
       }
 
-      // Merge with ffmpeg
-      const mergeSuccess = await mergeWithFfmpeg(tempVideoPath, tempAudioPath, outputPath);
+      onProgress?.({ percent: 95, phase: "merging" });
+      const mergeSuccess = await mergeVideoAudio(tempVideoPath, tempAudioPath, outputPath);
       if (!mergeSuccess) {
         return {
           success: false,
@@ -653,18 +410,22 @@ export async function downloadLoomVideo(
         };
       }
 
+      onProgress?.({ percent: 100, phase: "complete" });
       return { success: true };
     } else {
-      // No ffmpeg - download video only with warning
       console.warn("⚠️  ffmpeg not found - downloading video without audio");
     }
   }
 
-  // Download video only (no audio or no ffmpeg)
-  const success = await downloadSegmentsToFile(videoSegments, outputPath, (curr, total) => {
-    if (onProgress) {
-      onProgress({ percent: (curr / total) * 100, downloaded: curr, total });
-    }
+  const success = await downloadSegmentsToFile(videoSegments, outputPath, {
+    onProgress: (curr, total) => {
+      onProgress?.({
+        percent: (curr / total) * 100,
+        phase: "downloading",
+        downloadedSegments: curr,
+        totalSegments: total,
+      });
+    },
   });
 
   if (!success) {
@@ -676,84 +437,8 @@ export async function downloadLoomVideo(
     };
   }
 
+  onProgress?.({ percent: 100, phase: "complete" });
   return { success: true };
 }
 
-/**
- * Downloads a file directly.
- */
-export async function downloadFile(
-  url: string,
-  outputPath: string,
-  onProgress?: (progress: DownloadProgress) => void,
-  cookies?: string,
-  referer?: string
-): Promise<{ success: boolean; error?: string }> {
-  if (existsSync(outputPath)) {
-    return { success: true };
-  }
-
-  const dir = dirname(outputPath);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-
-  const tempPath = `${outputPath}.tmp`;
-
-  try {
-    const headers: Record<string, string> = {
-      "User-Agent": USER_AGENT,
-      Referer: referer ?? "https://www.loom.com/",
-    };
-    if (cookies) {
-      headers.Cookie = cookies;
-    }
-
-    const response = await fetch(url, { headers });
-
-    if (!response.ok) {
-      return { success: false, error: `HTTP ${response.status}` };
-    }
-
-    const contentLength = response.headers.get("content-length");
-    const total = contentLength ? parseInt(contentLength, 10) : 0;
-
-    if (!response.body) {
-      return { success: false, error: "No response body" };
-    }
-
-    const fileStream = createWriteStream(tempPath);
-    const reader = response.body.getReader();
-    let downloaded = 0;
-
-    const readable = new Readable({
-      read() {
-        reader
-          .read()
-          .then(({ done, value }) => {
-            if (done) {
-              this.push(null);
-            } else {
-              downloaded += value.length;
-              if (onProgress && total > 0) {
-                onProgress({ percent: (downloaded / total) * 100, downloaded, total });
-              }
-              this.push(Buffer.from(value));
-            }
-          })
-          .catch((err: unknown) => {
-            this.destroy(err instanceof Error ? err : new Error(String(err)));
-          });
-      },
-    });
-
-    await finished(readable.pipe(fileStream));
-    renameSync(tempPath, outputPath);
-
-    return { success: true };
-  } catch (error) {
-    if (existsSync(tempPath)) unlinkSync(tempPath);
-    return { success: false, error: error instanceof Error ? error.message : String(error) };
-  }
-}
 /* v8 ignore stop */

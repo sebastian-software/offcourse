@@ -137,8 +137,8 @@
 
   <!-- Why Section -->
   <section class="py-20 px-6 border-y border-slate-800/50">
-    <div class="max-w-4xl mx-auto">
-      <div class="grid md:grid-cols-3 gap-8 text-center">
+    <div class="max-w-5xl mx-auto">
+      <div class="grid md:grid-cols-4 gap-8 text-center">
         <div>
           <p class="text-4xl font-bold text-brand-400 mb-2">100%</p>
           <p class="text-slate-400 text-sm">Yours to keep. Downloaded content stays on your drive forever.</p>
@@ -146,6 +146,10 @@
         <div>
           <p class="text-4xl font-bold text-emerald-400 mb-2">1 cmd</p>
           <p class="text-slate-400 text-sm">Paste a URL, hit enter. No config files, no setup wizards.</p>
+        </div>
+        <div>
+          <p class="text-4xl font-bold text-cyan-400 mb-2">3×</p>
+          <p class="text-slate-400 text-sm">Parallel downloads. Fetch multiple videos simultaneously.</p>
         </div>
         <div>
           <p class="text-4xl font-bold text-purple-400 mb-2">0 lock-in</p>
@@ -202,16 +206,16 @@
           <div class="w-12 h-12 bg-cyan-500/20 rounded-xl flex items-center justify-center mb-4">
             <img src="icon-zap.svg" alt="" class="w-6 h-6" style="filter: invert(60%) sepia(98%) saturate(1000%) hue-rotate(160deg);">
           </div>
-          <h3 class="text-lg font-semibold mb-2">Resumable Syncs</h3>
-          <p class="text-slate-400 text-sm">Already downloaded content is skipped. Sync incrementally as courses update.</p>
+          <h3 class="text-lg font-semibold mb-2">Parallel Downloads</h3>
+          <p class="text-slate-400 text-sm">Multiple videos download simultaneously. Configurable concurrency for maximum speed.</p>
         </div>
 
         <div class="feature-card bg-slate-800/30 border border-slate-700/50 rounded-2xl p-6 transition-all duration-300">
           <div class="w-12 h-12 bg-pink-500/20 rounded-xl flex items-center justify-center mb-4">
             <img src="icon-terminal.svg" alt="" class="w-6 h-6" style="filter: invert(60%) sepia(98%) saturate(1000%) hue-rotate(290deg);">
           </div>
-          <h3 class="text-lg font-semibold mb-2">Auto-Detection</h3>
-          <p class="text-slate-400 text-sm">Just paste a URL. Platform is detected automatically. Simple as that.</p>
+          <h3 class="text-lg font-semibold mb-2">Resumable Syncs</h3>
+          <p class="text-slate-400 text-sm">Already downloaded content is skipped. Sync incrementally as courses update.</p>
         </div>
       </div>
     </div>
@@ -586,6 +590,29 @@
             </div>
           </div>
         </div>
+
+        <!-- Challenge 6: Parallel Processing -->
+        <div class="bg-slate-800/20 rounded-2xl p-6 border border-slate-700/30">
+          <div class="flex items-start gap-4">
+            <div class="w-10 h-10 bg-gradient-to-br from-brand-500/20 to-purple-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
+              <img src="icon-zap.svg" alt="" class="w-5 h-5" style="filter: invert(70%) sepia(80%) saturate(500%) hue-rotate(200deg);">
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold mb-2">Parallel Processing Architecture</h3>
+              <p class="text-slate-400 text-sm mb-3">Downloading 50+ videos sequentially takes forever. But naive parallelism breaks rate limits, exceeds memory, and scrambles output.</p>
+              <div class="bg-slate-900/50 rounded-lg p-4 border border-slate-700/30">
+                <p class="text-slate-500 text-xs mb-2 font-mono">Our approach:</p>
+                <p class="text-slate-300 text-sm">We use a bounded async queue with configurable concurrency (default: 3). Each download runs independently with proper error isolation. Failed downloads don't crash the queue—they're retried automatically with exponential backoff. Progress is tracked per-video and aggregated for the overall sync.</p>
+              </div>
+              <div class="mt-4 flex flex-wrap gap-2">
+                <span class="bg-slate-800/80 text-slate-400 text-xs px-2.5 py-1 rounded-full">p-queue</span>
+                <span class="bg-slate-800/80 text-slate-400 text-xs px-2.5 py-1 rounded-full">p-retry</span>
+                <span class="bg-slate-800/80 text-slate-400 text-xs px-2.5 py-1 rounded-full">Error Isolation</span>
+                <span class="bg-slate-800/80 text-slate-400 text-xs px-2.5 py-1 rounded-full">Progress Aggregation</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Tech Stack -->
@@ -596,6 +623,7 @@
           <span class="bg-slate-800/50 px-4 py-2 rounded-full text-slate-300 text-sm border border-slate-700/50">Playwright</span>
           <span class="bg-slate-800/50 px-4 py-2 rounded-full text-slate-300 text-sm border border-slate-700/50">Commander.js</span>
           <span class="bg-slate-800/50 px-4 py-2 rounded-full text-slate-300 text-sm border border-slate-700/50">Zod</span>
+          <span class="bg-slate-800/50 px-4 py-2 rounded-full text-slate-300 text-sm border border-slate-700/50">p-queue</span>
           <span class="bg-slate-800/50 px-4 py-2 rounded-full text-slate-300 text-sm border border-slate-700/50">ffmpeg</span>
           <span class="bg-slate-800/50 px-4 py-2 rounded-full text-slate-300 text-sm border border-slate-700/50">hls-parser</span>
         </div>

@@ -335,31 +335,50 @@ export async function syncLearningSuiteCommand(
     const courseDir = await createCourseDirectory(config.outputDir, courseSlug);
     console.log(chalk.gray(`\n📁 Output: ${courseDir}\n`));
 
-    // Process lessons
+    // Process lessons - build task list first, then process in parallel
     const videoTasks: VideoDownloadTask[] = [];
     let contentExtracted = 0;
     let skipped = 0;
     let skippedLocked = 0;
-    let processed = 0;
 
-    // Calculate accessible lessons (excluding locked)
-    const accessibleLessonsCount = courseStructure.modules.reduce(
-      (sum, mod) => (mod.isLocked ? sum : sum + mod.lessons.filter((l) => !l.isLocked).length),
-      0
-    );
+    // Build list of lessons to process with their metadata
+    interface LessonTask {
+      lesson: (typeof courseStructure.modules)[0]["lessons"][0];
+      lessonIndex: number;
+      moduleDir: string;
+      moduleIndex: number;
+    }
+    const lessonTasks: LessonTask[] = [];
+
+    // Calculate accessible lessons and build task list
+    for (const [modIndex, module] of courseStructure.modules.entries()) {
+      if (module.isLocked) continue;
+
+      const moduleDir = await createModuleDirectory(courseDir, modIndex, module.title);
+
+      for (const [lessonIndex, lesson] of module.lessons.entries()) {
+        if (lesson.isLocked) {
+          skippedLocked++;
+          continue;
+        }
+        lessonTasks.push({ lesson, lessonIndex, moduleDir, moduleIndex: modIndex });
+      }
+    }
 
     // Apply limit
     const lessonLimit = options.limit;
-    let totalToProcess = accessibleLessonsCount;
+    let totalToProcess = lessonTasks.length;
     if (lessonLimit) {
-      totalToProcess = Math.min(accessibleLessonsCount, lessonLimit);
+      totalToProcess = Math.min(lessonTasks.length, lessonLimit);
+      lessonTasks.splice(lessonLimit); // Trim to limit
       console.log(chalk.yellow(`   Limiting to ${totalToProcess} lessons\n`));
     }
 
-    // Phase 2: Extract content and queue downloads
+    // Phase 2: Extract content and queue downloads (parallel)
+    const extractionConcurrency = config.extractionConcurrency;
     const phase2Label = options.skipContent
-      ? `🎬 Scanning ${totalToProcess} lessons for videos...`
-      : `📝 Extracting content for ${totalToProcess} lessons...`;
+      ? `🎬 Scanning ${totalToProcess} lessons for videos (${extractionConcurrency}x parallel)...`
+      : `📝 Extracting content for ${totalToProcess} lessons (${extractionConcurrency}x parallel)...`;
     console.log(chalk.blue(`\n${phase2Label}\n`));
 
     const contentProgressBar = new cliProgress.SingleBar(
@@ -375,141 +394,151 @@ export async function syncLearningSuiteCommand(
 
     contentProgressBar.start(totalToProcess, 0, { status: "Starting..." });
 
-    for (const [modIndex, module] of courseStructure.modules.entries()) {
-      if (!shouldContinue()) break;
-      if (lessonLimit && processed >= lessonLimit) break;
-
-      if (module.isLocked) {
-        continue;
+    // Create worker pages for parallel extraction
+    const workerPages: import("playwright").Page[] = [];
+    try {
+      for (let i = 0; i < extractionConcurrency; i++) {
+        const page = await session.context.newPage();
+        workerPages.push(page);
       }
+    } catch {
+      console.error(
+        chalk.yellow("\n   Could not create parallel tabs, falling back to sequential")
+      );
+      // Fallback: use the main session page only
+      workerPages.push(session.page);
+    }
 
-      const moduleDir = await createModuleDirectory(courseDir, modIndex, module.title);
+    // Thread-safe counters and task queue
+    let processed = 0;
+    const taskQueue = [...lessonTasks];
+    const resultsLock = { videoTasks, contentExtracted: 0, skipped: 0 };
 
-      for (const [lessonIndex, lesson] of module.lessons.entries()) {
-        if (!shouldContinue()) break;
-        if (lessonLimit && processed >= lessonLimit) break;
+    // Worker function to process a single lesson
+    const processLesson = async (
+      page: import("playwright").Page,
+      task: LessonTask
+    ): Promise<void> => {
+      const { lesson, lessonIndex, moduleDir } = task;
 
-        // Skip locked lessons
-        if (lesson.isLocked) {
-          skippedLocked++;
-          continue;
+      try {
+        const syncStatus = await isLessonSynced(moduleDir, lessonIndex, lesson.title);
+        const needsContent = !options.skipContent && !syncStatus.content;
+        const needsVideo = !options.skipVideos && !syncStatus.video;
+
+        if (!needsContent && !needsVideo) {
+          resultsLock.skipped++;
+          return;
         }
+
+        // Get full lesson URL
+        const lessonUrl = getLearningSuiteLessonUrl(
+          courseStructure.domain,
+          courseStructure.courseSlug ?? courseStructure.course.id,
+          courseStructure.course.id,
+          lesson.moduleId,
+          lesson.id
+        );
+
+        // Extract content
+        const content = await extractLearningSuitePostContent(
+          page,
+          lessonUrl,
+          courseStructure.tenantId,
+          courseStructure.course.id,
+          lesson.id
+        );
+
+        if (content) {
+          // Save markdown if needed
+          if (needsContent) {
+            const markdown = formatLearningSuiteMarkdown(
+              content.title,
+              content.description,
+              content.htmlContent
+            );
+
+            await saveMarkdown(
+              moduleDir,
+              createFolderName(lessonIndex, lesson.title) + ".md",
+              markdown
+            );
+
+            // Download attachments
+            for (const attachment of content.attachments) {
+              if (attachment.url) {
+                const attachmentPath = join(
+                  moduleDir,
+                  `${createFolderName(lessonIndex, lesson.title)}-${attachment.name}`
+                );
+                await downloadFile(attachment.url, attachmentPath);
+              }
+            }
+
+            resultsLock.contentExtracted++;
+          } else {
+            resultsLock.skipped++;
+          }
+
+          // Queue video download
+          if (needsVideo && content.video?.url) {
+            const videoUrl = content.video.hlsUrl ?? content.video.url;
+            resultsLock.videoTasks.push({
+              lessonId: lesson.id as unknown as number,
+              lessonName: lesson.title,
+              videoUrl,
+              videoType: mapVideoType(content.video.type, videoUrl),
+              outputPath: getVideoPath(moduleDir, lessonIndex, lesson.title),
+              preferredQuality: options.quality,
+            });
+          }
+        }
+      } catch {
+        // Log error but continue processing
+        const shortName =
+          lesson.title.length > 30 ? lesson.title.substring(0, 27) + "..." : lesson.title;
+        console.error(`\n   ⚠️ Error: ${shortName}`);
+      }
+    };
+
+    // Process tasks with worker pool
+    const runWorker = async (page: import("playwright").Page): Promise<void> => {
+      while (shouldContinue() && taskQueue.length > 0) {
+        const task = taskQueue.shift();
+        if (!task) break;
 
         const shortName =
-          lesson.title.length > 40 ? lesson.title.substring(0, 37) + "..." : lesson.title;
-        contentProgressBar.update(processed, { status: shortName });
+          task.lesson.title.length > 40
+            ? task.lesson.title.substring(0, 37) + "..."
+            : task.lesson.title;
 
-        // Check if already synced
-        const syncStatus = await isLessonSynced(moduleDir, lessonIndex, lesson.title);
-
-        if (!options.skipContent && !syncStatus.content) {
-          try {
-            // Get full lesson URL
-            const lessonUrl = getLearningSuiteLessonUrl(
-              courseStructure.domain,
-              courseStructure.courseSlug ?? courseStructure.course.id,
-              courseStructure.course.id,
-              lesson.moduleId, // Use lesson's own moduleId (topicId) for correct URL
-              lesson.id
-            );
-
-            // Extract content
-            const content = await extractLearningSuitePostContent(
-              session.page,
-              lessonUrl,
-              courseStructure.tenantId,
-              courseStructure.course.id,
-              lesson.id
-            );
-
-            if (content) {
-              // Save markdown
-              const markdown = formatLearningSuiteMarkdown(
-                content.title,
-                content.description,
-                content.htmlContent
-              );
-
-              await saveMarkdown(
-                moduleDir,
-                createFolderName(lessonIndex, lesson.title) + ".md",
-                markdown
-              );
-
-              // Download attachments
-              for (const attachment of content.attachments) {
-                if (attachment.url) {
-                  const attachmentPath = join(
-                    moduleDir,
-                    `${createFolderName(lessonIndex, lesson.title)}-${attachment.name}`
-                  );
-                  await downloadFile(attachment.url, attachmentPath);
-                }
-              }
-
-              // Queue video download
-              if (!options.skipVideos && !syncStatus.video && content.video?.url) {
-                const videoUrl = content.video.hlsUrl ?? content.video.url;
-                videoTasks.push({
-                  lessonId: lesson.id as unknown as number,
-                  lessonName: lesson.title,
-                  videoUrl,
-                  videoType: mapVideoType(content.video.type, videoUrl),
-                  outputPath: getVideoPath(moduleDir, lessonIndex, lesson.title),
-                  preferredQuality: options.quality,
-                });
-              }
-
-              contentExtracted++;
-            }
-          } catch (error) {
-            console.error(`\nError extracting ${lesson.title}:`, error);
-          }
-        } else {
-          skipped++;
-
-          // Still queue video if content was skipped but video not downloaded
-          if (!options.skipVideos && !syncStatus.video) {
-            try {
-              const lessonUrl = getLearningSuiteLessonUrl(
-                courseStructure.domain,
-                courseStructure.courseSlug ?? courseStructure.course.id,
-                courseStructure.course.id,
-                lesson.moduleId, // Use lesson's own moduleId (topicId) for correct URL
-                lesson.id
-              );
-
-              const content = await extractLearningSuitePostContent(
-                session.page,
-                lessonUrl,
-                courseStructure.tenantId,
-                courseStructure.course.id,
-                lesson.id
-              );
-
-              if (content?.video?.url) {
-                const videoUrl = content.video.hlsUrl ?? content.video.url;
-                videoTasks.push({
-                  lessonId: lesson.id as unknown as number,
-                  lessonName: lesson.title,
-                  videoUrl,
-                  videoType: mapVideoType(content.video.type, videoUrl),
-                  outputPath: getVideoPath(moduleDir, lessonIndex, lesson.title),
-                  preferredQuality: options.quality,
-                });
-              }
-            } catch {
-              // Skip if we can't get video URL
-            }
-          }
-        }
+        await processLesson(page, task);
 
         processed++;
         contentProgressBar.update(processed, { status: shortName });
       }
+    };
+
+    // Start all workers
+    const workerPromises = workerPages.map((page) => runWorker(page));
+    await Promise.all(workerPromises);
+
+    // Close worker pages (except the main session page)
+    for (const page of workerPages) {
+      if (page !== session.page) {
+        try {
+          await page.close();
+        } catch {
+          // Ignore close errors
+        }
+      }
     }
 
     contentProgressBar.stop();
+
+    // Update counters from results lock
+    contentExtracted = resultsLock.contentExtracted;
+    skipped = resultsLock.skipped;
 
     // Print content summary
     console.log();

@@ -1,5 +1,5 @@
 import type { Page } from "playwright";
-import { parseHLSPlaylist } from "../../downloader/hlsDownloader.js";
+import { parseHLSPlaylist } from "../../downloader/shared/index.js";
 import {
   FirebaseAuthTokenSchema,
   PostDetailsResponseSchema,

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { parseHighLevelVideoUrl } from "./hlsDownloader.js";
 import {
-  parseHLSPlaylist,
-  parseHighLevelVideoUrl,
-  isSegmentsUrl,
-  parseSegmentsUrl,
   createSegmentsUrl,
+  isSegmentsUrl,
+  parseHLSPlaylist,
+  parseSegmentsUrl,
   SEGMENTS_URL_PREFIX,
-} from "./hlsDownloader.js";
+} from "./shared/index.js";
 
 describe("parseHLSPlaylist", () => {
   const baseUrl = "https://cdn.example.com/video/";

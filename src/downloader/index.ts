@@ -1,9 +1,10 @@
 /**
  * Video download coordination - delegates to type-specific downloaders.
  */
-import { downloadFile, downloadLoomVideo, type DownloadProgress } from "./loomDownloader.js";
+import { downloadLoomVideo } from "./loomDownloader.js";
 import { downloadVimeoVideo } from "./vimeoDownloader.js";
 import { downloadHighLevelVideo, downloadHLSVideo } from "./hlsDownloader.js";
+import { downloadFile, type DownloadResult, type ProgressCallback } from "./shared/index.js";
 
 export interface VideoDownloadTask {
   lessonId: number;
@@ -20,21 +21,10 @@ export interface VideoDownloadTask {
     | "unknown"
     | null;
   outputPath: string;
-  /** Optional preferred quality (e.g., "720p", "1080p") */
   preferredQuality?: string | undefined;
-  /** Optional cookies for authenticated downloads */
   cookies?: string | undefined;
-  /** Optional referer URL for authenticated downloads */
   referer?: string | undefined;
-  /** Optional auth token (API key) for authenticated downloads */
   authToken?: string | undefined;
-}
-
-export interface DownloadResult {
-  success: boolean;
-  error?: string | undefined;
-  errorCode?: string | undefined;
-  details?: string | undefined;
 }
 
 /**
@@ -42,7 +32,7 @@ export interface DownloadResult {
  */
 export async function downloadVideo(
   task: VideoDownloadTask,
-  onProgress?: (progress: DownloadProgress) => void
+  onProgress?: ProgressCallback
 ): Promise<DownloadResult> {
   const { videoUrl, videoType, outputPath, preferredQuality, cookies, referer, authToken } = task;
 
@@ -54,15 +44,12 @@ export async function downloadVideo(
       return downloadVimeoVideo(videoUrl, outputPath, onProgress);
 
     case "native":
-      // Direct MP4/WebM URL - download directly
-      return downloadFile(videoUrl, outputPath, onProgress, cookies, referer);
+      return downloadFile(videoUrl, outputPath, { onProgress, cookies, referer });
 
     case "hls":
-      // Generic HLS stream
       return downloadHLSVideo(videoUrl, outputPath, onProgress, cookies, referer, authToken);
 
     case "highlevel":
-      // HighLevel HLS video with quality selection
       return downloadHighLevelVideo(
         videoUrl,
         outputPath,
@@ -75,7 +62,6 @@ export async function downloadVideo(
 
     case "youtube":
     case "wistia":
-      // These require yt-dlp or special handling
       return {
         success: false,
         error: `${videoType} videos are not yet supported. Consider installing yt-dlp. Video URL: ${videoUrl}`,
@@ -84,11 +70,9 @@ export async function downloadVideo(
 
     case "unknown":
     default:
-      // Try direct download as fallback
       if (/\.(mp4|webm|mov)(\?|$)/i.exec(videoUrl)) {
-        return downloadFile(videoUrl, outputPath, onProgress, cookies, referer);
+        return downloadFile(videoUrl, outputPath, { onProgress, cookies, referer });
       }
-      // Try HLS if it looks like a playlist
       if (/\.m3u8(\?|$)/i.exec(videoUrl)) {
         return downloadHLSVideo(videoUrl, outputPath, onProgress, cookies, referer, authToken);
       }
@@ -99,14 +83,17 @@ export async function downloadVideo(
   }
 }
 
+// Loom
 export {
-  downloadFile,
   downloadLoomVideo,
   extractLoomId,
   getLoomVideoInfoDetailed,
-  type DownloadProgress,
+  type LoomDownloadResult,
   type LoomFetchResult,
+  type LoomVideoInfo,
 } from "./loomDownloader.js";
+
+// Vimeo
 export {
   downloadVimeoVideo,
   extractVimeoId,
@@ -116,21 +103,40 @@ export {
   type VimeoFetchResult,
   type VimeoVideoInfo,
 } from "./vimeoDownloader.js";
-export { AsyncQueue, type QueueItem, type QueueOptions } from "./queue.js";
+
+// HLS
 export {
-  validateLoomHls,
-  validateVideoHls,
-  validateVimeoVideo,
-  type HlsValidationResult,
-} from "./hlsValidator.js";
-export {
-  checkFfmpeg,
   downloadHighLevelVideo,
   downloadHLSVideo,
   fetchHLSQualities,
   getBestQualityUrl,
   parseHighLevelVideoUrl,
-  parseHLSPlaylist,
   type HLSDownloadResult,
-  type HLSQuality,
 } from "./hlsDownloader.js";
+
+// Queue
+export { AsyncQueue, type QueueItem, type QueueOptions } from "./queue.js";
+
+// Validator
+export { validateLoomHls, validateVideoHls, validateVimeoVideo } from "./hlsValidator.js";
+
+// Shared utilities & types
+export {
+  checkFfmpeg,
+  createSegmentsUrl,
+  downloadFile,
+  isSegmentsUrl,
+  parseHLSPlaylist,
+  parseSegmentsUrl,
+  SEGMENTS_URL_PREFIX,
+  type DownloadOptions,
+  type DownloadPhase,
+  type DownloadProgress,
+  type DownloadResult,
+  type DownloadResultWithDuration,
+  type FetchResult,
+  type HlsValidationResult,
+  type HLSQuality,
+  type ProgressCallback,
+  type VideoInfo,
+} from "./shared/index.js";

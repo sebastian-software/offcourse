@@ -251,7 +251,14 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
     }
 
     // Phase 3: Extract content and queue downloads
-    let videoTasks = await extractContentAndQueueVideos(session.page, db, courseDir, options);
+    let videoTasks = await extractContentAndQueueVideos(
+      session.context,
+      session.page,
+      db,
+      courseDir,
+      config,
+      options
+    );
 
     // Phase 4: Download videos with auto-retry
     const MAX_RETRIES = 3;
@@ -577,12 +584,14 @@ async function validateVideos(
 }
 
 /**
- * Phase 3: Extract content and queue video downloads.
+ * Phase 3: Extract content and queue video downloads (parallel).
  */
 async function extractContentAndQueueVideos(
-  page: import("playwright").Page,
+  context: import("playwright").BrowserContext,
+  mainPage: import("playwright").Page,
   db: CourseDatabase,
   courseDir: string,
+  config: { extractionConcurrency: number },
   options: SyncOptions
 ): Promise<VideoDownloadTask[]> {
   // Get lessons ready for download
@@ -593,9 +602,41 @@ async function extractContentAndQueueVideos(
     return [];
   }
 
+  // Build task list with pre-created module directories
+  interface LessonTask {
+    lesson: LessonWithModule;
+    moduleDir: string;
+  }
+  const lessonTasks: LessonTask[] = [];
+
+  // Group lessons by module for directory creation
+  const lessonsByModule = new Map<string, LessonWithModule[]>();
+  for (const lesson of lessonsToProcess) {
+    const key = `${lesson.modulePosition}-${lesson.moduleSlug}`;
+    const moduleLessons = lessonsByModule.get(key) ?? [];
+    moduleLessons.push(lesson);
+    lessonsByModule.set(key, moduleLessons);
+  }
+
+  // Create module directories and build task list
+  for (const [, lessons] of lessonsByModule) {
+    const firstLesson = lessons[0];
+    if (!firstLesson) continue;
+    const moduleDir = await createModuleDirectory(
+      courseDir,
+      firstLesson.modulePosition,
+      firstLesson.moduleName
+    );
+    for (const lesson of lessons) {
+      lessonTasks.push({ lesson, moduleDir });
+    }
+  }
+
+  // Phase 3: Extract content and queue downloads (parallel)
+  const extractionConcurrency = config.extractionConcurrency;
   const phase3Label = options.skipContent
-    ? `🎬 Scanning ${lessonsToProcess.length} lessons for videos...`
-    : `📝 Extracting content for ${lessonsToProcess.length} lessons...`;
+    ? `🎬 Scanning ${lessonTasks.length} lessons for videos (${extractionConcurrency}x parallel)...`
+    : `📝 Extracting content for ${lessonTasks.length} lessons (${extractionConcurrency}x parallel)...`;
   console.log(chalk.blue(`\n${phase3Label}\n`));
 
   // Create progress bar
@@ -610,49 +651,38 @@ async function extractContentAndQueueVideos(
     cliProgress.Presets.shades_grey
   );
 
-  progressBar.start(lessonsToProcess.length, 0, { status: "Starting..." });
+  progressBar.start(lessonTasks.length, 0, { status: "Starting..." });
 
-  const videoTasks: VideoDownloadTask[] = [];
-  let contentExtracted = 0;
-  let contentSkipped = 0;
-  let filesDownloadedTotal = 0;
-  let processed = 0;
-
-  // Group lessons by module for directory creation
-  const lessonsByModule = new Map<string, LessonWithModule[]>();
-  for (const lesson of lessonsToProcess) {
-    const key = `${lesson.modulePosition}-${lesson.moduleSlug}`;
-    const moduleLessons = lessonsByModule.get(key) ?? [];
-    moduleLessons.push(lesson);
-    lessonsByModule.set(key, moduleLessons);
+  // Create worker pages for parallel extraction
+  const workerPages: import("playwright").Page[] = [];
+  try {
+    for (let i = 0; i < extractionConcurrency; i++) {
+      const page = await context.newPage();
+      workerPages.push(page);
+    }
+  } catch {
+    console.error(chalk.yellow("\n   Could not create parallel tabs, falling back to sequential"));
+    workerPages.push(mainPage);
   }
 
-  for (const [, lessons] of lessonsByModule) {
-    // Check for graceful shutdown
-    if (!shouldContinue()) {
-      progressBar.stop();
-      console.log(chalk.yellow("\n   Stopping content extraction (shutdown requested)"));
-      break;
-    }
+  // Thread-safe counters and task queue
+  let processed = 0;
+  const taskQueue = [...lessonTasks];
+  const resultsLock = {
+    videoTasks: [] as VideoDownloadTask[],
+    contentExtracted: 0,
+    contentSkipped: 0,
+    filesDownloadedTotal: 0,
+  };
 
-    const firstLesson = lessons[0];
-    if (!firstLesson) continue;
-    const moduleDir = await createModuleDirectory(
-      courseDir,
-      firstLesson.modulePosition,
-      firstLesson.moduleName
-    );
+  // Worker function to process a single lesson
+  const processLesson = async (
+    page: import("playwright").Page,
+    task: LessonTask
+  ): Promise<void> => {
+    const { lesson, moduleDir } = task;
 
-    for (const lesson of lessons) {
-      // Check for graceful shutdown
-      if (!shouldContinue()) {
-        break;
-      }
-
-      const shortName =
-        lesson.name.length > 40 ? lesson.name.substring(0, 37) + "..." : lesson.name;
-      progressBar.update(processed, { status: shortName });
-
+    try {
       const syncStatus = await isLessonSynced(moduleDir, lesson.position, lesson.name);
 
       // Check if content already exists
@@ -679,21 +709,21 @@ async function extractContentAndQueueVideos(
               );
               const result = await downloadFile(file.url, filePath);
               if (result.success) {
-                filesDownloadedTotal++;
+                resultsLock.filesDownloadedTotal++;
               }
             }
           }
-          contentExtracted++;
+          resultsLock.contentExtracted++;
         } catch {
           // Error extracting content, continue with next lesson
         }
       } else {
-        contentSkipped++;
+        resultsLock.contentSkipped++;
       }
 
       // Queue video for download if not already downloaded
       if (!options.skipVideos && !syncStatus.video && lesson.videoUrl && lesson.videoType) {
-        videoTasks.push({
+        resultsLock.videoTasks.push({
           lessonId: lesson.id,
           lessonName: lesson.name,
           videoUrl: lesson.hlsUrl ?? lesson.videoUrl,
@@ -701,9 +731,39 @@ async function extractContentAndQueueVideos(
           outputPath: getVideoPath(moduleDir, lesson.position, lesson.name),
         });
       }
+    } catch {
+      // Error processing lesson
+    }
+  };
+
+  // Process tasks with worker pool
+  const runWorker = async (page: import("playwright").Page): Promise<void> => {
+    while (shouldContinue() && taskQueue.length > 0) {
+      const task = taskQueue.shift();
+      if (!task) break;
+
+      const shortName =
+        task.lesson.name.length > 40 ? task.lesson.name.substring(0, 37) + "..." : task.lesson.name;
+
+      await processLesson(page, task);
 
       processed++;
       progressBar.update(processed, { status: shortName });
+    }
+  };
+
+  // Start all workers
+  const workerPromises = workerPages.map((page) => runWorker(page));
+  await Promise.all(workerPromises);
+
+  // Close worker pages (except the main page)
+  for (const page of workerPages) {
+    if (page !== mainPage) {
+      try {
+        await page.close();
+      } catch {
+        // Ignore close errors
+      }
     }
   }
 
@@ -712,12 +772,15 @@ async function extractContentAndQueueVideos(
   // Print summary
   console.log();
   const parts: string[] = [];
-  if (contentExtracted > 0) parts.push(chalk.green(`${contentExtracted} extracted`));
-  if (contentSkipped > 0) parts.push(chalk.gray(`${contentSkipped} cached`));
-  if (filesDownloadedTotal > 0) parts.push(chalk.blue(`${filesDownloadedTotal} files`));
+  if (resultsLock.contentExtracted > 0)
+    parts.push(chalk.green(`${resultsLock.contentExtracted} extracted`));
+  if (resultsLock.contentSkipped > 0)
+    parts.push(chalk.gray(`${resultsLock.contentSkipped} cached`));
+  if (resultsLock.filesDownloadedTotal > 0)
+    parts.push(chalk.blue(`${resultsLock.filesDownloadedTotal} files`));
   console.log(`   Content: ${parts.join(", ")}`);
 
-  return videoTasks;
+  return resultsLock.videoTasks;
 }
 
 /**

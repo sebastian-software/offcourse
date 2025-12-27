@@ -20,6 +20,7 @@ export const configSchema = z.object({
   outputDir: z.string().default("~/Downloads/offcourse"),
   videoQuality: z.enum(["highest", "lowest", "1080p", "720p", "480p"]).default("highest"),
   concurrency: z.number().int().min(1).max(5).default(2),
+  extractionConcurrency: z.number().int().min(1).max(8).default(4),
   retryAttempts: z.number().int().min(0).max(10).default(3),
   headless: z.boolean().default(true),
 });

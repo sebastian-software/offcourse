@@ -13,7 +13,8 @@ import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { checkFfmpeg, downloadHLSVideo, fetchHLSQualities } from "./hlsDownloader.js";
+import { downloadHLSVideo, fetchHLSQualities } from "./hlsDownloader.js";
+import { checkFfmpeg } from "./shared/index.js";
 
 // Test fixtures - HLS streams for testing
 const TEST_STREAMS = {
