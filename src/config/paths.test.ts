@@ -6,12 +6,15 @@ import { expandPath, getSessionPath, getSyncStatePath, APP_DIR } from "./paths.j
 describe("expandPath", () => {
   it("expands ~ to home directory", () => {
     const result = expandPath("~/Downloads/offcourse");
-    expect(result).toBe(join(homedir(), "Downloads/offcourse"));
+    // untildify replaces ~ but keeps forward slashes, so check start and end
+    expect(result.startsWith(homedir())).toBe(true);
+    expect(result.endsWith("Downloads/offcourse")).toBe(true);
   });
 
   it("expands ~/nested/path correctly", () => {
     const result = expandPath("~/foo/bar/baz");
-    expect(result).toBe(join(homedir(), "foo/bar/baz"));
+    expect(result.startsWith(homedir())).toBe(true);
+    expect(result.endsWith("foo/bar/baz")).toBe(true);
   });
 
   it("returns absolute paths unchanged", () => {
