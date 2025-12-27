@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.3.0](https://github.com/sebastian-software/offcourse/compare/v1.2.2...v1.3.0) (2025-12-27)
+
+### Features
+
+* add integration test infrastructure with combined Codecov coverage ([5113cc6](https://github.com/sebastian-software/offcourse/commit/5113cc62594ab0da2b89d282362587b7a3403189))
+* add self-hosted HLS test stream for integration tests ([5c56175](https://github.com/sebastian-software/offcourse/commit/5c56175e654a7a71e98557d312078bd21df74479))
+
+### Bug Fixes
+
+* **cli:** ensure browser always closes and process exits cleanly ([fab14ec](https://github.com/sebastian-software/offcourse/commit/fab14ecfc69c48bc4f234f5a7f01eb8bce602e2a))
+* codecov config - don't require both flags simultaneously ([8a04c6a](https://github.com/sebastian-software/offcourse/commit/8a04c6ab302f91ad890d3ba10511e8c651ad0cd8))
+* **downloader:** use unique temp directories for parallel segment downloads ([cec6c37](https://github.com/sebastian-software/offcourse/commit/cec6c37f2edd9d9adef782bcc20395354bf8a07a))
+* handle untildify behavior in expandPath tests ([ee4e192](https://github.com/sebastian-software/offcourse/commit/ee4e19239ef153d32cef3431c7a92eb57cd1a856))
+* **learningsuite:** auto-dismiss MUI modal dialogs before interactions ([b80959c](https://github.com/sebastian-software/offcourse/commit/b80959c6f5156c3785f4bd64fecdd9b2151b30f0))
+* **learningsuite:** capture all HLS segments by seeking through video ([822db9a](https://github.com/sebastian-software/offcourse/commit/822db9af83beefbd92773b7eb2afd84aef35b3f3))
+* make fileSystem tests cross-platform compatible ([8f64516](https://github.com/sebastian-software/offcourse/commit/8f64516655c4d7808089bff72fb2804c067b3a8f))
+* make path tests cross-platform compatible ([11c81b6](https://github.com/sebastian-software/offcourse/commit/11c81b694463f183497e3e314b71d2aa855deccc))
+* optimize integration tests for speed ([0bd826c](https://github.com/sebastian-software/offcourse/commit/0bd826c2df938e3194ee87251599446df4ec5034))
+* skip slow HLS download test by default in integration tests ([d724434](https://github.com/sebastian-software/offcourse/commit/d724434aba091bb22507bd3280968674311a41d9))
+* update vitest config for v4 (remove deprecated poolOptions) ([f603fcc](https://github.com/sebastian-software/offcourse/commit/f603fcc4ea5848c10e88277f2d4b57b1ba60afdf))
+* use pnpm instead of npm in CI workflow ([776b67f](https://github.com/sebastian-software/offcourse/commit/776b67fbd65787871a81d02b3f32c3d92ca070a5))
+
 ## [1.2.2](https://github.com/sebastian-software/offcourse/compare/v1.2.1...v1.2.2) (2025-12-23)
 
 ### Bug Fixes
