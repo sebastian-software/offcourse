@@ -433,3 +433,216 @@ export async function captureLoomHls(
 
   return capturedUrl ? { hlsUrl: capturedUrl } : { hlsUrl: null, error: "HLS URL not captured" };
 }
+
+// ============================================================================
+// Encrypted HLS Segment Capture
+// ============================================================================
+
+/**
+ * Options for capturing encrypted HLS segments.
+ */
+export interface CaptureEncryptedHLSOptions {
+  /**
+   * Pattern to match CDN segment URLs (e.g., /b-cdn\.net.*\.ts/)
+   * Must match URLs that contain the video segments with their auth tokens.
+   */
+  cdnPattern: RegExp;
+
+  /**
+   * Approximate duration of each segment in seconds.
+   * Used to calculate seek positions. Default: 4 (Bunny CDN default)
+   */
+  segmentDuration?: number;
+
+  /**
+   * Interval between seek positions in seconds.
+   * Should be ~3x segmentDuration to ensure all segments are captured.
+   * Default: 12
+   */
+  seekInterval?: number;
+
+  /**
+   * Maximum time to wait for video duration to be available (ms).
+   * Default: 10000
+   */
+  durationTimeout?: number;
+}
+
+/**
+ * Result of encrypted HLS segment capture.
+ */
+export interface CaptureEncryptedHLSResult {
+  /** Array of segment URLs with their individual auth tokens */
+  segmentUrls: string[];
+
+  /** Video duration in seconds (if detected) */
+  videoDuration: number | null;
+
+  /** Error message if capture failed */
+  error?: string;
+}
+
+/**
+ * Captures encrypted HLS segment URLs by intercepting network requests during video playback.
+ *
+ * ## Why This Is Needed
+ *
+ * Some platforms (like LearningSuite with Bunny CDN) use encrypted HLS playlists:
+ * - The playlist API returns encrypted data, not standard `#EXTM3U`
+ * - JavaScript decrypts it client-side
+ * - Each `.ts` segment has a unique, short-lived auth token
+ * - HLS players load segments on-demand, not all at once
+ *
+ * ## How It Works
+ *
+ * 1. Sets up request interception to capture segment URLs
+ * 2. Clicks play to start video playback
+ * 3. Gets video duration from the player
+ * 4. Seeks through the entire video timeline to trigger all segment requests
+ * 5. Returns all captured segment URLs sorted by segment number
+ *
+ * ## Usage
+ *
+ * ```typescript
+ * const result = await captureEncryptedHLSSegments(page, {
+ *   cdnPattern: /b-cdn\.net.*\.ts.*token=/,
+ * });
+ *
+ * if (result.segmentUrls.length > 0) {
+ *   const segmentsUrl = `segments:${Buffer.from(JSON.stringify(result.segmentUrls)).toString("base64")}`;
+ *   // Pass to downloadHLSVideo or downloadHLSSegments
+ * }
+ * ```
+ *
+ * @param page Playwright page with video player loaded
+ * @param options Configuration for segment capture
+ * @returns Captured segment URLs and metadata
+ */
+export async function captureEncryptedHLSSegments(
+  page: Page,
+  options: CaptureEncryptedHLSOptions
+): Promise<CaptureEncryptedHLSResult> {
+  const {
+    cdnPattern,
+    segmentDuration = 4,
+    seekInterval = segmentDuration * 3,
+    durationTimeout = 10000,
+  } = options;
+
+  const segmentUrls: string[] = [];
+
+  // Set up request interception
+  const requestHandler = (request: { url: () => string }) => {
+    const url = request.url();
+    if (cdnPattern.test(url) && !segmentUrls.includes(url)) {
+      segmentUrls.push(url);
+    }
+  };
+
+  page.on("request", requestHandler);
+
+  try {
+    // Try to start video playback
+    const playSelectors = [
+      '[aria-label*="play" i]',
+      '[class*="play" i]',
+      'button[class*="Play"]',
+      '[data-testid*="play"]',
+      "video",
+    ];
+
+    for (const selector of playSelectors) {
+      try {
+        const element = page.locator(selector).first();
+        if (await element.isVisible({ timeout: 1000 }).catch(() => false)) {
+          await element.click({ timeout: 2000 });
+          await page.waitForTimeout(2000);
+          break;
+        }
+      } catch {
+        // Try next selector
+      }
+    }
+
+    // Get video duration
+    let videoDuration = 0;
+    const startTime = Date.now();
+
+    while (videoDuration === 0 && Date.now() - startTime < durationTimeout) {
+      videoDuration = await page.evaluate(() => {
+        const video = document.querySelector("video");
+        return video?.duration ?? 0;
+      });
+
+      if (videoDuration === 0 || !Number.isFinite(videoDuration)) {
+        videoDuration = 0;
+        await page.waitForTimeout(500);
+      }
+    }
+
+    if (videoDuration === 0) {
+      return {
+        segmentUrls: [...new Set(segmentUrls)],
+        videoDuration: null,
+        error: "Could not determine video duration",
+      };
+    }
+
+    // Generate seek positions throughout the video
+    const seekPositions: number[] = [];
+    for (let t = 0; t < videoDuration; t += seekInterval) {
+      seekPositions.push(t);
+    }
+    // Always include near the end
+    seekPositions.push(Math.max(0, videoDuration - 2));
+    seekPositions.push(Math.max(0, videoDuration - 0.5));
+
+    // Seek through video to trigger all segment requests
+    for (const seekTime of seekPositions) {
+      await page.evaluate((time) => {
+        const video = document.querySelector("video");
+        if (video) {
+          video.currentTime = time;
+        }
+      }, seekTime);
+      await page.waitForTimeout(800);
+    }
+
+    // Seek back to start
+    await page.evaluate(() => {
+      const video = document.querySelector("video");
+      if (video) {
+        video.currentTime = 0;
+      }
+    });
+
+    // Give time for final segment requests
+    await page.waitForTimeout(1500);
+
+    // Sort segments by number (e.g., video0.ts, video1.ts, ...)
+    const sortedSegments = [...new Set(segmentUrls)].sort((a, b) => {
+      const numA = parseInt(/video(\d+)\.ts/.exec(a)?.[1] ?? "0", 10);
+      const numB = parseInt(/video(\d+)\.ts/.exec(b)?.[1] ?? "0", 10);
+      return numA - numB;
+    });
+
+    return {
+      segmentUrls: sortedSegments,
+      videoDuration,
+    };
+  } finally {
+    page.off("request", requestHandler);
+  }
+}
+
+/**
+ * Creates a `segments:` URL from an array of segment URLs.
+ * This URL can be passed to `downloadHLSVideo` or `downloadHLSSegments`.
+ *
+ * @param segmentUrls Array of segment URLs with auth tokens
+ * @returns Data URL in format `segments:base64encodedJSON`
+ */
+export function createSegmentsUrl(segmentUrls: string[]): string {
+  const segmentData = JSON.stringify(segmentUrls);
+  return `segments:${Buffer.from(segmentData).toString("base64")}`;
+}

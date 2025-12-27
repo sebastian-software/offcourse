@@ -395,6 +395,12 @@ export async function extractAttachmentsFromPage(
  * - Download each segment individually with its token
  * - Concatenate segments using `ffmpeg -f concat`
  *
+ * ## Reusability
+ *
+ * This implementation is LearningSuite-specific due to additional playlist response parsing.
+ * For other platforms with encrypted HLS, use the generic `captureEncryptedHLSSegments()`
+ * function from `videoInterceptor.ts` which handles the core capture logic.
+ *
  * Note: LearningSuite uses persisted GraphQL queries, so we can't make arbitrary API calls.
  */
 export async function extractLearningSuitePostContent(
