@@ -537,8 +537,10 @@ export function parseHighLevelVideoUrl(url: string): {
 }
 
 /**
- * Downloads HLS video from individual segment URLs (for encrypted HLS with per-segment tokens)
+ * Downloads HLS video from individual segment URLs (for encrypted HLS with per-segment tokens).
+ * This function performs network I/O and runs ffmpeg - not unit testable.
  */
+/* v8 ignore start */
 async function downloadHLSSegments(
   segmentsUrl: string,
   outputPath: string,
@@ -671,3 +673,4 @@ async function downloadHLSSegments(
     };
   }
 }
+/* v8 ignore stop */

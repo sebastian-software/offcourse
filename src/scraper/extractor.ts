@@ -51,6 +51,17 @@ turndown.addRule("links", {
   },
 });
 
+/**
+ * Converts HTML content to Markdown using configured Turndown instance.
+ * Handles images and links with custom formatting.
+ */
+export function convertHtmlToMarkdown(html: string): string {
+  if (!html?.trim()) {
+    return "";
+  }
+  return turndown.turndown(html);
+}
+
 // Browser automation functions - require Playwright
 /* v8 ignore start */
 

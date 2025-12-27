@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { extractLoomVideoId, formatMarkdown, getFileType } from "./extractor.js";
+import {
+  extractLoomVideoId,
+  formatMarkdown,
+  getFileType,
+  convertHtmlToMarkdown,
+} from "./extractor.js";
 
 describe("extractLoomVideoId", () => {
   it("extracts ID from embed URL", () => {
@@ -120,5 +125,85 @@ describe("getFileType", () => {
     expect(getFileType("PDF")).toBe("pdf");
     expect(getFileType("DOCX")).toBe("docx");
     expect(getFileType("ZIP")).toBe("zip");
+  });
+});
+
+describe("convertHtmlToMarkdown", () => {
+  it("converts basic HTML to markdown", () => {
+    const html = "<p>Hello world</p>";
+    const result = convertHtmlToMarkdown(html);
+    expect(result).toBe("Hello world");
+  });
+
+  it("converts headings", () => {
+    const html = "<h1>Title</h1><h2>Subtitle</h2>";
+    const result = convertHtmlToMarkdown(html);
+    expect(result).toContain("# Title");
+    expect(result).toContain("## Subtitle");
+  });
+
+  it("converts images with alt text", () => {
+    const html = '<img src="https://example.com/image.png" alt="My Image">';
+    const result = convertHtmlToMarkdown(html);
+    expect(result).toBe("![My Image](https://example.com/image.png)");
+  });
+
+  it("converts images without alt text", () => {
+    const html = '<img src="https://example.com/image.png">';
+    const result = convertHtmlToMarkdown(html);
+    expect(result).toBe("![](https://example.com/image.png)");
+  });
+
+  it("converts links with different text", () => {
+    const html = '<a href="https://example.com">Click here</a>';
+    const result = convertHtmlToMarkdown(html);
+    expect(result).toBe("[Click here](https://example.com)");
+  });
+
+  it("preserves plain text for links where text equals href", () => {
+    const html = '<a href="https://example.com">https://example.com</a>';
+    const result = convertHtmlToMarkdown(html);
+    expect(result).toBe("https://example.com");
+  });
+
+  it("handles links without href", () => {
+    const html = "<a>Just text</a>";
+    const result = convertHtmlToMarkdown(html);
+    expect(result).toBe("Just text");
+  });
+
+  it("converts bullet lists", () => {
+    const html = "<ul><li>Item 1</li><li>Item 2</li></ul>";
+    const result = convertHtmlToMarkdown(html);
+    // Turndown adds extra spacing, but uses our configured bullet marker
+    expect(result).toContain("-");
+    expect(result).toContain("Item 1");
+    expect(result).toContain("Item 2");
+  });
+
+  it("converts code blocks", () => {
+    const html = "<pre><code>const x = 1;</code></pre>";
+    const result = convertHtmlToMarkdown(html);
+    expect(result).toContain("```");
+    expect(result).toContain("const x = 1;");
+  });
+
+  it("returns empty string for empty input", () => {
+    expect(convertHtmlToMarkdown("")).toBe("");
+    expect(convertHtmlToMarkdown("   ")).toBe("");
+  });
+
+  it("handles complex nested HTML", () => {
+    const html = `
+      <div>
+        <h1>Lesson Title</h1>
+        <p>This is a paragraph with <a href="https://example.com">a link</a>.</p>
+        <img src="https://example.com/img.jpg" alt="Screenshot">
+      </div>
+    `;
+    const result = convertHtmlToMarkdown(html);
+    expect(result).toContain("# Lesson Title");
+    expect(result).toContain("[a link](https://example.com)");
+    expect(result).toContain("![Screenshot](https://example.com/img.jpg)");
   });
 });

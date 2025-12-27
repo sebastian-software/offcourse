@@ -24,9 +24,8 @@ export interface LearningSuitePostContent {
 }
 
 // ============================================================================
-// Browser/API Automation
+// Pure Utility Functions (Testable)
 // ============================================================================
-/* v8 ignore start */
 
 /**
  * Detects the video type from a URL.
@@ -55,6 +54,11 @@ export function detectVideoType(url: string): LearningSuiteVideoInfo["type"] {
 
   return "unknown";
 }
+
+// ============================================================================
+// Browser/API Automation (Playwright-dependent)
+// ============================================================================
+/* v8 ignore start */
 
 /**
  * Extracts video information from a lesson page.
