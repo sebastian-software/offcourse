@@ -19,13 +19,8 @@ export default defineConfig({
     // Longer timeouts for network/browser operations
     testTimeout: 60000,
     hookTimeout: 30000,
-    // Run tests sequentially to avoid resource conflicts
-    pool: "forks",
-    poolOptions: {
-      forks: {
-        singleFork: true,
-      },
-    },
+    // Run tests sequentially to avoid resource conflicts (Vitest 4 syntax)
+    fileParallelism: false,
     coverage: {
       provider: "v8",
       // Output to separate directory for merging
@@ -40,4 +35,3 @@ export default defineConfig({
     },
   },
 });
-
