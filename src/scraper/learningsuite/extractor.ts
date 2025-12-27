@@ -387,6 +387,7 @@ export async function extractLearningSuitePostContent(
 
   // Handler for requests - capture segment URLs with tokens
   const segmentUrls: string[] = [];
+
   const requestHandler = (request: { url: () => string }) => {
     const url = request.url();
 
@@ -428,7 +429,6 @@ export async function extractLearningSuitePostContent(
           const headers = response.headers();
           const location = headers.location;
           if (location?.includes("b-cdn.net")) {
-            console.log(`[DEBUG] Redirect to CDN: ${location.substring(0, 100)}...`);
             if (!hlsUrls.includes(location)) {
               hlsUrls.unshift(location); // Priority
             }
@@ -437,27 +437,57 @@ export async function extractLearningSuitePostContent(
         }
 
         if (status === 200) {
-          const contentType = response.headers()["content-type"] ?? "";
-
-          // If it's a direct playlist response
-          if (contentType.includes("mpegurl") || contentType.includes("m3u8")) {
-            // The API proxy is serving the playlist directly - construct CDN URL from .ts requests
-            // We'll capture the CDN base URL from .ts segment requests instead
-            return;
-          }
-
           const text = await response.text();
 
           // Check if it's HLS playlist content
           if (text.startsWith("#EXTM3U")) {
-            console.log(`[DEBUG] Got HLS playlist from API proxy`);
+            // Extract ALL segment URLs from the playlist
+            // Lines that end with .ts and include tokens are segments
+            const lines = text.split("\n");
+            let baseUrl = "";
+
+            // First, try to find the base URL from full URLs in the playlist
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (trimmed.startsWith("http") && trimmed.includes("b-cdn.net")) {
+                const match = /(https?:\/\/[^/]+\/[^/]+\/)/.exec(trimmed);
+                if (match?.[1]) {
+                  baseUrl = match[1];
+                  break;
+                }
+              }
+            }
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              // Skip comment lines and empty lines
+              if (trimmed.startsWith("#") || trimmed === "") continue;
+
+              // Check if this line is a segment URL (contains .ts)
+              if (trimmed.includes(".ts")) {
+                let segmentUrl = trimmed;
+
+                // If it's a full URL, add it directly
+                if (trimmed.startsWith("http")) {
+                  if (!segmentUrls.includes(segmentUrl)) {
+                    segmentUrls.push(segmentUrl);
+                  }
+                } else if (baseUrl && trimmed.includes("token=")) {
+                  // Relative URL with token - construct full URL
+                  segmentUrl = baseUrl + trimmed;
+                  if (!segmentUrls.includes(segmentUrl)) {
+                    segmentUrls.push(segmentUrl);
+                  }
+                }
+              }
+            }
+
             // Extract CDN base URL from playlist content
             const cdnMatch = /(https?:\/\/vz-[^"'\s]+\.b-cdn\.net\/[^"'\s]+)/g.exec(text);
             if (cdnMatch?.[1]) {
-              const baseUrl = cdnMatch[1].replace(/\/[^/]+\.ts.*$/, "/playlist.m3u8");
-              console.log(`[DEBUG] Extracted CDN base: ${baseUrl}`);
-              if (!hlsUrls.includes(baseUrl)) {
-                hlsUrls.unshift(baseUrl);
+              const extractedBase = cdnMatch[1].replace(/\/[^/]+\.ts.*$/, "/playlist.m3u8");
+              if (!hlsUrls.includes(extractedBase)) {
+                hlsUrls.unshift(extractedBase);
               }
             }
           }
@@ -468,7 +498,6 @@ export async function extractLearningSuitePostContent(
           while ((match = cdnUrlRegex.exec(text)) !== null) {
             const cdnUrl = match[1];
             if (cdnUrl && !hlsUrls.includes(cdnUrl)) {
-              console.log(`[DEBUG] Found CDN URL in response: ${cdnUrl.substring(0, 80)}...`);
               hlsUrls.push(cdnUrl);
             }
           }
@@ -494,45 +523,77 @@ export async function extractLearningSuitePostContent(
     .then(() => true)
     .catch(() => false);
 
-  // If video player exists but no HLS URL captured yet, try to trigger video load
-  if (hasVideoPlayer && hlsUrls.length === 0) {
-    // Try multiple approaches to trigger video loading
-
-    // 1. Try clicking play button
+  // If video player exists, trigger video load and seek to capture ALL segments
+  if (hasVideoPlayer) {
+    // Try clicking play button first
     const playButton = page.locator(
       '[aria-label*="play" i], [class*="play" i], button[class*="Play"], [data-testid*="play"]'
     );
     try {
       await playButton.first().click({ timeout: 2000 });
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(2000);
     } catch {
-      // Play button not found
-    }
-
-    // 2. Try clicking the video element directly
-    if (hlsUrls.length === 0) {
+      // Play button not found, try clicking video directly
       try {
         await page.locator("video").first().click({ timeout: 2000 });
-        await page.waitForTimeout(3000);
+        await page.waitForTimeout(2000);
       } catch {
         // Video not clickable
       }
     }
 
-    // 3. Try hovering over video to trigger autoplay
-    if (hlsUrls.length === 0) {
-      try {
-        await page.locator("video, [class*='video']").first().hover({ timeout: 2000 });
-        await page.waitForTimeout(3000);
-      } catch {
-        // Hover failed
-      }
-    }
-  }
+    // Get video duration and seek to multiple positions to capture all segments
+    // HLS players load segments on-demand, so we need to seek to trigger loading
+    try {
+      const videoDuration = await page.evaluate(() => {
+        const video = document.querySelector("video");
+        return video?.duration ?? 0;
+      });
 
-  // Give more time for lazy-loaded videos and CDN URL extraction
-  if (hlsUrls.length === 0 && hasVideoPlayer) {
-    await page.waitForTimeout(5000);
+      if (videoDuration > 0) {
+        // Calculate expected segment count (assuming ~4s per segment for Bunny CDN)
+        const segmentDuration = 4; // Bunny CDN uses ~4 second segments
+
+        // For longer videos, we need to seek to MORE positions
+        // HLS players typically buffer ~3-4 segments ahead
+        // So we need to seek every ~12-16 seconds to capture all segments
+        const seekInterval = segmentDuration * 3; // Seek every ~12 seconds
+        const seekPositions: number[] = [];
+
+        // Generate seek positions throughout the video
+        for (let t = 0; t < videoDuration; t += seekInterval) {
+          seekPositions.push(t);
+        }
+        // Always include near the end
+        seekPositions.push(videoDuration - 2);
+        seekPositions.push(videoDuration - 0.5);
+
+        for (const seekTime of seekPositions) {
+          await page.evaluate((time) => {
+            const video = document.querySelector("video");
+            if (video) {
+              video.currentTime = time;
+            }
+          }, seekTime);
+          // Wait for segments to load - shorter wait since we have many positions
+          await page.waitForTimeout(800);
+        }
+
+        // Seek back to start
+        await page.evaluate(() => {
+          const video = document.querySelector("video");
+          if (video) {
+            video.currentTime = 0;
+          }
+        });
+        await page.waitForTimeout(500);
+      }
+    } catch {
+      // Seek failed
+    }
+
+    // Give more time for all segment requests to complete
+    await page.waitForTimeout(1500);
   }
 
   // Remove handlers
