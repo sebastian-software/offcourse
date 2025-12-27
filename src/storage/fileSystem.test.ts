@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   getLessonBasename,
@@ -23,42 +24,42 @@ describe("fileSystem", () => {
   describe("getVideoPath", () => {
     it("creates video path with .mp4 extension", () => {
       const path = getVideoPath("/courses/my-course/01-intro", 0, "Welcome");
-      expect(path).toBe("/courses/my-course/01-intro/01-welcome.mp4");
+      expect(path).toBe(join("/courses/my-course/01-intro", "01-welcome.mp4"));
     });
 
     it("handles nested paths", () => {
       const path = getVideoPath("/home/user/Downloads/courses/test", 5, "Lesson Six");
-      expect(path).toBe("/home/user/Downloads/courses/test/06-lesson-six.mp4");
+      expect(path).toBe(join("/home/user/Downloads/courses/test", "06-lesson-six.mp4"));
     });
   });
 
   describe("getMarkdownPath", () => {
     it("creates markdown path with .md extension", () => {
       const path = getMarkdownPath("/courses/my-course/01-intro", 0, "Welcome");
-      expect(path).toBe("/courses/my-course/01-intro/01-welcome.md");
+      expect(path).toBe(join("/courses/my-course/01-intro", "01-welcome.md"));
     });
   });
 
   describe("getDownloadFilePath", () => {
     it("prefixes filename with lesson basename", () => {
       const path = getDownloadFilePath("/module", 2, "Resources", "workbook.pdf");
-      expect(path).toBe("/module/03-resources-workbook.pdf");
+      expect(path).toBe(join("/module", "03-resources-workbook.pdf"));
     });
 
     it("sanitizes dangerous filename characters", () => {
       // Characters that are invalid in filenames on various OS
       const path = getDownloadFilePath("/module", 0, "Intro", 'file<>:"/\\|?*.pdf');
-      expect(path).toBe("/module/01-intro-file_________.pdf");
+      expect(path).toBe(join("/module", "01-intro-file_________.pdf"));
     });
 
     it("preserves safe special characters", () => {
       const path = getDownloadFilePath("/module", 0, "Intro", "my-file_v2 (1).pdf");
-      expect(path).toBe("/module/01-intro-my-file_v2 (1).pdf");
+      expect(path).toBe(join("/module", "01-intro-my-file_v2 (1).pdf"));
     });
 
     it("handles filenames with multiple extensions", () => {
       const path = getDownloadFilePath("/module", 0, "Intro", "archive.tar.gz");
-      expect(path).toBe("/module/01-intro-archive.tar.gz");
+      expect(path).toBe(join("/module", "01-intro-archive.tar.gz"));
     });
   });
 });
