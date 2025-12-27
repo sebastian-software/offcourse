@@ -493,10 +493,27 @@
             </div>
             <div>
               <h3 class="text-lg font-semibold mb-2">Encrypted HLS Streams</h3>
-              <p class="text-slate-400 text-sm mb-3">Some platforms serve encrypted HLS playlists that are decrypted client-side. Standard downloaders fail because the playlist data is gibberish.</p>
+              <p class="text-slate-400 text-sm mb-3">Some platforms serve encrypted HLS playlists that are decrypted client-side. The API returns scrambled data like <code class="bg-slate-800 px-1.5 py-0.5 rounded text-xs">77a393e51f4b...</code> instead of standard <code class="bg-slate-800 px-1.5 py-0.5 rounded text-xs">#EXTM3U</code> playlists. Standard downloaders and even ffmpeg can't parse these.</p>
               <div class="bg-slate-900/50 rounded-lg p-4 border border-slate-700/30">
                 <p class="text-slate-500 text-xs mb-2 font-mono">Our approach:</p>
-                <p class="text-slate-300 text-sm">We intercept the actual <code class="bg-slate-800 px-1.5 py-0.5 rounded text-xs">.ts</code> video segments as the browser plays them, capture their individual auth tokens, download each segment, then concatenate them with <code class="bg-slate-800 px-1.5 py-0.5 rounded text-xs">ffmpeg</code>.</p>
+                <p class="text-slate-300 text-sm">We let the browser decrypt the playlist, then intercept the actual <code class="bg-slate-800 px-1.5 py-0.5 rounded text-xs">.ts</code> video segments as they're requested. Each segment has its own auth token that expires quickly. We capture all tokens, download each segment individually, then concatenate them with <code class="bg-slate-800 px-1.5 py-0.5 rounded text-xs">ffmpeg -f concat</code>.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Challenge 1b: On-Demand Segment Loading -->
+        <div class="bg-slate-800/20 rounded-2xl p-6 border border-slate-700/30">
+          <div class="flex items-start gap-4">
+            <div class="w-10 h-10 bg-pink-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
+              <img src="icon-play-circle.svg" alt="" class="w-5 h-5" style="filter: invert(70%) sepia(80%) saturate(500%) hue-rotate(280deg);">
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold mb-2">On-Demand Segment Loading</h3>
+              <p class="text-slate-400 text-sm mb-3">HLS players don't load all segments upfront—they fetch them on-demand as you watch. If you only watch the first 2 minutes, you only get those segments. A 30-minute video might download as a 2-minute clip.</p>
+              <div class="bg-slate-900/50 rounded-lg p-4 border border-slate-700/30">
+                <p class="text-slate-500 text-xs mb-2 font-mono">Our approach:</p>
+                <p class="text-slate-300 text-sm">We programmatically seek through the entire video timeline, triggering the player to request every segment. For a 5-minute video, we seek to positions every ~12 seconds, ensuring all 75+ segments are requested and captured. The full video downloads correctly every time.</p>
               </div>
             </div>
           </div>

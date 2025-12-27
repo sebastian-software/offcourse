@@ -373,6 +373,28 @@ export async function extractAttachmentsFromPage(
 
 /**
  * Extracts complete lesson content using DOM-based extraction with network interception.
+ *
+ * ## Video Download Strategy for LearningSuite (Bunny CDN)
+ *
+ * LearningSuite uses encrypted HLS playlists that cannot be downloaded directly:
+ *
+ * 1. **Encrypted Playlists**: The API returns encrypted data (e.g., `77a393e51f4b...`)
+ *    instead of standard `#EXTM3U` playlists. JavaScript decrypts them client-side.
+ *
+ * 2. **Per-Segment Tokens**: Each `.ts` segment has a unique, short-lived token.
+ *    These tokens are generated when the browser requests each segment.
+ *
+ * 3. **On-Demand Loading**: HLS players load segments on-demand during playback.
+ *    Simply loading the page only captures the first ~2 minutes of video.
+ *
+ * ## Our Solution
+ *
+ * - Intercept network requests to capture segment URLs with their tokens
+ * - Programmatically seek through the entire video timeline
+ * - This triggers the player to request ALL segments
+ * - Download each segment individually with its token
+ * - Concatenate segments using `ffmpeg -f concat`
+ *
  * Note: LearningSuite uses persisted GraphQL queries, so we can't make arbitrary API calls.
  */
 export async function extractLearningSuitePostContent(
@@ -385,7 +407,8 @@ export async function extractLearningSuitePostContent(
   // Set up request interception to capture HLS video URLs
   const hlsUrls: string[] = [];
 
-  // Handler for requests - capture segment URLs with tokens
+  // Capture segment URLs with their individual auth tokens
+  // Each .ts segment has a unique token like: video0.ts?token=abc123&expires=...
   const segmentUrls: string[] = [];
 
   const requestHandler = (request: { url: () => string }) => {
