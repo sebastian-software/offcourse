@@ -4,8 +4,12 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    include: ["src/**/*.test.ts"],
-    exclude: ["src/**/*.integration.test.ts", "node_modules/**"],
+    // Include both unit tests (*.test.ts) and integration tests (*.integration.test.ts)
+    include: ["src/**/*.test.ts", "src/**/*.integration.test.ts"],
+    exclude: ["node_modules/**"],
+    // Longer timeouts for integration tests with network/ffmpeg operations
+    testTimeout: 60000,
+    hookTimeout: 30000,
     coverage: {
       provider: "v8",
       reportsDirectory: "./coverage",
@@ -14,6 +18,7 @@ export default defineConfig({
       exclude: [
         // Test files
         "src/**/*.test.ts",
+        "src/**/*.integration.test.ts",
         // CLI commands (interactive, hard to test)
         "src/cli/**",
         // Re-export index files

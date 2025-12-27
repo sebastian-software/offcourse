@@ -26,11 +26,8 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
     "test": "vitest",
-    "test:unit": "vitest run",
+    "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:integration": "vitest run --config vitest.config.integration.ts",
-    "test:integration:coverage": "vitest run --config vitest.config.integration.ts --coverage",
-    "test:all": "npm run test:coverage && npm run test:integration:coverage",
     "typecheck": "tsc --noEmit",
     "release": "release-it",
     "prepare": "husky"

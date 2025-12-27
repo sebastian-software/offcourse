@@ -7,7 +7,6 @@ on:
     branches: [main]
 
 jobs:
-  # Fast unit tests on all platforms
   test:
     runs-on: ${{ matrix.os }}
 
@@ -38,54 +37,28 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
-      - name: Run unit tests with coverage
+      # Install ffmpeg for integration tests
+      - name: Install ffmpeg (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install ffmpeg (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install ffmpeg
+
+      - name: Install ffmpeg (Windows)
+        if: matrix.os == 'windows-latest'
+        run: choco install ffmpeg -y
+
+      - name: Run tests with coverage
         run: pnpm run test:coverage
 
-      - name: Upload unit test coverage
+      # Upload coverage only from Ubuntu/Node 22
+      - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage/lcov.info
-          flags: unit
-          fail_ci_if_error: false
-          verbose: true
-
-  # Slower integration tests (only on Linux with Node 22)
-  integration:
-    runs-on: ubuntu-latest
-    needs: test # Only run if unit tests pass
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: "pnpm"
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install chromium
-
-      - name: Run integration tests with coverage
-        run: pnpm run test:integration:coverage
-
-      - name: Upload integration test coverage
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage-integration/lcov.info
-          flags: integration
           fail_ci_if_error: false
           verbose: true

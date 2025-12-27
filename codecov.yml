@@ -16,18 +16,6 @@ coverage:
         target: 70%
         threshold: 10%
 
-# Define flags for different test types
-# carryforward merges with previous uploads when not all flags are present
-flags:
-  unit:
-    paths:
-      - src/
-    carryforward: true
-  integration:
-    paths:
-      - src/
-    carryforward: true
-
 # Ignore files from coverage report
 ignore:
   - "src/**/*.test.ts"
@@ -38,7 +26,7 @@ ignore:
 
 # Comment configuration for PRs
 comment:
-  layout: "reach,diff,flags,files"
+  layout: "reach,diff,files"
   behavior: default
   require_changes: false
   require_base: false
