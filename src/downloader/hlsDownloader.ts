@@ -126,6 +126,69 @@ export async function fetchHLSQualities(
   }
 }
 
+// ============================================================================
+// Segment URL Helpers
+// ============================================================================
+
+/**
+ * The prefix for segment-based download URLs.
+ * These URLs contain base64-encoded JSON arrays of individual segment URLs.
+ */
+export const SEGMENTS_URL_PREFIX = "segments:";
+
+/**
+ * Checks if a URL is a segments URL (for encrypted HLS segment downloads).
+ */
+export function isSegmentsUrl(url: string): boolean {
+  return url.startsWith(SEGMENTS_URL_PREFIX);
+}
+
+/**
+ * Parses a segments URL and returns the array of segment URLs.
+ * Returns null if parsing fails.
+ *
+ * @param segmentsUrl A URL in format `segments:base64encodedJSON`
+ * @returns Array of segment URLs or null if invalid
+ */
+export function parseSegmentsUrl(segmentsUrl: string): string[] | null {
+  if (!isSegmentsUrl(segmentsUrl)) {
+    return null;
+  }
+
+  try {
+    const base64Data = segmentsUrl.slice(SEGMENTS_URL_PREFIX.length);
+    const jsonString = Buffer.from(base64Data, "base64").toString("utf-8");
+    const parsed: unknown = JSON.parse(jsonString);
+
+    if (!Array.isArray(parsed)) {
+      return null;
+    }
+
+    // Validate that all items are strings
+    if (!parsed.every((item): item is string => typeof item === "string")) {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Creates a segments URL from an array of segment URLs.
+ * This is the inverse of parseSegmentsUrl.
+ */
+export function createSegmentsUrl(segmentUrls: string[]): string {
+  const jsonString = JSON.stringify(segmentUrls);
+  const base64Data = Buffer.from(jsonString).toString("base64");
+  return `${SEGMENTS_URL_PREFIX}${base64Data}`;
+}
+
+// ============================================================================
+// HLS Playlist Parsing
+// ============================================================================
+
 /**
  * Parses an HLS master playlist to extract quality variants.
  * Uses hls-parser for robust parsing.
