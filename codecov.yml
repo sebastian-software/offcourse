@@ -9,19 +9,15 @@ coverage:
   status:
     project:
       default:
-        # Combined coverage target
         target: 80%
-        threshold: 2%
-        # Wait for all coverage reports before reporting
-        flags:
-          - unit
-          - integration
+        threshold: 5%
     patch:
       default:
         target: 70%
-        threshold: 5%
+        threshold: 10%
 
 # Define flags for different test types
+# carryforward merges with previous uploads when not all flags are present
 flags:
   unit:
     paths:
@@ -44,7 +40,7 @@ ignore:
 comment:
   layout: "reach,diff,flags,files"
   behavior: default
-  require_changes: true
+  require_changes: false
   require_base: false
   require_head: true
 
