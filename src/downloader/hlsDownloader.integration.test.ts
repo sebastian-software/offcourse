@@ -3,7 +3,7 @@
  *
  * These tests require:
  * - ffmpeg installed and in PATH
- * - Network access (for real HLS streams)
+ * - Network access (for HLS streams)
  * - Temp directory for output files
  *
  * Run with: npm run test:integration
@@ -15,15 +15,14 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { checkFfmpeg, downloadHLSVideo, fetchHLSQualities } from "./hlsDownloader.js";
 
-// Test fixtures - public HLS streams for testing
+// Test fixtures - HLS streams for testing
 const TEST_STREAMS = {
-  // Apple's bipbop master playlist (for quality detection)
+  // Our own tiny test stream hosted on GitHub Pages (~40KB, 4 seconds)
+  local: "https://sebastian-software.github.io/offcourse/test-stream/playlist.m3u8",
+  // Apple's bipbop master playlist (for quality detection, has multiple qualities)
   bipbopMaster:
     "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8",
 };
-
-// Full download tests are slow - skip in CI unless explicitly enabled
-const RUN_SLOW_TESTS = process.env.INTEGRATION_SLOW === "true";
 
 describe("HLS Downloader Integration", () => {
   let tempDir: string;
@@ -84,29 +83,25 @@ describe("HLS Downloader Integration", () => {
       expect(result.errorCode).toBeDefined();
     }, 15000);
 
-    // Full download test - only run when INTEGRATION_SLOW=true
-    it.skipIf(!RUN_SLOW_TESTS)(
-      "should download complete HLS stream (slow, set INTEGRATION_SLOW=true)",
-      async () => {
-        const outputPath = join(tempDir, "test-video.mp4");
+    // Download test using our tiny hosted test stream (~40KB, 4 seconds)
+    it("should download our test HLS stream", async () => {
+      const outputPath = join(tempDir, "test-video.mp4");
 
-        const progressUpdates: number[] = [];
-        const result = await downloadHLSVideo(TEST_STREAMS.bipbopMaster, outputPath, (progress) => {
-          progressUpdates.push(progress.percent);
-        });
+      const progressUpdates: number[] = [];
+      const result = await downloadHLSVideo(TEST_STREAMS.local, outputPath, (progress) => {
+        progressUpdates.push(progress.percent);
+      });
 
-        expect(result.success).toBe(true);
-        expect(result.outputPath).toBe(outputPath);
-        expect(existsSync(outputPath)).toBe(true);
+      expect(result.success).toBe(true);
+      expect(result.outputPath).toBe(outputPath);
+      expect(existsSync(outputPath)).toBe(true);
 
-        // Check file size is reasonable
-        const stats = statSync(outputPath);
-        expect(stats.size).toBeGreaterThan(100 * 1024);
+      // Check file size is reasonable (our test stream is ~40KB)
+      const stats = statSync(outputPath);
+      expect(stats.size).toBeGreaterThan(10 * 1024);
 
-        // Should have received progress updates
-        expect(progressUpdates.length).toBeGreaterThan(0);
-      },
-      300000 // 5 minute timeout
-    );
+      // Should have received progress updates
+      expect(progressUpdates.length).toBeGreaterThan(0);
+    }, 30000); // 30 second timeout should be plenty for ~40KB
   });
 });
