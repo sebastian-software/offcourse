@@ -1,20 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { homedir } from "node:os";
-import { join } from "node:path";
 import { expandPath, getSessionPath, getSyncStatePath, APP_DIR } from "./paths.js";
+
+/** Normalize path to POSIX format for cross-platform test assertions */
+const toPosix = (p: string) => p.replace(/\\/g, "/");
 
 describe("expandPath", () => {
   it("expands ~ to home directory", () => {
-    const result = expandPath("~/Downloads/offcourse");
-    // untildify replaces ~ but keeps forward slashes, so check start and end
-    expect(result.startsWith(homedir())).toBe(true);
-    expect(result.endsWith("Downloads/offcourse")).toBe(true);
+    const result = toPosix(expandPath("~/Downloads/offcourse"));
+    expect(result).toBe(`${toPosix(homedir())}/Downloads/offcourse`);
   });
 
   it("expands ~/nested/path correctly", () => {
-    const result = expandPath("~/foo/bar/baz");
-    expect(result.startsWith(homedir())).toBe(true);
-    expect(result.endsWith("foo/bar/baz")).toBe(true);
+    const result = toPosix(expandPath("~/foo/bar/baz"));
+    expect(result).toBe(`${toPosix(homedir())}/foo/bar/baz`);
   });
 
   it("returns absolute paths unchanged", () => {
@@ -28,7 +27,6 @@ describe("expandPath", () => {
   });
 
   it("handles just ~ correctly", () => {
-    // untildify expands ~ to home directory
     const result = expandPath("~");
     expect(result).toBe(homedir());
   });
@@ -41,9 +39,8 @@ describe("expandPath", () => {
 
 describe("getSessionPath", () => {
   it("generates correct session path for simple domain", () => {
-    const result = getSessionPath("example.com");
-    // Use platform-aware path check
-    expect(result).toBe(join(APP_DIR, "sessions", "example.com.json"));
+    const result = toPosix(getSessionPath("example.com"));
+    expect(result).toBe(`${toPosix(APP_DIR)}/sessions/example.com.json`);
   });
 
   it("sanitizes domains with special characters", () => {
@@ -64,9 +61,8 @@ describe("getSessionPath", () => {
 
 describe("getSyncStatePath", () => {
   it("generates correct sync state path for simple slug", () => {
-    const result = getSyncStatePath("my-course");
-    // Use platform-aware path check
-    expect(result).toBe(join(APP_DIR, "sync-state", "my-course.json"));
+    const result = toPosix(getSyncStatePath("my-course"));
+    expect(result).toBe(`${toPosix(APP_DIR)}/sync-state/my-course.json`);
   });
 
   it("sanitizes slugs with special characters", () => {

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { extractCommunitySlug, getDbDir, getDbPath } from "./database.js";
 import { CACHE_DIR } from "../config/paths.js";
-import { join } from "node:path";
+
+/** Normalize path to POSIX format for cross-platform test assertions */
+const toPosix = (p: string) => p.replace(/\\/g, "/");
 
 describe("extractCommunitySlug", () => {
   it("extracts slug from standard Skool URL", () => {
@@ -75,19 +77,14 @@ describe("getDbPath", () => {
   });
 
   it("joins CACHE_DIR with the slug-based filename", () => {
-    const path = getDbPath("test-slug");
-    expect(path).toBe(join(CACHE_DIR, "test-slug.db"));
+    const path = toPosix(getDbPath("test-slug"));
+    expect(path).toBe(`${toPosix(CACHE_DIR)}/test-slug.db`);
   });
 
   it("sanitizes special characters in slug", () => {
-    const path = getDbPath("my/special:slug*with?chars");
-    // Special chars should be replaced with underscore in the filename
-    const filename = path.split(/[\\/]/).pop() ?? "";
-    expect(filename).toBe("my_special_slug_with_chars.db");
-    expect(filename).not.toContain("/");
-    expect(filename).not.toContain(":");
-    expect(filename).not.toContain("*");
-    expect(filename).not.toContain("?");
+    const path = toPosix(getDbPath("my/special:slug*with?chars"));
+    // Special chars should be replaced with underscore
+    expect(path).toBe(`${toPosix(CACHE_DIR)}/my_special_slug_with_chars.db`);
   });
 
   it("preserves hyphens and underscores", () => {
@@ -96,7 +93,7 @@ describe("getDbPath", () => {
   });
 
   it("handles alphanumeric slugs unchanged", () => {
-    const path = getDbPath("Community123");
-    expect(path).toBe(join(CACHE_DIR, "Community123.db"));
+    const path = toPosix(getDbPath("Community123"));
+    expect(path).toBe(`${toPosix(CACHE_DIR)}/Community123.db`);
   });
 });
