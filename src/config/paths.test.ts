@@ -39,39 +39,41 @@ describe("expandPath", () => {
 describe("getSessionPath", () => {
   it("generates correct session path for simple domain", () => {
     const result = getSessionPath("example.com");
-    expect(result).toMatch(/\.offcourse\/sessions\/example\.com\.json$/);
+    // Use platform-aware path check
+    expect(result).toBe(join(APP_DIR, "sessions", "example.com.json"));
   });
 
   it("sanitizes domains with special characters", () => {
     const result = getSessionPath("sub.domain.com");
-    expect(result).toMatch(/sub\.domain\.com\.json$/);
+    expect(result.endsWith("sub.domain.com.json")).toBe(true);
   });
 
   it("replaces invalid filesystem characters with underscores", () => {
     const result = getSessionPath("example.com/path?query");
-    expect(result).toMatch(/example\.com_path_query\.json$/);
+    expect(result.endsWith("example.com_path_query.json")).toBe(true);
   });
 
   it("handles domains with ports", () => {
     const result = getSessionPath("localhost:3000");
-    expect(result).toMatch(/localhost_3000\.json$/);
+    expect(result.endsWith("localhost_3000.json")).toBe(true);
   });
 });
 
 describe("getSyncStatePath", () => {
   it("generates correct sync state path for simple slug", () => {
     const result = getSyncStatePath("my-course");
-    expect(result).toMatch(/\.offcourse\/sync-state\/my-course\.json$/);
+    // Use platform-aware path check
+    expect(result).toBe(join(APP_DIR, "sync-state", "my-course.json"));
   });
 
   it("sanitizes slugs with special characters", () => {
     const result = getSyncStatePath("Course Name: Special!");
-    expect(result).toMatch(/Course_Name__Special_\.json$/);
+    expect(result.endsWith("Course_Name__Special_.json")).toBe(true);
   });
 
   it("handles slugs with only valid characters", () => {
     const result = getSyncStatePath("valid-slug-123");
-    expect(result).toMatch(/valid-slug-123\.json$/);
+    expect(result.endsWith("valid-slug-123.json")).toBe(true);
   });
 });
 

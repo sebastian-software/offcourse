@@ -81,11 +81,13 @@ describe("getDbPath", () => {
 
   it("sanitizes special characters in slug", () => {
     const path = getDbPath("my/special:slug*with?chars");
-    // Special chars should be replaced with underscore
-    expect(path).not.toContain("/special");
-    expect(path).not.toContain(":");
-    expect(path).not.toContain("*");
-    expect(path).not.toContain("?");
+    // Special chars should be replaced with underscore in the filename
+    const filename = path.split(/[\\/]/).pop() ?? "";
+    expect(filename).toBe("my_special_slug_with_chars.db");
+    expect(filename).not.toContain("/");
+    expect(filename).not.toContain(":");
+    expect(filename).not.toContain("*");
+    expect(filename).not.toContain("?");
   });
 
   it("preserves hyphens and underscores", () => {
