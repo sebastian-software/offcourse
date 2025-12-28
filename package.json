@@ -16,7 +16,7 @@
   "bugs": {
     "url": "https://github.com/sebastian-software/offcourse/issues"
   },
-  "homepage": "https://offcourse.app",
+  "homepage": "https://sebastian-software.github.io/offcourse/",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc --watch",

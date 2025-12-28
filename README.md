@@ -48,15 +48,15 @@ offcourse sync <url> --limit 5          # Test with 5 lessons
 # Unlock sequential content (LearningSuite)
 offcourse complete <url>
 
-# Configuration
-offcourse config set outputDir ~/Courses
-offcourse config set videoQuality 720p
-offcourse config set extractionConcurrency 4  # Parallel browser tabs (1-8)
+# Configuration (optional)
+offcourse config set outputDir ~/Courses  # Default: current directory
+offcourse config set videoQuality 720p    # Default: highest
+offcourse config set concurrency 4        # Parallel browser tabs (1-8)
 ```
 
 ## Performance
 
-Content extraction runs in parallel using multiple browser tabs (default: 4). This speeds up extraction by ~4x compared to sequential processing. All tabs share the same session, so authentication works seamlessly.
+Both course scanning and content extraction run in parallel using multiple browser tabs (default: 4). This speeds up the entire process significantly compared to sequential processing. All tabs share the same authenticated session.
 
 ## Development
 

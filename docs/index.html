@@ -148,8 +148,8 @@
           <p class="text-slate-400 text-sm">Paste a URL, hit enter. No config files, no setup wizards.</p>
         </div>
         <div>
-          <p class="text-4xl font-bold text-cyan-400 mb-2">3×</p>
-          <p class="text-slate-400 text-sm">Parallel downloads. Fetch multiple videos simultaneously.</p>
+          <p class="text-4xl font-bold text-cyan-400 mb-2">4×</p>
+          <p class="text-slate-400 text-sm">Parallel processing. Scan and download using multiple browser tabs.</p>
         </div>
         <div>
           <p class="text-4xl font-bold text-purple-400 mb-2">0 lock-in</p>
@@ -206,8 +206,8 @@
           <div class="w-12 h-12 bg-cyan-500/20 rounded-xl flex items-center justify-center mb-4">
             <img src="icon-zap.svg" alt="" class="w-6 h-6" style="filter: invert(60%) sepia(98%) saturate(1000%) hue-rotate(160deg);">
           </div>
-          <h3 class="text-lg font-semibold mb-2">Parallel Downloads</h3>
-          <p class="text-slate-400 text-sm">Multiple videos download simultaneously. Configurable concurrency for maximum speed.</p>
+          <h3 class="text-lg font-semibold mb-2">Parallel Processing</h3>
+          <p class="text-slate-400 text-sm">Course scanning and content extraction run in parallel browser tabs for maximum speed.</p>
         </div>
 
         <div class="feature-card bg-slate-800/30 border border-slate-700/50 rounded-2xl p-6 transition-all duration-300">
@@ -407,17 +407,15 @@
       </p>
 
       <div class="code-block rounded-2xl p-6 border border-slate-700/50 font-mono text-sm">
-        <pre class="text-slate-300">~/Downloads/offcourse/
-└── <span class="text-brand-400">course-name</span>/
-    ├── <span class="text-purple-400">01-module-name</span>/
-    │   ├── <span class="text-emerald-400">01-lesson-name</span>/
-    │   │   ├── <span class="text-slate-400">content.md</span>
-    │   │   ├── <span class="text-yellow-400">video.mp4</span>
-    │   │   └── <span class="text-cyan-400">attachment.pdf</span>
-    │   └── <span class="text-emerald-400">02-another-lesson</span>/
-    │       └── ...
-    └── <span class="text-purple-400">02-next-module</span>/
-        └── ...</pre>
+        <pre class="text-slate-300"><span class="text-slate-500">./</span><span class="text-brand-400">course-name</span>/
+├── <span class="text-purple-400">01-module-name</span>/
+│   ├── <span class="text-slate-400">01-lesson-name.md</span>
+│   ├── <span class="text-yellow-400">01-lesson-name.mp4</span>
+│   ├── <span class="text-cyan-400">01-lesson-name-attachment.pdf</span>
+│   ├── <span class="text-slate-400">02-another-lesson.md</span>
+│   └── ...
+└── <span class="text-purple-400">02-next-module</span>/
+    └── ...</pre>
       </div>
     </div>
   </section>
@@ -599,16 +597,16 @@
             </div>
             <div>
               <h3 class="text-lg font-semibold mb-2">Parallel Processing Architecture</h3>
-              <p class="text-slate-400 text-sm mb-3">Downloading 50+ videos sequentially takes forever. But naive parallelism breaks rate limits, exceeds memory, and scrambles output.</p>
+              <p class="text-slate-400 text-sm mb-3">Scanning 50 modules and downloading 100+ videos sequentially takes forever. But naive parallelism breaks rate limits, exceeds memory, and scrambles output.</p>
               <div class="bg-slate-900/50 rounded-lg p-4 border border-slate-700/30">
                 <p class="text-slate-500 text-xs mb-2 font-mono">Our approach:</p>
-                <p class="text-slate-300 text-sm">We use a bounded async queue with configurable concurrency (default: 3). Each download runs independently with proper error isolation. Failed downloads don't crash the queue—they're retried automatically with exponential backoff. Progress is tracked per-video and aggregated for the overall sync.</p>
+                <p class="text-slate-300 text-sm">A shared worker pool manages multiple browser tabs (default: 4). Course scanning, content extraction, and video downloads all use this pool. Each worker processes tasks from a shared queue, maintaining result order. Failed tasks are retried with exponential backoff. Progress tracking aggregates across all workers in real-time.</p>
               </div>
               <div class="mt-4 flex flex-wrap gap-2">
-                <span class="bg-slate-800/80 text-slate-400 text-xs px-2.5 py-1 rounded-full">p-queue</span>
-                <span class="bg-slate-800/80 text-slate-400 text-xs px-2.5 py-1 rounded-full">p-retry</span>
+                <span class="bg-slate-800/80 text-slate-400 text-xs px-2.5 py-1 rounded-full">Worker Pool</span>
+                <span class="bg-slate-800/80 text-slate-400 text-xs px-2.5 py-1 rounded-full">Shared Queue</span>
                 <span class="bg-slate-800/80 text-slate-400 text-xs px-2.5 py-1 rounded-full">Error Isolation</span>
-                <span class="bg-slate-800/80 text-slate-400 text-xs px-2.5 py-1 rounded-full">Progress Aggregation</span>
+                <span class="bg-slate-800/80 text-slate-400 text-xs px-2.5 py-1 rounded-full">Real-time Progress</span>
               </div>
             </div>
           </div>
