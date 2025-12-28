@@ -63,6 +63,15 @@ src/
 │   ├── vimeoDownloader.ts  # Vimeo-specific download
 │   └── hlsDownloader.ts    # Generic HLS download (ffmpeg-based)
 │
+├── shared/                 # Shared utilities
+│   ├── index.ts            # Exports
+│   ├── auth.ts             # Session management
+│   ├── http.ts             # HTTP utilities
+│   ├── url.ts              # URL parsing utilities
+│   ├── slug.ts             # Slug generation
+│   ├── fs.ts               # File system utilities
+│   └── parallelWorker.ts   # Parallel processing with browser tabs
+│
 ├── state/                  # State management
 │   ├── index.ts            # State exports
 │   └── database.ts         # SQLite database for sync state
@@ -155,17 +164,28 @@ Centralized configuration with Zod validation.
                     ▼
 4. Authenticate ─────────► Browser session (cached or interactive)
                     │
-5. Navigate ────────────► Extract course structure (modules, lessons)
+5. Navigate ────────────► Extract course structure (parallel browser tabs)
                     │
-6. For each lesson: │
-   ├─► Extract ─────────► Get video URL + text content
-   ├─► Save content ────► Write Markdown to disk
-   └─► Queue video ─────► Add to download queue
+6. Extract content ────► Parallel workers extract lessons simultaneously
+   ├─► Get video URL + text content
+   ├─► Write Markdown to disk
+   └─► Queue video for download
                     │
 7. Process queue ───────► Download videos with concurrency control
                     │
 8. Done ────────────────► Summary output
 ```
+
+### Parallel Processing
+
+The `parallelWorker` module provides a shared worker pool for parallel operations:
+
+- **Worker Pool**: Multiple browser tabs share the same authenticated session
+- **Task Queue**: Tasks are distributed across workers automatically
+- **Progress Tracking**: Real-time aggregated progress across all workers
+- **Error Isolation**: Failed tasks don't crash other workers
+
+Used by: Course scanning, content extraction, video downloads.
 
 ## Platform-Specific Details
 
