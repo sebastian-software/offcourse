@@ -3,5 +3,7 @@ export * from "./firebase.js";
 export * from "./fs.js";
 export * from "./http.js";
 export * from "./parallelWorker.js";
+export * from "./shutdown.js";
 export * from "./slug.js";
 export * from "./url.js";
+export * from "./videoDetection.js";

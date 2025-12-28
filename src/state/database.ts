@@ -517,31 +517,10 @@ export class CourseDatabase {
    * Only returns retryable errors (not UNSUPPORTED_PROVIDER).
    */
   getLessonsToRetry(maxRetries = 3): LessonWithModule[] {
-    const stmt = this.db.prepare(`
-      SELECT
-        l.*,
-        m.name as module_name,
-        m.slug as module_slug,
-        m.position as module_position
-      FROM lessons l
-      JOIN modules m ON l.module_id = m.id
-      WHERE l.status = 'error'
-        AND l.retry_count < ?
-        AND (l.error_code IS NULL OR l.error_code NOT IN ('UNSUPPORTED_PROVIDER'))
-      ORDER BY m.position, l.position
-    `);
-    const rows = stmt.all(maxRetries) as (RawLessonRow & {
-      module_name: string;
-      module_slug: string;
-      module_position: number;
-    })[];
-
-    return rows.map((row) => ({
-      ...this.mapLessonRow(row),
-      moduleName: row.module_name,
-      moduleSlug: row.module_slug,
-      modulePosition: row.module_position,
-    }));
+    return this.queryLessonsWithModules(
+      "l.status = 'error' AND l.retry_count < ? AND (l.error_code IS NULL OR l.error_code NOT IN ('UNSUPPORTED_PROVIDER'))",
+      [maxRetries]
+    );
   }
 
   /**
@@ -559,6 +538,54 @@ export class CourseDatabase {
     stmt.run(targetStatus, lessonId);
   }
 
+  // ============================================
+  // Query Helpers
+  // ============================================
+
+  /**
+   * Base query for lessons with module info.
+   * Used by all getLessons* methods that need module context.
+   */
+  private readonly LESSONS_WITH_MODULES_QUERY = `
+    SELECT
+      l.*,
+      m.name as module_name,
+      m.slug as module_slug,
+      m.position as module_position
+    FROM lessons l
+    JOIN modules m ON l.module_id = m.id
+  `;
+
+  /**
+   * Executes a lessons-with-modules query and maps results.
+   */
+  private queryLessonsWithModules(whereClause?: string, params?: unknown[]): LessonWithModule[] {
+    const sql = `${this.LESSONS_WITH_MODULES_QUERY}
+      ${whereClause ? `WHERE ${whereClause}` : ""}
+      ORDER BY m.position, l.position`;
+
+    const stmt = this.db.prepare(sql);
+    const rows = (params ? stmt.all(...params) : stmt.all()) as RawLessonWithModuleRow[];
+
+    return rows.map((row) => this.mapLessonWithModuleRow(row));
+  }
+
+  /**
+   * Maps a raw lesson row with module info to LessonWithModule.
+   */
+  private mapLessonWithModuleRow(row: RawLessonWithModuleRow): LessonWithModule {
+    return {
+      ...this.mapLessonRow(row),
+      moduleName: row.module_name,
+      moduleSlug: row.module_slug,
+      modulePosition: row.module_position,
+    };
+  }
+
+  // ============================================
+  // Lesson Read Operations
+  // ============================================
+
   /**
    * Get all lessons.
    */
@@ -572,147 +599,39 @@ export class CourseDatabase {
    * Get lessons with module info.
    */
   getLessonsWithModules(): LessonWithModule[] {
-    const stmt = this.db.prepare(`
-      SELECT
-        l.*,
-        m.name as module_name,
-        m.slug as module_slug,
-        m.position as module_position
-      FROM lessons l
-      JOIN modules m ON l.module_id = m.id
-      ORDER BY m.position, l.position
-    `);
-    const rows = stmt.all() as (RawLessonRow & {
-      module_name: string;
-      module_slug: string;
-      module_position: number;
-    })[];
-
-    return rows.map((row) => ({
-      ...this.mapLessonRow(row),
-      moduleName: row.module_name,
-      moduleSlug: row.module_slug,
-      modulePosition: row.module_position,
-    }));
+    return this.queryLessonsWithModules();
   }
 
   /**
    * Get lessons by status.
    */
   getLessonsByStatus(status: LessonStatusType): LessonWithModule[] {
-    const stmt = this.db.prepare(`
-      SELECT
-        l.*,
-        m.name as module_name,
-        m.slug as module_slug,
-        m.position as module_position
-      FROM lessons l
-      JOIN modules m ON l.module_id = m.id
-      WHERE l.status = ?
-      ORDER BY m.position, l.position
-    `);
-    const rows = stmt.all(status) as (RawLessonRow & {
-      module_name: string;
-      module_slug: string;
-      module_position: number;
-    })[];
-
-    return rows.map((row) => ({
-      ...this.mapLessonRow(row),
-      moduleName: row.module_name,
-      moduleSlug: row.module_slug,
-      modulePosition: row.module_position,
-    }));
+    return this.queryLessonsWithModules("l.status = ?", [status]);
   }
 
   /**
    * Get lessons that need scanning (pending or never scanned).
    */
   getLessonsToScan(): LessonWithModule[] {
-    const stmt = this.db.prepare(`
-      SELECT
-        l.*,
-        m.name as module_name,
-        m.slug as module_slug,
-        m.position as module_position
-      FROM lessons l
-      JOIN modules m ON l.module_id = m.id
-      WHERE (l.status = 'pending' OR l.last_scanned_at IS NULL)
-        AND l.is_locked = 0
-      ORDER BY m.position, l.position
-    `);
-    const rows = stmt.all() as (RawLessonRow & {
-      module_name: string;
-      module_slug: string;
-      module_position: number;
-    })[];
-
-    return rows.map((row) => ({
-      ...this.mapLessonRow(row),
-      moduleName: row.module_name,
-      moduleSlug: row.module_slug,
-      modulePosition: row.module_position,
-    }));
+    return this.queryLessonsWithModules(
+      "(l.status = 'pending' OR l.last_scanned_at IS NULL) AND l.is_locked = 0"
+    );
   }
 
   /**
    * Get lessons that need validation (scanned but not validated, with video).
    */
   getLessonsToValidate(): LessonWithModule[] {
-    const stmt = this.db.prepare(`
-      SELECT
-        l.*,
-        m.name as module_name,
-        m.slug as module_slug,
-        m.position as module_position
-      FROM lessons l
-      JOIN modules m ON l.module_id = m.id
-      WHERE l.status = 'scanned'
-        AND l.video_url IS NOT NULL
-        AND l.is_locked = 0
-      ORDER BY m.position, l.position
-    `);
-    const rows = stmt.all() as (RawLessonRow & {
-      module_name: string;
-      module_slug: string;
-      module_position: number;
-    })[];
-
-    return rows.map((row) => ({
-      ...this.mapLessonRow(row),
-      moduleName: row.module_name,
-      moduleSlug: row.module_slug,
-      modulePosition: row.module_position,
-    }));
+    return this.queryLessonsWithModules(
+      "l.status = 'scanned' AND l.video_url IS NOT NULL AND l.is_locked = 0"
+    );
   }
 
   /**
    * Get lessons that are ready for download (validated with HLS URL).
    */
   getLessonsToDownload(): LessonWithModule[] {
-    const stmt = this.db.prepare(`
-      SELECT
-        l.*,
-        m.name as module_name,
-        m.slug as module_slug,
-        m.position as module_position
-      FROM lessons l
-      JOIN modules m ON l.module_id = m.id
-      WHERE l.status = 'validated' AND l.hls_url IS NOT NULL
-      ORDER BY m.position, l.position
-    `);
-    const rows = stmt.all() as (RawLessonRow & {
-      module_name: string;
-      module_slug: string;
-      module_position: number;
-    })[];
-
-    return rows.map((row) => ({
-      ...this.mapLessonRow(row),
-      moduleName: row.module_name,
-      moduleSlug: row.module_slug,
-      modulePosition: row.module_position,
-    }));
+    return this.queryLessonsWithModules("l.status = 'validated' AND l.hls_url IS NOT NULL");
   }
 
   /**
@@ -822,29 +741,7 @@ export class CourseDatabase {
    * Get lessons by error code.
    */
   getLessonsByErrorCode(errorCode: string): LessonWithModule[] {
-    const stmt = this.db.prepare(`
-      SELECT
-        l.*,
-        m.name as module_name,
-        m.slug as module_slug,
-        m.position as module_position
-      FROM lessons l
-      JOIN modules m ON l.module_id = m.id
-      WHERE l.error_code = ?
-      ORDER BY m.position, l.position
-    `);
-    const rows = stmt.all(errorCode) as (RawLessonRow & {
-      module_name: string;
-      module_slug: string;
-      module_position: number;
-    })[];
-
-    return rows.map((row) => ({
-      ...this.mapLessonRow(row),
-      moduleName: row.module_name,
-      moduleSlug: row.module_slug,
-      modulePosition: row.module_position,
-    }));
+    return this.queryLessonsWithModules("l.error_code = ?", [errorCode]);
   }
 
   /**
@@ -915,5 +812,14 @@ interface RawLessonRow {
   video_file_size: number | null;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * Raw lesson row with module info from JOIN query.
+ */
+interface RawLessonWithModuleRow extends RawLessonRow {
+  module_name: string;
+  module_slug: string;
+  module_position: number;
 }
 /* v8 ignore stop */

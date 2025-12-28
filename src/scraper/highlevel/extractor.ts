@@ -1,6 +1,12 @@
 import type { Page } from "playwright";
 import { parseHLSPlaylist } from "../../downloader/shared/index.js";
 import {
+  detectVimeoEmbed,
+  detectLoomEmbed,
+  detectYouTubeEmbed,
+  detectHlsVideo,
+} from "../../shared/videoDetection.js";
+import {
   FirebaseAuthTokenSchema,
   PostDetailsResponseSchema,
   VideoLicenseResponseSchema,
@@ -68,88 +74,31 @@ export async function getAuthToken(page: Page): Promise<string | null> {
 }
 
 /**
- * Extracts video info from a HighLevel post page by intercepting network requests.
+ * Extracts video info from a HighLevel post page using shared detection utilities.
  */
 export async function extractVideoFromPage(page: Page): Promise<HighLevelVideoInfo | null> {
-  // First, check if there's an HLS video on the page
-  const hlsUrl = await page.evaluate(() => {
-    // Look for HLS master playlist URLs in the DOM
-    const videoElements = Array.from(document.querySelectorAll("video"));
-    for (const video of videoElements) {
-      const src = video.currentSrc ?? video.src;
-      if (src?.includes(".m3u8")) {
-        return src;
-      }
-    }
-
-    // Check for plyr or other players
-    const sources = Array.from(
-      document.querySelectorAll('source[type*="m3u8"], source[src*=".m3u8"]')
-    );
-    for (const source of sources) {
-      const src = (source as HTMLSourceElement).src;
-      if (src) return src;
-    }
-
-    return null;
-  });
-
+  // Check for HLS video
+  const hlsUrl = await detectHlsVideo(page);
   if (hlsUrl) {
-    return {
-      type: "hls",
-      url: hlsUrl,
-      masterPlaylistUrl: hlsUrl,
-    };
+    return { type: "hls", url: hlsUrl, masterPlaylistUrl: hlsUrl };
   }
 
   // Check for Vimeo embed
-  const vimeoUrl = await page.evaluate(() => {
-    const iframe = document.querySelector('iframe[src*="vimeo.com"], iframe[src*="player.vimeo"]');
-    if (iframe) {
-      return (iframe as HTMLIFrameElement).src;
-    }
-    return null;
-  });
-
+  const vimeoUrl = await detectVimeoEmbed(page);
   if (vimeoUrl) {
-    return {
-      type: "vimeo",
-      url: vimeoUrl,
-    };
+    return { type: "vimeo", url: vimeoUrl };
   }
 
   // Check for Loom embed
-  const loomUrl = await page.evaluate(() => {
-    const iframe = document.querySelector('iframe[src*="loom.com"]');
-    if (iframe) {
-      return (iframe as HTMLIFrameElement).src;
-    }
-    return null;
-  });
-
+  const loomUrl = await detectLoomEmbed(page);
   if (loomUrl) {
-    return {
-      type: "loom",
-      url: loomUrl,
-    };
+    return { type: "loom", url: loomUrl };
   }
 
   // Check for YouTube embed
-  const youtubeUrl = await page.evaluate(() => {
-    const iframe = document.querySelector(
-      'iframe[src*="youtube.com"], iframe[src*="youtube-nocookie.com"], iframe[src*="youtu.be"]'
-    );
-    if (iframe) {
-      return (iframe as HTMLIFrameElement).src;
-    }
-    return null;
-  });
-
+  const youtubeUrl = await detectYouTubeEmbed(page);
   if (youtubeUrl) {
-    return {
-      type: "youtube",
-      url: youtubeUrl,
-    };
+    return { type: "youtube", url: youtubeUrl };
   }
 
   return null;

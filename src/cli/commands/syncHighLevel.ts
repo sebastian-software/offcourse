@@ -10,6 +10,7 @@ import {
   isHighLevelLoginPage,
 } from "../../shared/auth.js";
 import { createWorkerPool, closeWorkerPool } from "../../shared/parallelWorker.js";
+import { createShutdownManager } from "../../shared/shutdown.js";
 import {
   buildHighLevelCourseStructure,
   createFolderName,
@@ -28,55 +29,8 @@ import {
 } from "../../storage/fileSystem.js";
 import { slugify as createSlug } from "../../scraper/highlevel/navigator.js";
 
-/**
- * Tracks if shutdown has been requested (Ctrl+C).
- */
-let isShuttingDown = false;
-
-/**
- * Resources to clean up on shutdown.
- */
-interface CleanupResources {
-  browser?: import("playwright").Browser;
-}
-
-const cleanupResources: CleanupResources = {};
-
-/**
- * Graceful shutdown handler.
- */
-function setupShutdownHandlers(): void {
-  const shutdown = async (signal: string) => {
-    if (isShuttingDown) {
-      console.log(chalk.red("\n\n⚠️  Force exit"));
-      process.exit(1);
-    }
-
-    isShuttingDown = true;
-    console.log(chalk.yellow(`\n\n⏹️  ${signal} received, shutting down gracefully...`));
-
-    try {
-      if (cleanupResources.browser) {
-        await cleanupResources.browser.close();
-      }
-      console.log(chalk.gray("   Cleanup complete."));
-    } catch {
-      // Ignore cleanup errors
-    }
-
-    process.exit(0);
-  };
-
-  process.on("SIGINT", () => void shutdown("SIGINT"));
-  process.on("SIGTERM", () => void shutdown("SIGTERM"));
-}
-
-/**
- * Check if we should continue processing or stop due to shutdown.
- */
-function shouldContinue(): boolean {
-  return !isShuttingDown;
-}
+/** Shutdown manager instance for this command. */
+const shutdown = createShutdownManager();
 
 export interface SyncHighLevelOptions {
   skipVideos?: boolean;
@@ -134,7 +88,7 @@ export async function syncHighLevelCommand(
   url: string,
   options: SyncHighLevelOptions
 ): Promise<void> {
-  setupShutdownHandlers();
+  shutdown.setup();
 
   console.log(chalk.blue("\n📚 HighLevel Course Sync\n"));
 
@@ -165,7 +119,7 @@ export async function syncHighLevelCommand(
     );
     browser = result.browser;
     session = result.session;
-    cleanupResources.browser = browser;
+    shutdown.registerBrowser(browser);
     const sessionInfo = result.usedCachedSession ? " (cached session)" : "";
     spinner.succeed(`Connected to portal${sessionInfo}`);
   } catch (error) {
@@ -180,7 +134,7 @@ export async function syncHighLevelCommand(
 
   try {
     // Check if shutdown was requested
-    if (!shouldContinue()) {
+    if (!shutdown.shouldContinue()) {
       return;
     }
 
@@ -432,7 +386,7 @@ export async function syncHighLevelCommand(
 
     // Process tasks with worker pool
     const runWorker = async (page: import("playwright").Page): Promise<void> => {
-      while (shouldContinue() && taskQueue.length > 0) {
+      while (shutdown.shouldContinue() && taskQueue.length > 0) {
         const task = taskQueue.shift();
         if (!task) break;
 

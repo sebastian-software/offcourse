@@ -1,4 +1,10 @@
 import type { Page } from "playwright";
+import {
+  detectVimeoEmbed,
+  detectLoomEmbed,
+  detectYouTubeEmbed,
+  detectWistiaEmbed,
+} from "../../shared/videoDetection.js";
 
 export interface LearningSuiteVideoInfo {
   type: "hls" | "vimeo" | "loom" | "youtube" | "wistia" | "native" | "unknown";
@@ -132,73 +138,25 @@ export async function extractVideoFromPage(page: Page): Promise<LearningSuiteVid
     };
   }
 
-  // Check for Vimeo embed
-  const vimeoUrl = await page.evaluate(() => {
-    const iframe = document.querySelector('iframe[src*="vimeo.com"], iframe[src*="player.vimeo"]');
-    if (iframe) {
-      return (iframe as HTMLIFrameElement).src;
-    }
-    return null;
-  });
-
+  // Check for embedded videos using shared detection
+  const vimeoUrl = await detectVimeoEmbed(page);
   if (vimeoUrl) {
-    return {
-      type: "vimeo",
-      url: vimeoUrl,
-    };
+    return { type: "vimeo", url: vimeoUrl };
   }
 
-  // Check for Loom embed
-  const loomUrl = await page.evaluate(() => {
-    const iframe = document.querySelector('iframe[src*="loom.com"]');
-    if (iframe) {
-      return (iframe as HTMLIFrameElement).src;
-    }
-    return null;
-  });
-
+  const loomUrl = await detectLoomEmbed(page);
   if (loomUrl) {
-    return {
-      type: "loom",
-      url: loomUrl,
-    };
+    return { type: "loom", url: loomUrl };
   }
 
-  // Check for YouTube embed
-  const youtubeUrl = await page.evaluate(() => {
-    const iframe = document.querySelector(
-      'iframe[src*="youtube.com"], iframe[src*="youtube-nocookie.com"], iframe[src*="youtu.be"]'
-    );
-    if (iframe) {
-      return (iframe as HTMLIFrameElement).src;
-    }
-    return null;
-  });
-
+  const youtubeUrl = await detectYouTubeEmbed(page);
   if (youtubeUrl) {
-    return {
-      type: "youtube",
-      url: youtubeUrl,
-    };
+    return { type: "youtube", url: youtubeUrl };
   }
 
-  // Check for Wistia
-  const wistiaInfo = await page.evaluate(() => {
-    const wistiaEmbed = document.querySelector('[class*="wistia"]');
-    if (wistiaEmbed) {
-      const match = /wistia_embed wistia_async_(\w+)/.exec(wistiaEmbed.className);
-      if (match?.[1]) {
-        return { id: match[1] };
-      }
-    }
-    return null;
-  });
-
+  const wistiaInfo = await detectWistiaEmbed(page);
   if (wistiaInfo?.id) {
-    return {
-      type: "wistia",
-      url: `https://fast.wistia.net/embed/medias/${wistiaInfo.id}`,
-    };
+    return { type: "wistia", url: `https://fast.wistia.net/embed/medias/${wistiaInfo.id}` };
   }
 
   // Check for native video

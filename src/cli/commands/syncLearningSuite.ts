@@ -6,6 +6,7 @@ import { loadConfig } from "../../config/configManager.js";
 import { downloadVideo, type VideoDownloadTask } from "../../downloader/index.js";
 import { getAuthenticatedSession, createLoginChecker } from "../../shared/auth.js";
 import { createWorkerPool, closeWorkerPool } from "../../shared/parallelWorker.js";
+import { createShutdownManager } from "../../shared/shutdown.js";
 import {
   buildLearningSuiteCourseStructure,
   createFolderName,
@@ -25,55 +26,8 @@ import {
   downloadFile,
 } from "../../storage/fileSystem.js";
 
-/**
- * Tracks if shutdown has been requested (Ctrl+C).
- */
-let isShuttingDown = false;
-
-/**
- * Resources to clean up on shutdown.
- */
-interface CleanupResources {
-  browser?: import("playwright").Browser;
-}
-
-const cleanupResources: CleanupResources = {};
-
-/**
- * Graceful shutdown handler.
- */
-function setupShutdownHandlers(): void {
-  const shutdown = async (signal: string) => {
-    if (isShuttingDown) {
-      console.log(chalk.red("\n\n⚠️  Force exit"));
-      process.exit(1);
-    }
-
-    isShuttingDown = true;
-    console.log(chalk.yellow(`\n\n⏹️  ${signal} received, shutting down gracefully...`));
-
-    try {
-      if (cleanupResources.browser) {
-        await cleanupResources.browser.close();
-      }
-      console.log(chalk.gray("   Cleanup complete."));
-    } catch {
-      // Ignore cleanup errors
-    }
-
-    process.exit(0);
-  };
-
-  process.on("SIGINT", () => void shutdown("SIGINT"));
-  process.on("SIGTERM", () => void shutdown("SIGTERM"));
-}
-
-/**
- * Check if we should continue processing or stop due to shutdown.
- */
-function shouldContinue(): boolean {
-  return !isShuttingDown;
-}
+/** Shutdown manager instance for this command. */
+const shutdown = createShutdownManager();
 
 export interface SyncLearningSuiteOptions {
   skipVideos?: boolean;
@@ -192,7 +146,7 @@ export async function syncLearningSuiteCommand(
   url: string,
   options: SyncLearningSuiteOptions
 ): Promise<void> {
-  setupShutdownHandlers();
+  shutdown.setup();
 
   console.log(chalk.blue("\n📚 LearningSuite Course Sync\n"));
 
@@ -220,7 +174,7 @@ export async function syncLearningSuiteCommand(
     );
     browser = result.browser;
     session = result.session;
-    cleanupResources.browser = browser;
+    shutdown.registerBrowser(browser);
     const sessionInfo = result.usedCachedSession ? " (cached session)" : "";
     spinner.succeed(`Connected to LearningSuite${sessionInfo}`);
   } catch (error) {
@@ -235,7 +189,7 @@ export async function syncLearningSuiteCommand(
 
   try {
     // Check if shutdown was requested
-    if (!shouldContinue()) {
+    if (!shutdown.shouldContinue()) {
       return;
     }
 
@@ -298,7 +252,7 @@ export async function syncLearningSuiteCommand(
         {
           context: session.context,
           concurrency: scanConcurrency,
-          shouldContinue,
+          shouldContinue: shutdown.shouldContinue,
         }
       );
     } catch (error) {
@@ -522,7 +476,7 @@ export async function syncLearningSuiteCommand(
 
     // Process tasks with worker pool
     const runWorker = async (page: import("playwright").Page): Promise<void> => {
-      while (shouldContinue() && taskQueue.length > 0) {
+      while (shutdown.shouldContinue() && taskQueue.length > 0) {
         const task = taskQueue.shift();
         if (!task) break;
 

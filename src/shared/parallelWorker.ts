@@ -1,3 +1,6 @@
+/**
+ * Parallel processing utilities using browser tabs as workers.
+ */
 import type { BrowserContext, Page } from "playwright";
 
 /**
@@ -18,6 +21,66 @@ export interface ParallelWorkerOptions {
 export interface ParallelWorkerResult<T> {
   results: T[];
   errors: { index: number; error: unknown }[];
+}
+
+/**
+ * Internal task queue item with original index for result ordering.
+ */
+interface QueuedTask<T> {
+  task: T;
+  index: number;
+}
+
+/**
+ * Internal worker loop options (used by both parallelProcess variants).
+ */
+interface WorkerLoopOptions {
+  shouldContinue: () => boolean;
+  onError?: ((error: unknown, taskIndex: number) => void) | undefined;
+}
+
+/**
+ * Executes the worker loop pattern: multiple workers pulling from a shared queue.
+ * This is the core logic shared by both parallelProcess and parallelProcessWithPages.
+ */
+async function executeWorkerLoop<TTask, TResult>(
+  workerPages: Page[],
+  tasks: TTask[],
+  processor: (page: Page, task: TTask, index: number) => Promise<TResult>,
+  options: WorkerLoopOptions
+): Promise<ParallelWorkerResult<TResult>> {
+  const { shouldContinue, onError } = options;
+
+  // Results array (maintains order)
+  const results: (TResult | undefined)[] = new Array<TResult | undefined>(tasks.length);
+  const errors: { index: number; error: unknown }[] = [];
+
+  // Task queue with indices
+  const taskQueue: QueuedTask<TTask>[] = tasks.map((task, index) => ({ task, index }));
+
+  // Worker function - pulls tasks from queue until empty or shutdown
+  const runWorker = async (page: Page): Promise<void> => {
+    while (shouldContinue() && taskQueue.length > 0) {
+      const item = taskQueue.shift();
+      if (!item) break;
+
+      try {
+        const result = await processor(page, item.task, item.index);
+        results[item.index] = result;
+      } catch (error) {
+        errors.push({ index: item.index, error });
+        onError?.(error, item.index);
+      }
+    }
+  };
+
+  // Start all workers and wait for completion
+  await Promise.all(workerPages.map((page) => runWorker(page)));
+
+  // Filter out undefined results (from failed tasks)
+  const finalResults = results.filter((r): r is TResult => r !== undefined);
+
+  return { results: finalResults, errors };
 }
 
 /**
@@ -73,51 +136,16 @@ export async function parallelProcess<TTask, TResult>(
     }
   }
 
-  // Results array (maintains order)
-  const results: (TResult | undefined)[] = new Array<TResult | undefined>(tasks.length);
-  const errors: { index: number; error: unknown }[] = [];
-
-  // Task queue with indices
-  const taskQueue: { task: TTask; index: number }[] = tasks.map((task, index) => ({
-    task,
-    index,
-  }));
-
-  // Worker function
-  const runWorker = async (page: Page): Promise<void> => {
-    while (shouldContinue() && taskQueue.length > 0) {
-      const item = taskQueue.shift();
-      if (!item) break;
-
-      try {
-        const result = await processor(page, item.task, item.index);
-        results[item.index] = result;
-      } catch (error) {
-        errors.push({ index: item.index, error });
-        onError?.(error, item.index);
-      }
-    }
-  };
-
-  // Start all workers
-  const workerPromises = workerPages.map((page) => runWorker(page));
-  await Promise.all(workerPromises);
+  // Execute worker loop
+  const result = await executeWorkerLoop(workerPages, tasks, processor, {
+    shouldContinue,
+    onError,
+  });
 
   // Close worker pages (except main page)
-  for (const page of workerPages) {
-    if (page !== mainPage) {
-      try {
-        await page.close();
-      } catch {
-        // Ignore close errors
-      }
-    }
-  }
+  await closeWorkerPool(workerPages, mainPage);
 
-  // Filter out undefined results (from failed tasks)
-  const finalResults = results.filter((r): r is TResult => r !== undefined);
-
-  return { results: finalResults, errors };
+  return result;
 }
 
 /**
@@ -132,40 +160,10 @@ export async function parallelProcessWithPages<TTask, TResult>(
 ): Promise<ParallelWorkerResult<TResult>> {
   const { shouldContinue = () => true, onError } = options;
 
-  // Results array (maintains order)
-  const results: (TResult | undefined)[] = new Array<TResult | undefined>(tasks.length);
-  const errors: { index: number; error: unknown }[] = [];
-
-  // Task queue with indices
-  const taskQueue: { task: TTask; index: number }[] = tasks.map((task, index) => ({
-    task,
-    index,
-  }));
-
-  // Worker function
-  const runWorker = async (page: Page): Promise<void> => {
-    while (shouldContinue() && taskQueue.length > 0) {
-      const item = taskQueue.shift();
-      if (!item) break;
-
-      try {
-        const result = await processor(page, item.task, item.index);
-        results[item.index] = result;
-      } catch (error) {
-        errors.push({ index: item.index, error });
-        onError?.(error, item.index);
-      }
-    }
-  };
-
-  // Start all workers
-  const workerPromises = workerPages.map((page) => runWorker(page));
-  await Promise.all(workerPromises);
-
-  // Filter out undefined results (from failed tasks)
-  const finalResults = results.filter((r): r is TResult => r !== undefined);
-
-  return { results: finalResults, errors };
+  return executeWorkerLoop(workerPages, tasks, processor, {
+    shouldContinue,
+    onError,
+  });
 }
 
 /**

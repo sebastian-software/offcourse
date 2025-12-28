@@ -7,6 +7,7 @@ import { downloadVideo, type VideoDownloadTask, validateVideoHls } from "../../d
 import { getAuthenticatedSession, isSkoolLoginPage } from "../../shared/auth.js";
 import { getFileSize, outputFile } from "../../shared/fs.js";
 import { createWorkerPool, closeWorkerPool } from "../../shared/parallelWorker.js";
+import { createShutdownManager } from "../../shared/shutdown.js";
 import { extractLessonContent, formatMarkdown, extractVideoUrl } from "../../scraper/extractor.js";
 import { buildCourseStructure } from "../../scraper/navigator.js";
 import {
@@ -26,60 +27,8 @@ import {
   type LessonWithModule,
 } from "../../state/index.js";
 
-/**
- * Tracks if shutdown has been requested (Ctrl+C).
- */
-let isShuttingDown = false;
-
-/**
- * Resources to clean up on shutdown.
- */
-interface CleanupResources {
-  browser?: import("playwright").Browser;
-  db?: CourseDatabase;
-}
-
-const cleanupResources: CleanupResources = {};
-
-/**
- * Graceful shutdown handler.
- */
-function setupShutdownHandlers(): void {
-  const shutdown = async (signal: string) => {
-    if (isShuttingDown) {
-      // Force exit on second signal
-      console.log(chalk.red("\n\n⚠️  Force exit"));
-      process.exit(1);
-    }
-
-    isShuttingDown = true;
-    console.log(chalk.yellow(`\n\n⏹️  ${signal} received, shutting down gracefully...`));
-
-    try {
-      if (cleanupResources.browser) {
-        await cleanupResources.browser.close();
-      }
-      if (cleanupResources.db) {
-        cleanupResources.db.close();
-      }
-      console.log(chalk.gray("   Cleanup complete. State saved."));
-    } catch {
-      // Ignore cleanup errors during shutdown
-    }
-
-    process.exit(0);
-  };
-
-  process.on("SIGINT", () => void shutdown("SIGINT"));
-  process.on("SIGTERM", () => void shutdown("SIGTERM"));
-}
-
-/**
- * Check if we should continue processing or stop due to shutdown.
- */
-function shouldContinue(): boolean {
-  return !isShuttingDown;
-}
+/** Shutdown manager instance for this command. */
+const shutdown = createShutdownManager();
 
 interface DownloadAttempt {
   lessonName: string;
@@ -111,7 +60,7 @@ export interface SyncOptions {
  */
 export async function syncCommand(url: string, options: SyncOptions): Promise<void> {
   // Setup graceful shutdown handlers
-  setupShutdownHandlers();
+  shutdown.setup();
 
   console.log(chalk.blue("\n📚 Course Sync\n"));
 
@@ -132,7 +81,9 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
 
   // Initialize database
   const db = new CourseDatabase(communitySlug);
-  cleanupResources.db = db;
+  shutdown.registerCleanup(() => {
+    db.close();
+  });
   console.log(chalk.gray(`   State: ~/.offcourse/cache/${communitySlug}.db`));
 
   // Force mode: reset all lessons to pending for full rescan
@@ -204,7 +155,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
     );
     browser = result.browser;
     session = result.session;
-    cleanupResources.browser = browser;
+    shutdown.registerBrowser(browser);
     const sessionInfo = result.usedCachedSession ? " (cached session)" : "";
     spinner.succeed(`Connected to Skool${sessionInfo}`);
   } catch {
@@ -216,7 +167,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
 
   try {
     // Check if shutdown was requested during connection
-    if (!shouldContinue()) {
+    if (!shutdown.shouldContinue()) {
       return;
     }
 
@@ -393,7 +344,7 @@ async function scanCourseStructure(
       {
         context,
         concurrency: scanConcurrency,
-        shouldContinue,
+        shouldContinue: shutdown.shouldContinue,
       }
     );
 
@@ -500,7 +451,7 @@ async function validateVideos(
 
   for (const lesson of lessonsToScan) {
     // Check for graceful shutdown
-    if (!shouldContinue()) {
+    if (!shutdown.shouldContinue()) {
       progressBar.stop();
       console.log(chalk.yellow("\n   Stopping validation (shutdown requested)"));
       break;
@@ -768,7 +719,7 @@ async function extractContentAndQueueVideos(
 
   // Process tasks with worker pool
   const runWorker = async (page: import("playwright").Page): Promise<void> => {
-    while (shouldContinue() && taskQueue.length > 0) {
+    while (shutdown.shouldContinue() && taskQueue.length > 0) {
       const task = taskQueue.shift();
       if (!task) break;
 
