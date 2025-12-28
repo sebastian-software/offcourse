@@ -159,7 +159,7 @@ export async function performInteractiveLogin(config: AuthConfig): Promise<AuthS
 export async function getAuthenticatedSession(
   config: AuthConfig,
   options: { forceLogin?: boolean; headless?: boolean } = {}
-): Promise<{ browser: Browser; session: AuthSession }> {
+): Promise<{ browser: Browser; session: AuthSession; usedCachedSession: boolean }> {
   const useHeadless = options.headless !== false;
 
   const browser = await chromium.launch({
@@ -181,7 +181,7 @@ export async function getAuthenticatedSession(
 
       // Check if we got redirected to login
       if (config.isLoginPage(currentUrl)) {
-        console.log("⚠️  Session expired, need to re-login...");
+        // Session expired
         await context.close();
         await browser.close();
       } else {
@@ -189,20 +189,18 @@ export async function getAuthenticatedSession(
         if (config.verifySession) {
           const isValid = await config.verifySession(page);
           if (!isValid) {
-            console.log("⚠️  Session invalid, need to re-login...");
+            // Session invalid
             await context.close();
             await browser.close();
           } else {
-            console.log("✅ Using cached session");
-            return { browser, session: { context, page } };
+            return { browser, session: { context, page }, usedCachedSession: true };
           }
         } else {
-          console.log("✅ Using cached session");
-          return { browser, session: { context, page } };
+          return { browser, session: { context, page }, usedCachedSession: true };
         }
       }
-    } catch (error) {
-      console.log("⚠️  Failed to load session, need to re-login...", error);
+    } catch {
+      // Failed to load session
       await browser.close();
     }
   } else {
@@ -227,10 +225,10 @@ export async function getAuthenticatedSession(
     // Close the interactive session
     await sessionBrowser.close();
 
-    return { browser: newBrowser, session: { context, page } };
+    return { browser: newBrowser, session: { context, page }, usedCachedSession: false };
   }
 
-  return { browser: sessionBrowser, session };
+  return { browser: sessionBrowser, session, usedCachedSession: false };
 }
 
 /**

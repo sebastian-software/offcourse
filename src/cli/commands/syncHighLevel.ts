@@ -9,6 +9,7 @@ import {
   hasValidFirebaseToken,
   isHighLevelLoginPage,
 } from "../../shared/auth.js";
+import { createWorkerPool, closeWorkerPool } from "../../shared/parallelWorker.js";
 import {
   buildHighLevelCourseStructure,
   createFolderName,
@@ -165,7 +166,8 @@ export async function syncHighLevelCommand(
     browser = result.browser;
     session = result.session;
     cleanupResources.browser = browser;
-    spinner.succeed("Connected to portal");
+    const sessionInfo = result.usedCachedSession ? " (cached session)" : "";
+    spinner.succeed(`Connected to portal${sessionInfo}`);
   } catch (error) {
     spinner.fail("Failed to connect");
     console.log(chalk.red("\n❌ Authentication failed.\n"));
@@ -327,17 +329,15 @@ export async function syncHighLevelCommand(
     contentProgressBar.start(totalToProcess, 0, { status: "Starting..." });
 
     // Create worker pages for parallel extraction
-    const workerPages: import("playwright").Page[] = [];
-    try {
-      for (let i = 0; i < extractionConcurrency; i++) {
-        const page = await session.context.newPage();
-        workerPages.push(page);
-      }
-    } catch {
+    const { pages: workerPages, isUsingMainPage } = await createWorkerPool(
+      session.context,
+      session.page,
+      extractionConcurrency
+    );
+    if (isUsingMainPage) {
       console.error(
         chalk.yellow("\n   Could not create parallel tabs, falling back to sequential")
       );
-      workerPages.push(session.page);
     }
 
     // Thread-safe counters and task queue
@@ -451,15 +451,7 @@ export async function syncHighLevelCommand(
     await Promise.all(workerPromises);
 
     // Close worker pages (except the main session page)
-    for (const page of workerPages) {
-      if (page !== session.page) {
-        try {
-          await page.close();
-        } catch {
-          // Ignore close errors
-        }
-      }
-    }
+    await closeWorkerPool(workerPages, session.page);
 
     contentProgressBar.stop();
 

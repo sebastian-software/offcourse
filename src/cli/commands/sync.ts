@@ -6,6 +6,7 @@ import { loadConfig } from "../../config/configManager.js";
 import { downloadVideo, type VideoDownloadTask, validateVideoHls } from "../../downloader/index.js";
 import { getAuthenticatedSession, isSkoolLoginPage } from "../../shared/auth.js";
 import { getFileSize, outputFile } from "../../shared/fs.js";
+import { createWorkerPool, closeWorkerPool } from "../../shared/parallelWorker.js";
 import { extractLessonContent, formatMarkdown, extractVideoUrl } from "../../scraper/extractor.js";
 import { buildCourseStructure } from "../../scraper/navigator.js";
 import {
@@ -204,7 +205,8 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
     browser = result.browser;
     session = result.session;
     cleanupResources.browser = browser;
-    spinner.succeed("Connected to Skool");
+    const sessionInfo = result.usedCachedSession ? " (cached session)" : "";
+    spinner.succeed(`Connected to Skool${sessionInfo}`);
   } catch {
     spinner.fail("Failed to connect");
     db.close();
@@ -228,7 +230,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
 
     // Phase 1: Scan course structure (only if needed)
     if (needsScan || options.dryRun) {
-      await scanCourseStructure(session.page, url, db, options);
+      await scanCourseStructure(session.page, session.context, url, db, config, options);
     } else {
       console.log(chalk.gray("\n   ⏭️  Scan skipped (already complete)"));
     }
@@ -317,11 +319,15 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
  */
 async function scanCourseStructure(
   page: import("playwright").Page,
+  context: import("playwright").BrowserContext,
   url: string,
   db: CourseDatabase,
+  config: { extractionConcurrency: number },
   options: SyncOptions
 ): Promise<void> {
-  console.log(chalk.blue("\n📚 Phase 1: Scanning course structure...\n"));
+  const scanConcurrency = config.extractionConcurrency;
+  const parallelLabel = scanConcurrency > 1 ? ` (${scanConcurrency}x parallel)` : "";
+  console.log(chalk.blue(`\n📚 Phase 1: Scanning course structure...${parallelLabel}\n`));
 
   let progressBar: cliProgress.SingleBar | undefined;
   let courseName = "";
@@ -329,42 +335,57 @@ async function scanCourseStructure(
   let lockedModules = 0;
 
   try {
-    const courseStructure = await buildCourseStructure(page, url, (progress) => {
-      if (progress.phase === "init" && progress.courseName) {
-        courseName = progress.courseName;
-        console.log(chalk.white(`   Course: ${courseName}\n`));
-      } else if (progress.phase === "modules" && progress.totalModules) {
-        totalModules = progress.totalModules;
-        progressBar = new cliProgress.SingleBar(
-          {
-            format: "   {bar} {percentage}% | {value}/{total} | {status}",
-            barCompleteChar: "█",
-            barIncompleteChar: "░",
-            barsize: 30,
-            hideCursor: true,
-          },
-          cliProgress.Presets.shades_grey
-        );
-        progressBar.start(totalModules, 0, { status: "Starting..." });
-      } else if (progress.phase === "lessons" && progress.currentModule !== undefined) {
-        if (progress.skippedLocked) {
-          lockedModules++;
-          progressBar?.increment({ status: `🔒 ${progress.currentModule}` });
-        } else if (progress.lessonsFound !== undefined) {
-          progressBar?.increment({
-            status: `${progress.currentModule} (${progress.lessonsFound} lessons)`,
-          });
-        } else {
-          const shortName =
-            progress.currentModule.length > 35
-              ? progress.currentModule.substring(0, 32) + "..."
-              : progress.currentModule;
-          progressBar?.update(progress.currentModuleIndex ?? 0, { status: shortName });
+    const courseStructure = await buildCourseStructure(
+      page,
+      url,
+      (progress) => {
+        if (progress.phase === "init" && progress.courseName) {
+          courseName = progress.courseName;
+          console.log(chalk.white(`   Course: ${courseName}\n`));
+        } else if (progress.phase === "modules" && progress.totalModules) {
+          totalModules = progress.totalModules;
+          progressBar = new cliProgress.SingleBar(
+            {
+              format: "   {bar} {percentage}% | {value}/{total} | {status}",
+              barCompleteChar: "█",
+              barIncompleteChar: "░",
+              barsize: 30,
+              hideCursor: true,
+            },
+            cliProgress.Presets.shades_grey
+          );
+          progressBar.start(totalModules, 0, { status: "Starting..." });
+        } else if (progress.phase === "lessons" && progress.currentModule !== undefined) {
+          if (progress.skippedLocked) {
+            lockedModules++;
+            progressBar?.increment({ status: `🔒 ${progress.currentModule}` });
+          } else if (progress.lessonsFound !== undefined) {
+            // Handle parallel scanning progress
+            const current = progress.modulesProcessed ?? (progress.currentModuleIndex ?? 0) + 1;
+            const shortName =
+              progress.currentModule.length > 30
+                ? progress.currentModule.substring(0, 27) + "..."
+                : progress.currentModule;
+            progressBar?.update(current, {
+              status: `${shortName} (${progress.lessonsFound} lessons)`,
+            });
+          } else {
+            const shortName =
+              progress.currentModule.length > 35
+                ? progress.currentModule.substring(0, 32) + "..."
+                : progress.currentModule;
+            progressBar?.update(progress.currentModuleIndex ?? 0, { status: shortName });
+          }
+        } else if (progress.phase === "done") {
+          progressBar?.stop();
         }
-      } else if (progress.phase === "done") {
-        progressBar?.stop();
+      },
+      {
+        context,
+        concurrency: scanConcurrency,
+        shouldContinue,
       }
-    });
+    );
 
     // Update metadata
     db.updateCourseMetadata(courseStructure.name, courseStructure.url);
@@ -654,15 +675,13 @@ async function extractContentAndQueueVideos(
   progressBar.start(lessonTasks.length, 0, { status: "Starting..." });
 
   // Create worker pages for parallel extraction
-  const workerPages: import("playwright").Page[] = [];
-  try {
-    for (let i = 0; i < extractionConcurrency; i++) {
-      const page = await context.newPage();
-      workerPages.push(page);
-    }
-  } catch {
+  const { pages: workerPages, isUsingMainPage } = await createWorkerPool(
+    context,
+    mainPage,
+    extractionConcurrency
+  );
+  if (isUsingMainPage) {
     console.error(chalk.yellow("\n   Could not create parallel tabs, falling back to sequential"));
-    workerPages.push(mainPage);
   }
 
   // Thread-safe counters and task queue
@@ -757,15 +776,7 @@ async function extractContentAndQueueVideos(
   await Promise.all(workerPromises);
 
   // Close worker pages (except the main page)
-  for (const page of workerPages) {
-    if (page !== mainPage) {
-      try {
-        await page.close();
-      } catch {
-        // Ignore close errors
-      }
-    }
-  }
+  await closeWorkerPool(workerPages, mainPage);
 
   progressBar.stop();
 

@@ -1,9 +1,10 @@
-import type { Page } from "playwright";
+import type { BrowserContext, Page } from "playwright";
 import {
   parseNextData,
   extractModulesFromNextData,
   extractLessonAccessFromNextData,
 } from "./schemas.js";
+import { parallelProcess } from "../shared/parallelWorker.js";
 
 export interface CourseModule {
   name: string;
@@ -264,17 +265,39 @@ export interface ScanProgress {
   currentModuleIndex?: number;
   lessonsFound?: number;
   skippedLocked?: boolean;
+  /** Number of modules processed so far (for parallel scanning) */
+  modulesProcessed?: number;
+}
+
+/**
+ * Options for course structure building.
+ */
+export interface BuildCourseOptions {
+  /** Browser context for creating parallel worker tabs */
+  context?: BrowserContext;
+  /** Number of parallel workers for scanning modules (default: 1 = sequential) */
+  concurrency?: number;
+  /** Check if scanning should stop early (e.g., shutdown signal) */
+  shouldContinue?: () => boolean;
 }
 
 /* v8 ignore start */
 /**
  * Builds the complete course structure by crawling all modules and lessons.
+ *
+ * @param page - Main page for initial navigation
+ * @param classroomUrl - URL of the classroom
+ * @param onProgress - Progress callback
+ * @param options - Options for parallel processing
  */
 export async function buildCourseStructure(
   page: Page,
   classroomUrl: string,
-  onProgress?: (progress: ScanProgress) => void
+  onProgress?: (progress: ScanProgress) => void,
+  options?: BuildCourseOptions
 ): Promise<CourseStructure> {
+  const { context, concurrency = 1, shouldContinue = () => true } = options ?? {};
+
   const { isModule, moduleSlug } = isModuleUrl(classroomUrl);
 
   // If URL points to a specific module, get the base classroom URL first
@@ -305,26 +328,62 @@ export async function buildCourseStructure(
 
   onProgress?.({ phase: "modules", totalModules: modules.length });
 
-  const modulesWithLessons: CourseStructure["modules"] = [];
+  // Filter accessible modules (not locked, has URL)
+  const accessibleModules = modules.filter((m) => !m.isLocked && m.url);
+  const lockedModules = modules.filter((m) => m.isLocked);
 
-  for (const [i, module] of modules.entries()) {
-    if (module.isLocked) {
-      onProgress?.({
-        phase: "lessons",
-        currentModule: module.name,
-        currentModuleIndex: i,
-        skippedLocked: true,
-      });
-      continue;
-    }
-
+  // Report locked modules
+  for (const [i, module] of lockedModules.entries()) {
     onProgress?.({
       phase: "lessons",
       currentModule: module.name,
       currentModuleIndex: i,
+      skippedLocked: true,
     });
+  }
 
-    if (module.url) {
+  // Use parallel processing if context is provided and concurrency > 1
+  const useParallel = context && concurrency > 1 && accessibleModules.length > 1;
+
+  let modulesWithLessons: CourseStructure["modules"] = [];
+
+  if (useParallel) {
+    // Parallel scanning with worker tabs
+    let processed = 0;
+
+    const { results } = await parallelProcess(
+      context,
+      page,
+      accessibleModules,
+      async (workerPage, module, _index) => {
+        const lessons = await extractLessons(workerPage, module.url);
+
+        processed++;
+        onProgress?.({
+          phase: "lessons",
+          currentModule: module.name,
+          modulesProcessed: processed,
+          totalModules: accessibleModules.length,
+          lessonsFound: lessons.length,
+        });
+
+        return { ...module, lessons };
+      },
+      { concurrency, shouldContinue }
+    );
+
+    modulesWithLessons = results;
+  } else {
+    // Sequential scanning (original behavior)
+    for (const [i, module] of accessibleModules.entries()) {
+      if (!shouldContinue()) break;
+
+      onProgress?.({
+        phase: "lessons",
+        currentModule: module.name,
+        currentModuleIndex: i,
+      });
+
       const lessons = await extractLessons(page, module.url);
 
       onProgress?.({

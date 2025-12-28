@@ -5,7 +5,7 @@ describe("configSchema", () => {
   it("parses empty object with defaults", () => {
     const result = configSchema.parse({});
     expect(result).toEqual({
-      outputDir: "~/Downloads/offcourse",
+      outputDir: ".",
       videoQuality: "highest",
       concurrency: 2,
       extractionConcurrency: 4,

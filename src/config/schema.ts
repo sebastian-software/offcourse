@@ -17,7 +17,7 @@ export type VideoQuality = keyof typeof VIDEO_QUALITY;
  * Global application configuration schema.
  */
 export const configSchema = z.object({
-  outputDir: z.string().default("~/Downloads/offcourse"),
+  outputDir: z.string().default("."),
   videoQuality: z.enum(["highest", "lowest", "1080p", "720p", "480p"]).default("highest"),
   concurrency: z.number().int().min(1).max(5).default(2),
   extractionConcurrency: z.number().int().min(1).max(8).default(4),

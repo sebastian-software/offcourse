@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { loadConfig } from "../../config/configManager.js";
 import { downloadVideo, type VideoDownloadTask } from "../../downloader/index.js";
 import { getAuthenticatedSession, createLoginChecker } from "../../shared/auth.js";
+import { createWorkerPool, closeWorkerPool } from "../../shared/parallelWorker.js";
 import {
   buildLearningSuiteCourseStructure,
   createFolderName,
@@ -220,7 +221,8 @@ export async function syncLearningSuiteCommand(
     browser = result.browser;
     session = result.session;
     cleanupResources.browser = browser;
-    spinner.succeed("Connected to LearningSuite");
+    const sessionInfo = result.usedCachedSession ? " (cached session)" : "";
+    spinner.succeed(`Connected to LearningSuite${sessionInfo}`);
   } catch (error) {
     spinner.fail("Failed to connect");
     console.log(chalk.red("\n❌ Authentication failed.\n"));
@@ -237,7 +239,9 @@ export async function syncLearningSuiteCommand(
       return;
     }
 
-    console.log(chalk.blue("\n📖 Scanning course structure...\n"));
+    const scanConcurrency = config.extractionConcurrency;
+    const parallelLabel = scanConcurrency > 1 ? ` (${scanConcurrency}x parallel)` : "";
+    console.log(chalk.blue(`\n📖 Scanning course structure...${parallelLabel}\n`));
 
     // Build course structure
     let courseStructure: LearningSuiteCourseStructure | null = null;
@@ -264,20 +268,25 @@ export async function syncLearningSuiteCommand(
             progressBar.start(progress.totalModules, 0, { status: "Scanning modules..." });
           } else if (progress.phase === "lessons") {
             if (progress.skippedLocked) {
-              progressBar?.increment({ status: `🔒 ${progress.currentModule ?? "Locked"}` });
+              // Locked modules are not counted in progress
             } else if (progress.lessonsFound !== undefined) {
-              progressBar?.increment({
-                status: `${progress.currentModule ?? "Module"} (${progress.lessonsFound} lessons)`,
-              });
-            } else {
-              const moduleName = progress.currentModule ?? "";
+              const current = progress.modulesProcessed ?? 1;
               const shortName =
-                moduleName.length > 35 ? moduleName.substring(0, 32) + "..." : moduleName;
-              progressBar?.update(progress.currentModuleIndex ?? 0, { status: shortName });
+                (progress.currentModule ?? "Module").length > 30
+                  ? (progress.currentModule ?? "Module").substring(0, 27) + "..."
+                  : (progress.currentModule ?? "Module");
+              progressBar?.update(current, {
+                status: `${shortName} (${progress.lessonsFound} lessons)`,
+              });
             }
           } else if (progress.phase === "done") {
             progressBar?.stop();
           }
+        },
+        {
+          context: session.context,
+          concurrency: scanConcurrency,
+          shouldContinue,
         }
       );
     } catch (error) {
@@ -395,18 +404,15 @@ export async function syncLearningSuiteCommand(
     contentProgressBar.start(totalToProcess, 0, { status: "Starting..." });
 
     // Create worker pages for parallel extraction
-    const workerPages: import("playwright").Page[] = [];
-    try {
-      for (let i = 0; i < extractionConcurrency; i++) {
-        const page = await session.context.newPage();
-        workerPages.push(page);
-      }
-    } catch {
+    const { pages: workerPages, isUsingMainPage } = await createWorkerPool(
+      session.context,
+      session.page,
+      extractionConcurrency
+    );
+    if (isUsingMainPage) {
       console.error(
         chalk.yellow("\n   Could not create parallel tabs, falling back to sequential")
       );
-      // Fallback: use the main session page only
-      workerPages.push(session.page);
     }
 
     // Thread-safe counters and task queue
@@ -524,15 +530,7 @@ export async function syncLearningSuiteCommand(
     await Promise.all(workerPromises);
 
     // Close worker pages (except the main session page)
-    for (const page of workerPages) {
-      if (page !== session.page) {
-        try {
-          await page.close();
-        } catch {
-          // Ignore close errors
-        }
-      }
-    }
+    await closeWorkerPool(workerPages, session.page);
 
     contentProgressBar.stop();
 
@@ -569,7 +567,6 @@ export async function syncLearningSuiteCommand(
     }
 
     console.log(chalk.green("\n✅ Sync complete!\n"));
-    console.log(chalk.gray(`   Output: ${courseDir}\n`));
   } catch (error) {
     console.error(chalk.red("\n❌ Sync failed"));
     if (error instanceof Error) {
@@ -825,7 +822,8 @@ export async function completeLearningSuiteCommand(
     );
     browser = result.browser;
     session = result.session;
-    spinner.succeed("Connected to LearningSuite");
+    const sessionInfo = result.usedCachedSession ? " (cached session)" : "";
+    spinner.succeed(`Connected to LearningSuite${sessionInfo}`);
   } catch (error) {
     spinner.fail("Failed to connect");
     console.log(chalk.red("\n❌ Authentication failed.\n"));

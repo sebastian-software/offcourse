@@ -38,7 +38,8 @@ export async function inspectCommand(url: string, options: InspectOptions): Prom
     );
     browser = result.browser;
     session = result.session;
-    spinner.succeed("Connected");
+    const sessionInfo = result.usedCachedSession ? " (cached session)" : "";
+    spinner.succeed(`Connected${sessionInfo}`);
   } catch {
     spinner.fail("Failed to connect");
     console.log(chalk.red("\n❌ Please run: course-grab login\n"));
