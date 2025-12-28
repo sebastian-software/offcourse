@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/sebastian-software/offcourse/compare/v1.3.0...v1.4.0) (2025-12-28)
+
+### Features
+
+* add spinner feedback during course structure scanning ([3e9bc2d](https://github.com/sebastian-software/offcourse/commit/3e9bc2d7b76970c7917c1ce5ec5e818bc51afe1f))
+* parallel course structure scanning ([97a5fe4](https://github.com/sebastian-software/offcourse/commit/97a5fe4178a52bb53ad514855ebe48ab3cea1a4b))
+
 ## [1.3.0](https://github.com/sebastian-software/offcourse/compare/v1.2.2...v1.3.0) (2025-12-27)
 
 ### Features
