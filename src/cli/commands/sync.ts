@@ -330,7 +330,7 @@ async function scanCourseStructure(
   console.log(chalk.blue(`\n📚 Phase 1: Scanning course structure...${parallelLabel}\n`));
 
   let progressBar: cliProgress.SingleBar | undefined;
-  let courseName = "";
+  let scanSpinner: ReturnType<typeof ora> | undefined;
   let totalModules = 0;
   let lockedModules = 0;
 
@@ -339,10 +339,19 @@ async function scanCourseStructure(
       page,
       url,
       (progress) => {
-        if (progress.phase === "init" && progress.courseName) {
-          courseName = progress.courseName;
-          console.log(chalk.white(`   Course: ${courseName}\n`));
+        // Handle pre-progress phases with spinner
+        if (progress.phase === "navigating" || progress.phase === "extracting") {
+          if (!scanSpinner) {
+            scanSpinner = ora({ text: progress.status ?? "Loading...", indent: 3 }).start();
+          } else {
+            scanSpinner.text = progress.status ?? "Loading...";
+          }
+        } else if (progress.phase === "init" && progress.courseName) {
+          scanSpinner?.succeed(progress.courseName);
+          scanSpinner = undefined;
         } else if (progress.phase === "modules" && progress.totalModules) {
+          scanSpinner?.stop();
+          scanSpinner = undefined;
           totalModules = progress.totalModules;
           progressBar = new cliProgress.SingleBar(
             {
@@ -377,6 +386,7 @@ async function scanCourseStructure(
             progressBar?.update(progress.currentModuleIndex ?? 0, { status: shortName });
           }
         } else if (progress.phase === "done") {
+          scanSpinner?.stop();
           progressBar?.stop();
         }
       },
@@ -443,6 +453,7 @@ async function scanCourseStructure(
     if (newLessons > 0) parts.push(chalk.green(`+${newLessons} new`));
     console.log(`   Found: ${parts.join(", ")}`);
   } catch (error) {
+    scanSpinner?.fail("Failed");
     progressBar?.stop();
     console.log(chalk.red("   Failed to scan course structure"));
     throw error;

@@ -246,15 +246,26 @@ export async function syncLearningSuiteCommand(
     // Build course structure
     let courseStructure: LearningSuiteCourseStructure | null = null;
     let progressBar: cliProgress.SingleBar | undefined;
+    let scanSpinner: ReturnType<typeof ora> | undefined;
 
     try {
       courseStructure = await buildLearningSuiteCourseStructure(
         session.page,
         url,
         (progress: LearningSuiteScanProgress) => {
-          if (progress.phase === "course" && progress.courseName) {
-            console.log(chalk.white(`   Course: ${progress.courseName}`));
+          // Handle pre-progress phases with spinner
+          if (progress.phase === "navigating" || progress.phase === "extracting") {
+            if (!scanSpinner) {
+              scanSpinner = ora({ text: progress.status ?? "Loading...", indent: 3 }).start();
+            } else {
+              scanSpinner.text = progress.status ?? "Loading...";
+            }
+          } else if (progress.phase === "course" && progress.courseName) {
+            scanSpinner?.succeed(progress.courseName);
+            scanSpinner = undefined;
           } else if (progress.phase === "modules" && progress.totalModules) {
+            scanSpinner?.stop();
+            scanSpinner = undefined;
             progressBar = new cliProgress.SingleBar(
               {
                 format: "   {bar} {percentage}% | {value}/{total} | {status}",
@@ -280,6 +291,7 @@ export async function syncLearningSuiteCommand(
               });
             }
           } else if (progress.phase === "done") {
+            scanSpinner?.stop();
             progressBar?.stop();
           }
         },
@@ -290,6 +302,7 @@ export async function syncLearningSuiteCommand(
         }
       );
     } catch (error) {
+      scanSpinner?.fail("Failed");
       progressBar?.stop();
       console.log(chalk.red("   Failed to scan course structure"));
       if (error instanceof Error) {

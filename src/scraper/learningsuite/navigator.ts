@@ -45,7 +45,9 @@ export interface LearningSuiteCourseStructure {
 }
 
 export interface LearningSuiteScanProgress {
-  phase: "init" | "course" | "modules" | "lessons" | "done";
+  phase: "init" | "navigating" | "extracting" | "course" | "modules" | "lessons" | "done";
+  /** Status message for the current phase */
+  status?: string;
   courseName?: string;
   totalModules?: number;
   currentModule?: string;
@@ -676,6 +678,7 @@ export async function buildLearningSuiteCourseStructure(
   onProgress?.({ phase: "init" });
 
   // Navigate to course page
+  onProgress?.({ phase: "navigating", status: "Loading course page..." });
   await page.goto(courseUrl, { timeout: 30000 });
   await page.waitForLoadState("networkidle").catch(() => {});
   await page.waitForTimeout(3000);
@@ -684,6 +687,7 @@ export async function buildLearningSuiteCourseStructure(
   await dismissMuiDialogs(page);
 
   // Extract tenant ID from page
+  onProgress?.({ phase: "extracting", status: "Extracting tenant info..." });
   const tenantId = (await extractTenantId(page)) ?? (await extractTenantIdFromPage(page));
 
   if (!tenantId) {
@@ -733,7 +737,7 @@ export async function buildLearningSuiteCourseStructure(
   const courseSlug = slugMatch?.[1] ?? courseId;
 
   // Extract course details from DOM
-  onProgress?.({ phase: "course" });
+  onProgress?.({ phase: "extracting", status: "Reading course details..." });
 
   const courseInfo = await page.evaluate(() => {
     // LearningSuite has the course title in a header section
@@ -791,7 +795,7 @@ export async function buildLearningSuiteCourseStructure(
   onProgress?.({ phase: "course", courseName: course.title });
 
   // Extract modules and lessons from DOM
-  onProgress?.({ phase: "modules" });
+  onProgress?.({ phase: "extracting", status: "Finding modules..." });
 
   // First extract all modules from the course page
   const initialModules = await extractModulesFromCoursePage(page, domain, courseSlug, courseId);

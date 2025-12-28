@@ -74,7 +74,7 @@ export async function parallelProcess<TTask, TResult>(
   }
 
   // Results array (maintains order)
-  const results: (TResult | undefined)[] = new Array(tasks.length);
+  const results: (TResult | undefined)[] = new Array<TResult | undefined>(tasks.length);
   const errors: { index: number; error: unknown }[] = [];
 
   // Task queue with indices
@@ -133,7 +133,7 @@ export async function parallelProcessWithPages<TTask, TResult>(
   const { shouldContinue = () => true, onError } = options;
 
   // Results array (maintains order)
-  const results: (TResult | undefined)[] = new Array(tasks.length);
+  const results: (TResult | undefined)[] = new Array<TResult | undefined>(tasks.length);
   const errors: { index: number; error: unknown }[] = [];
 
   // Task queue with indices

@@ -258,7 +258,9 @@ export function getClassroomBaseUrl(url: string): string {
  * Progress callback for buildCourseStructure.
  */
 export interface ScanProgress {
-  phase: "init" | "modules" | "lessons" | "done";
+  phase: "init" | "navigating" | "extracting" | "modules" | "lessons" | "done";
+  /** Status message for the current phase */
+  status?: string;
   courseName?: string;
   totalModules?: number;
   currentModule?: string;
@@ -304,14 +306,17 @@ export async function buildCourseStructure(
   const baseClassroomUrl = isModule ? getClassroomBaseUrl(classroomUrl) : classroomUrl;
 
   // Navigate to the classroom overview to get all modules
+  onProgress?.({ phase: "navigating", status: "Loading classroom..." });
   await page.goto(baseClassroomUrl, { timeout: 30000 });
   await page.waitForLoadState("domcontentloaded");
   await page.waitForTimeout(2000);
 
+  onProgress?.({ phase: "extracting", status: "Reading course info..." });
   const courseName = await extractCourseName(page);
   onProgress?.({ phase: "init", courseName });
 
   // Try JSON extraction first (more reliable), fall back to page scraping
+  onProgress?.({ phase: "extracting", status: "Finding modules..." });
   let modules = await extractModulesFromJson(page);
 
   if (modules.length === 0) {
