@@ -115,7 +115,10 @@ export async function concatSegments(
   tempDir: string
 ): Promise<boolean> {
   const concatPath = path.join(tempDir, "concat.txt");
-  const concatContent = segmentPaths.map((p) => `file '${p}'`).join("\n");
+  // segment paths must be relative to concat.txt file
+  const concatContent = segmentPaths
+    .map((p) => `file '${path.relative(tempDir, path.resolve(p))}'`)
+    .join("\n");
   fs.writeFileSync(concatPath, concatContent);
 
   try {
