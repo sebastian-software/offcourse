@@ -1,6 +1,6 @@
 import type { RequestHeaders } from "./types.js";
 
-const RETRYABLE_STATUS_CODES = new Set([408, 413, 429, 500, 502, 503, 504]);
+const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_RETRIES = 2;
 
@@ -23,9 +23,16 @@ export interface AuthenticatedFetchOptions extends AuthHeaderOptions, FetchWithR
   maxRedirects?: number | undefined;
 }
 
-/** Removes characters that could inject additional HTTP headers. */
+/** Removes control characters that could inject or corrupt HTTP headers. */
 export function sanitizeHeaderValue(value: string): string {
-  return value.replace(/[\r\n]/g, "").trim();
+  let sanitized = "";
+  for (let index = 0; index < value.length; index++) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit >= 0x20 && codeUnit !== 0x7f) {
+      sanitized += value.charAt(index);
+    }
+  }
+  return sanitized.trim();
 }
 
 export function isSameOrigin(firstUrl: string, secondUrl: string): boolean {
@@ -71,7 +78,7 @@ export function buildAuthHeaders(
 
 /** Fetches with a bounded timeout and retries transient HTTP/network failures. */
 export async function fetchWithRetry(
-  input: string | URL | Request,
+  input: string | URL,
   init: RequestInit = {},
   options: FetchWithRetryOptions = {}
 ): Promise<Response> {
