@@ -123,7 +123,28 @@ describe("downloadLoomVideo", () => {
     expect(existsSync(tempVideoPath)).toBe(false);
   });
 
-  it("removes both temp files when merging throws", async () => {
+  it("removes a partial video temp file when the video download fails", async () => {
+    sharedMocks.getSegmentUrls
+      .mockResolvedValueOnce(["https://cdn.example/video-1.ts"])
+      .mockResolvedValueOnce(["https://cdn.example/audio-1.ts"]);
+    sharedMocks.downloadSegmentsToFile.mockImplementationOnce(async (_segments, path) => {
+      writeFileSync(path, "partial video");
+      return false;
+    });
+
+    const result = await downloadLoomVideo(
+      "https://luna.loom.com/example/mediaplaylist-video-bitrate1000.m3u8",
+      join(testDir, "video.ts")
+    );
+
+    expect(result).toMatchObject({ success: false, errorCode: "DOWNLOAD_FAILED" });
+    const tempVideoPath = sharedMocks.downloadSegmentsToFile.mock.calls[0]?.[1];
+    if (!tempVideoPath) throw new Error("Expected a video temp path");
+    expect(existsSync(tempVideoPath)).toBe(false);
+    expect(sharedMocks.downloadSegmentsToFile).toHaveBeenCalledOnce();
+  });
+
+  it("returns a structured error and removes both temp files when merging throws", async () => {
     sharedMocks.getSegmentUrls
       .mockResolvedValueOnce(["https://cdn.example/video-1.ts"])
       .mockResolvedValueOnce(["https://cdn.example/audio-1.ts"]);
@@ -133,12 +154,17 @@ describe("downloadLoomVideo", () => {
     });
     sharedMocks.mergeVideoAudio.mockRejectedValue(new Error("ffmpeg crashed"));
 
-    await expect(
-      downloadLoomVideo(
-        "https://luna.loom.com/example/mediaplaylist-video-bitrate1000.m3u8",
-        join(testDir, "video.ts")
-      )
-    ).rejects.toThrow("ffmpeg crashed");
+    const result = await downloadLoomVideo(
+      "https://luna.loom.com/example/mediaplaylist-video-bitrate1000.m3u8",
+      join(testDir, "video.ts")
+    );
+
+    expect(result).toEqual({
+      success: false,
+      error: "Failed to merge video and audio with ffmpeg",
+      errorCode: "MERGE_FAILED",
+      details: "ffmpeg crashed",
+    });
 
     for (const call of sharedMocks.downloadSegmentsToFile.mock.calls) {
       expect(existsSync(call[1])).toBe(false);
