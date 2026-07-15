@@ -3,6 +3,7 @@ import {
   buildAuthHeaders,
   fetchWithAuthRedirects,
   fetchWithRetry,
+  isSameOrigin,
   sanitizeHeaderValue,
 } from "./network.js";
 
@@ -12,6 +13,12 @@ afterEach(() => {
 });
 
 describe("authenticated downloader requests", () => {
+  it("compares URL origins without trusting invalid input", () => {
+    expect(isSameOrigin("https://video.example/a", "https://video.example/b")).toBe(true);
+    expect(isSameOrigin("https://video.example", "https://cdn.example")).toBe(false);
+    expect(isSameOrigin("not-a-url", "https://video.example")).toBe(false);
+  });
+
   it("removes CRLF characters from header values", () => {
     expect(sanitizeHeaderValue("token\r\nInjected: yes")).toBe("tokenInjected: yes");
   });
