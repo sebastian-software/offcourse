@@ -74,6 +74,40 @@ describe("ffmpeg output publishing", () => {
     expect(existsSync(`${outputPath}.tmp`)).toBe(false);
   });
 
+  it("removes partial concatenated output when ffmpeg fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "offcourse-ffmpeg-"));
+    createdPaths.push(root);
+    const outputPath = join(root, "video.mp4");
+    const segmentPath = join(root, "segment.ts");
+    writeFileSync(segmentPath, "segment");
+    mockSubprocess("failure");
+
+    const result = await concatSegments([segmentPath], outputPath, root);
+
+    expect(result).toBe(false);
+    expect(existsSync(outputPath)).toBe(false);
+    expect(existsSync(`${outputPath}.tmp`)).toBe(false);
+  });
+
+  it("publishes a completed video and audio merge and removes its inputs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "offcourse-ffmpeg-"));
+    createdPaths.push(root);
+    const videoPath = join(root, "video.ts");
+    const audioPath = join(root, "audio.ts");
+    const outputPath = join(root, "video.mp4");
+    writeFileSync(videoPath, "video");
+    writeFileSync(audioPath, "audio");
+    mockSubprocess("success");
+
+    const result = await mergeVideoAudio(videoPath, audioPath, outputPath);
+
+    expect(result).toBe(true);
+    expect(await readFile(outputPath, "utf8")).toBe("ffmpeg-output");
+    expect(existsSync(`${outputPath}.tmp`)).toBe(false);
+    expect(existsSync(videoPath)).toBe(false);
+    expect(existsSync(audioPath)).toBe(false);
+  });
+
   it("does not publish a failed video and audio merge", async () => {
     const root = await mkdtemp(join(tmpdir(), "offcourse-ffmpeg-"));
     createdPaths.push(root);
