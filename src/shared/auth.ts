@@ -78,9 +78,8 @@ export function isTransientAuthNavigationError(error: unknown): boolean {
 }
 
 // ============================================
-// Browser automation - not unit testable
+// Browser automation
 // ============================================
-/* v8 ignore start */
 
 /**
  * Checks if a valid session exists for the given domain.
@@ -277,5 +276,3 @@ export async function clearSession(domain: string): Promise<boolean> {
  */
 // Re-export Firebase auth utilities (used by multiple platforms)
 export { hasValidFirebaseToken } from "./firebase.js";
-
-/* v8 ignore stop */
