@@ -15,10 +15,8 @@ export default defineConfig({
         // Test files
         "src/**/*.test.ts",
         "src/**/*.integration.test.ts",
-        // Commander entrypoint parses process.argv as soon as it is imported.
-        // Command implementations remain included so CLI blind spots are visible.
-        "src/cli/index.ts",
-        // Re-export index files
+        // Re-export index files. This also excludes the Commander entrypoint,
+        // which parses process.argv on import; CLI command implementations stay included.
         "src/**/index.ts",
         // Pure I/O wrappers (testing would just test Node.js/packages)
         "src/shared/fs.ts",
