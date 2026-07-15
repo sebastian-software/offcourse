@@ -39,7 +39,10 @@ export {
   getSegmentUrls,
   isSegmentsUrl,
   parseHLSPlaylist,
+  parseHlsMasterPlaylistContent,
   parseHlsMasterPlaylist,
+  parseHlsMediaPlaylistContent,
   parseSegmentsUrl,
+  resolveHlsUri,
   SEGMENTS_URL_PREFIX,
 } from "./hlsDownload.js";

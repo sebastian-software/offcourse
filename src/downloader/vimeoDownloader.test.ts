@@ -1,5 +1,65 @@
 import { describe, expect, it } from "vitest";
-import { extractVimeoId } from "./vimeoDownloader.js";
+import { extractVimeoId, parseVimeoConfig } from "./vimeoDownloader.js";
+
+describe("parseVimeoConfig", () => {
+  it("prefers the configured Vimeo CDN and highest progressive rendition", () => {
+    const result = parseVimeoConfig(
+      {
+        video: { title: "Course video", duration: 42, width: 1280, height: 720 },
+        request: {
+          files: {
+            hls: {
+              cdns: {
+                fallback: { url: "https://fallback.test/master.m3u8" },
+                fastly_skyfire: { url: "https://preferred.test/master.m3u8" },
+              },
+            },
+            progressive: [
+              { height: 360, url: "https://cdn.test/360.mp4" },
+              { height: 1080, url: "https://cdn.test/1080.mp4" },
+            ],
+          },
+        },
+      },
+      "123"
+    );
+
+    expect(result).toMatchObject({
+      success: true,
+      info: {
+        id: "123",
+        title: "Course video",
+        hlsUrl: "https://preferred.test/master.m3u8",
+        progressiveUrl: "https://cdn.test/1080.mp4",
+      },
+    });
+  });
+
+  it("falls back to the first available HLS CDN", () => {
+    expect(
+      parseVimeoConfig(
+        { request: { files: { hls: { cdns: { custom: { url: "https://custom.test/hls" } } } } } },
+        "123"
+      )
+    ).toMatchObject({ success: true, info: { hlsUrl: "https://custom.test/hls" } });
+  });
+
+  it("reports DASH-only configs as DRM protected", () => {
+    expect(
+      parseVimeoConfig(
+        { video: { title: "Protected" }, request: { files: { dash: { cdns: {} } } } },
+        "123"
+      )
+    ).toMatchObject({ success: false, errorCode: "DRM_PROTECTED" });
+  });
+
+  it("reports configs without downloadable streams", () => {
+    expect(parseVimeoConfig({}, "123")).toMatchObject({
+      success: false,
+      errorCode: "PARSE_ERROR",
+    });
+  });
+});
 
 describe("extractVimeoId", () => {
   it("extracts ID from standard vimeo.com URL", () => {
