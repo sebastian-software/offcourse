@@ -37,8 +37,8 @@ describe("redactDownloadUrl", () => {
   it("redacts signed URLs embedded in diagnostic text", () => {
     expect(
       redactDownloadUrlsInText(
-        "Playlist failed: https://cdn.example.com/video.m3u8?token=secret; fallback segments:c2VjcmV0"
+        "Playlist failed (https://cdn.example.com/video.m3u8?token=secret); fallback segments:c2VjcmV0."
       )
-    ).toBe("Playlist failed: https://cdn.example.com/video.m3u8 fallback segments:[redacted]");
+    ).toBe("Playlist failed (https://cdn.example.com/video.m3u8); fallback segments:[redacted].");
   });
 });

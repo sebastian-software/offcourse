@@ -80,7 +80,10 @@ export function redactDownloadUrl(url: string): string {
 
 /** Redacts signed URLs embedded in downloader error and diagnostic text. */
 export function redactDownloadUrlsInText(text: string): string {
-  return text.replace(/\b(?:https?:\/\/|segments:)[^\s"'<>]+/gi, (url) => redactDownloadUrl(url));
+  return text.replace(
+    /\b((?:https?:\/\/|segments:)[^\s"'<>]*?)([),.;:!?]*)(?=\s|$)/gi,
+    (_match, url: string, punctuation: string) => `${redactDownloadUrl(url)}${punctuation}`
+  );
 }
 
 /**
