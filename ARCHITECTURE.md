@@ -127,14 +127,14 @@ Platform-specific logic for extracting course content.
 #### Skool Scraper (root level)
 
 - **skoolAuth.ts**: Detects login pages and verifies saved Skool sessions
-- **shared/auth.ts**: Manages Playwright browser sessions and persistence
+- **src/shared/auth.ts**: Manages Playwright browser sessions and persistence
 - **navigator.ts**: Discovers course structure (modules, lessons, URLs)
 - **extractor.ts**: Extracts video URLs and text content from lesson pages
 - **videoInterceptor.ts**: Intercepts network requests to capture video URLs
 
 #### HighLevel Scraper (`src/scraper/highlevel/`)
 
-- **shared/auth.ts** and **shared/firebase.ts**: Firebase session and token handling
+- **src/shared/auth.ts** and **src/shared/firebase.ts**: Firebase session and token handling
 - **navigator.ts**: Extracts course structure via API interception
 - **extractor.ts**: Extracts HLS video URLs, embedded videos (Vimeo, Loom), and content
 
