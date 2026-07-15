@@ -62,12 +62,13 @@ offcourse complete <url>
 # Configuration (optional)
 offcourse config set outputDir ~/Courses  # Default: current directory
 offcourse config set videoQuality 720p    # Default: highest
-offcourse config set concurrency 4        # Parallel browser tabs (1-8)
+offcourse config set concurrency 3        # Parallel downloads (1-5, default: 2)
+offcourse config set extractionConcurrency 6  # Browser tabs (1-8, default: 4)
 ```
 
 ## Performance
 
-Both course scanning and content extraction run in parallel using multiple browser tabs (default: 4). This speeds up the entire process significantly compared to sequential processing. All tabs share the same authenticated session.
+Course scanning and content extraction use `extractionConcurrency` browser tabs (default: 4). All tabs share the same authenticated session. Video downloads use a separate `concurrency` queue (default: 2), so browser work and network/download load can be tuned independently.
 
 ## Troubleshooting
 
