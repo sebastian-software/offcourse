@@ -77,6 +77,24 @@ describe("validateLoomHls", () => {
     expect(mocks.captureLoomHls).toHaveBeenCalledWith(page, "loom-id", 15000);
   });
 
+  it("preserves the direct error when browser interception finds no HLS stream", async () => {
+    mocks.getLoomVideoInfoDetailed.mockResolvedValue({
+      success: false,
+      error: "No HLS URL",
+      errorCode: "HLS_NOT_FOUND",
+      details: "Embed response contained no stream",
+    });
+    mocks.captureLoomHls.mockResolvedValue({ hlsUrl: null });
+
+    await expect(validateLoomHls("https://loom.com/share/loom-id", page)).resolves.toEqual({
+      isValid: false,
+      hlsUrl: null,
+      error: "No HLS URL",
+      errorCode: "HLS_NOT_FOUND",
+      details: "Embed response contained no stream",
+    });
+  });
+
   it("preserves structured direct-fetch failures", async () => {
     mocks.getLoomVideoInfoDetailed.mockResolvedValue({
       success: false,
@@ -91,6 +109,16 @@ describe("validateLoomHls", () => {
       error: "Private video",
       errorCode: "EMBED_FETCH_FAILED",
       details: "HTTP 403",
+    });
+  });
+
+  it("supplies a default error for an unstructured direct-fetch failure", async () => {
+    mocks.getLoomVideoInfoDetailed.mockResolvedValue({ success: false });
+
+    await expect(validateLoomHls("https://loom.com/share/loom-id")).resolves.toEqual({
+      isValid: false,
+      hlsUrl: null,
+      error: "Failed to fetch Loom video info",
     });
   });
 });
@@ -140,10 +168,23 @@ describe("validateVimeoVideo", () => {
       "https://course.example/lesson"
     );
 
-    expect(mocks.getVimeoVideoInfo).toHaveBeenCalledWith(
+    await validateVimeoVideo(
+      "https://player.vimeo.com/video/123?h=def456",
+      undefined,
+      "https://course.example/embed"
+    );
+
+    expect(mocks.getVimeoVideoInfo).toHaveBeenNthCalledWith(
+      1,
       "vimeo-id",
       "abc123",
       "https://course.example/lesson"
+    );
+    expect(mocks.getVimeoVideoInfo).toHaveBeenNthCalledWith(
+      2,
+      "vimeo-id",
+      "def456",
+      "https://course.example/embed"
     );
   });
 
@@ -186,6 +227,29 @@ describe("validateVimeoVideo", () => {
     expect(mocks.captureVimeoConfig).toHaveBeenCalledWith(page, "vimeo-id", 20000);
   });
 
+  it("preserves the private-video error when every browser fallback is exhausted", async () => {
+    mocks.getVimeoVideoInfo.mockResolvedValue({
+      success: false,
+      error: "Private video",
+      errorCode: "PRIVATE_VIDEO",
+    });
+    mocks.getVimeoVideoInfoFromBrowser.mockResolvedValue({
+      success: false,
+      error: "Private video in browser",
+      errorCode: "PRIVATE_VIDEO",
+      details: "Player config remained inaccessible",
+    });
+    mocks.captureVimeoConfig.mockResolvedValue({ hlsUrl: null, progressiveUrl: null });
+
+    await expect(validateVimeoVideo("https://vimeo.com/123", page)).resolves.toEqual({
+      isValid: false,
+      hlsUrl: null,
+      error: "Private video in browser",
+      errorCode: "PRIVATE_VIDEO",
+      details: "Player config remained inaccessible",
+    });
+  });
+
   it("preserves structured failures after fallbacks are exhausted", async () => {
     mocks.getVimeoVideoInfo.mockResolvedValue({
       success: false,
@@ -200,6 +264,16 @@ describe("validateVimeoVideo", () => {
       error: "Video unavailable",
       errorCode: "VIDEO_NOT_FOUND",
       details: "Video ID: vimeo-id",
+    });
+  });
+
+  it("supplies a default error when a successful response has no video info", async () => {
+    mocks.getVimeoVideoInfo.mockResolvedValue({ success: true });
+
+    await expect(validateVimeoVideo("https://vimeo.com/123")).resolves.toEqual({
+      isValid: false,
+      hlsUrl: null,
+      error: "Failed to fetch Vimeo video info",
     });
   });
 });
