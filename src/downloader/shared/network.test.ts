@@ -19,8 +19,8 @@ describe("authenticated downloader requests", () => {
     expect(isSameOrigin("not-a-url", "https://video.example")).toBe(false);
   });
 
-  it("removes CRLF characters from header values", () => {
-    expect(sanitizeHeaderValue("token\r\nInjected: yes")).toBe("tokenInjected: yes");
+  it("removes control characters from header values", () => {
+    expect(sanitizeHeaderValue("token\r\n\t\0Injected:\u007f yes")).toBe("tokenInjected: yes");
   });
 
   it("sanitizes credentials for the trusted origin", () => {
