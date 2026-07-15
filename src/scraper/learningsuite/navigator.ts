@@ -903,9 +903,9 @@ export async function buildLearningSuiteCourseStructure(
       context,
       page,
       accessibleModules,
-      async (workerPage, module, index) => {
-        const titleOccurrence = accessibleModules
-          .slice(0, index)
+      async (workerPage, module) => {
+        const titleOccurrence = initialModules
+          .slice(0, module.position)
           .filter((candidate) => candidate.title === module.title).length;
         const scannedModule = await scanModuleLessons(
           workerPage,
@@ -944,8 +944,8 @@ export async function buildLearningSuiteCourseStructure(
       });
 
       // Navigate to the module by clicking on its title text
-      const titleOccurrence = accessibleModules
-        .slice(0, i)
+      const titleOccurrence = initialModules
+        .slice(0, module.position)
         .filter((candidate) => candidate.title === module.title).length;
       const moduleTitle = page.getByText(module.title, { exact: true }).nth(titleOccurrence);
 

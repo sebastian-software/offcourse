@@ -69,6 +69,14 @@ describe("parseLearningSuiteLessonText", () => {
       duration: "",
     });
   });
+
+  it("rejects lesson text that is too short", () => {
+    expect(parseLearningSuiteLessonText("Go")).toBeNull();
+  });
+
+  it("rejects titles that are too short after removing duration metadata", () => {
+    expect(parseLearningSuiteLessonText("Go 2 minutes")).toBeNull();
+  });
 });
 
 describe("extractTenantFromUrl", () => {
