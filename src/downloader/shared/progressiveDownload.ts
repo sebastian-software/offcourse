@@ -5,7 +5,7 @@
 import { createWriteStream, existsSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { Readable } from "node:stream";
-import { finished } from "node:stream/promises";
+import { pipeline } from "node:stream/promises";
 import { USER_AGENT } from "../../shared/http.js";
 import type { DownloadResult, ProgressCallback, RequestHeaders } from "./types.js";
 
@@ -17,7 +17,6 @@ import type { DownloadResult, ProgressCallback, RequestHeaders } from "./types.j
  * Downloads a file directly via HTTP.
  * Supports progress tracking and authenticated requests.
  */
-/* v8 ignore start */
 export async function downloadFile(
   url: string,
   outputPath: string,
@@ -102,7 +101,7 @@ export async function downloadFile(
       },
     });
 
-    await finished(readable.pipe(fileStream));
+    await pipeline(readable, fileStream);
     renameSync(tempPath, outputPath);
 
     onProgress?.({ percent: 100, phase: "complete" });
@@ -122,6 +121,7 @@ export async function downloadFile(
  * Downloads a progressive video file with streaming.
  * Similar to downloadFile but uses a simpler stream approach.
  */
+/* v8 ignore start */
 export async function downloadProgressiveVideo(
   url: string,
   outputPath: string,
