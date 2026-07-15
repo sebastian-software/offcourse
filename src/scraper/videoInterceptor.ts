@@ -296,8 +296,9 @@ export async function captureLoomHls(
 
   try {
     // Use CDP to intercept network responses
-    client = await page.context().newCDPSession(page);
-    await client.send("Network.enable");
+    const activeClient = await page.context().newCDPSession(page);
+    client = activeClient;
+    await activeClient.send("Network.enable");
 
     // Match HLS playlists from Loom's CDN
     // Prefer master playlist (playlist.m3u8) over media playlists (mediaplaylist-*.m3u8)
@@ -343,7 +344,7 @@ export async function captureLoomHls(
         }
       };
 
-      client?.on("Network.responseReceived", responseHandler);
+      activeClient.on("Network.responseReceived", responseHandler);
     });
 
     // Navigate directly to Loom embed with autoplay (muted)
