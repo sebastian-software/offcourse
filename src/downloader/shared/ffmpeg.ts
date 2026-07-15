@@ -85,7 +85,11 @@ function getTemporaryOutput(outputPath: string): { tempPath: string; format: str
 }
 
 function removeTemporaryOutput(tempPath: string): void {
-  if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+  try {
+    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+  } catch {
+    // Cleanup is best-effort; preserve the operation's original failure result.
+  }
 }
 
 /**
@@ -259,13 +263,13 @@ export async function downloadWithFfmpeg(
     const subprocess = execa("ffmpeg", args);
 
     subprocess.stderr?.on("data", (data: Buffer) => {
-      const output = data.toString();
+      const stderrOutput = data.toString();
 
       if (duration === 0) {
-        duration = parseFfmpegDuration(output);
+        duration = parseFfmpegDuration(stderrOutput);
       }
 
-      const time = parseFfmpegTime(output);
+      const time = parseFfmpegTime(stderrOutput);
       if (time > 0) {
         currentTime = time;
         updateProgress();
