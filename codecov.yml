@@ -9,8 +9,10 @@ coverage:
   status:
     project:
       default:
-        target: 80%
-        threshold: 5%
+        # Recalibrated against Istanbul's full-source baseline. Raise this as
+        # the newly visible CLI and browser automation gaps are covered.
+        target: 20%
+        threshold: 1%
     patch:
       default:
         target: 70%
