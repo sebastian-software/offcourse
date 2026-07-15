@@ -130,9 +130,8 @@ export function extractCommunitySlug(value: string): string {
 
 /**
  * Database manager for course state persistence.
- * SQLite operations - not unit testable without mocking.
+ * SQLite-backed operations.
  */
-/* v8 ignore start */
 export class CourseDatabase {
   private db: Database.Database;
 
@@ -838,4 +837,3 @@ interface RawLessonWithModuleRow extends RawLessonRow {
   module_slug: string;
   module_position: number;
 }
-/* v8 ignore stop */
