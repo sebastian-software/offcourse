@@ -21,19 +21,20 @@ export interface LessonContent {
 }
 
 /**
- * Removes the known "module · course" suffix from a Skool browser title while
- * preserving hyphens that are part of the lesson title itself.
+ * Removes the known module and course suffixes from a Skool browser title.
+ * The module name is supplied by the course scan so hyphens in either name are
+ * not interpreted heuristically.
  */
-export function cleanLessonTitle(pageTitle: string): string {
+export function cleanLessonTitle(pageTitle: string, moduleName?: string): string {
   const title = pageTitle.trim();
   const courseSeparator = title.lastIndexOf(" · ");
   if (courseSeparator === -1) return title;
 
   const lessonAndModule = title.slice(0, courseSeparator).trim();
-  const moduleSeparator = lessonAndModule.lastIndexOf(" - ");
-  return moduleSeparator === -1
-    ? lessonAndModule
-    : lessonAndModule.slice(0, moduleSeparator).trim();
+  const moduleSuffix = moduleName?.trim() ? ` - ${moduleName.trim()}` : null;
+  return moduleSuffix && lessonAndModule.endsWith(moduleSuffix)
+    ? lessonAndModule.slice(0, -moduleSuffix.length).trim()
+    : lessonAndModule;
 }
 
 // Initialize Turndown for HTML to Markdown conversion
@@ -718,7 +719,11 @@ export async function extractDownloadableFiles(page: Page): Promise<Downloadable
 /**
  * Extracts all content from a lesson page.
  */
-export async function extractLessonContent(page: Page, lessonUrl: string): Promise<LessonContent> {
+export async function extractLessonContent(
+  page: Page,
+  lessonUrl: string,
+  moduleName?: string
+): Promise<LessonContent> {
   const currentUrl = page.url();
 
   if (currentUrl !== lessonUrl) {
@@ -732,7 +737,7 @@ export async function extractLessonContent(page: Page, lessonUrl: string): Promi
   const { html: htmlContent, markdown: markdownContent } = await extractTextContent(page);
   const downloadableFiles = await extractDownloadableFiles(page);
 
-  const cleanTitle = cleanLessonTitle(title);
+  const cleanTitle = cleanLessonTitle(title, moduleName);
 
   return {
     title: cleanTitle,
