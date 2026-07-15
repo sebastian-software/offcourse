@@ -69,7 +69,50 @@ offcourse config set concurrency 4        # Parallel browser tabs (1-8)
 
 Both course scanning and content extraction run in parallel using multiple browser tabs (default: 4). This speeds up the entire process significantly compared to sequential processing. All tabs share the same authenticated session.
 
+## Troubleshooting
+
+### ffmpeg is missing
+
+Video downloads that use HLS require ffmpeg. Confirm it is available with `ffmpeg -version`; if the command is missing, install ffmpeg with your operating system's package manager and retry the sync.
+
+### Playwright cannot find Chromium
+
+Install the browser binary used by the scraper, then retry:
+
+```bash
+npx playwright install chromium
+```
+
+When working from a repository checkout, use `pnpm exec playwright install chromium` instead.
+
+### A saved session expired
+
+Clear the saved session and force a fresh login for the affected platform URL:
+
+```bash
+offcourse logout <url>
+offcourse login <url> --force
+```
+
+### A lesson failed
+
+Inspect stored failure details first:
+
+```bash
+offcourse status <url> --errors
+```
+
+Skool keeps per-lesson failure state and supports a targeted retry:
+
+```bash
+offcourse sync-skool <url> --retry-failed
+```
+
+For other platforms, rerun `offcourse sync <url>` after resolving the reported authentication, browser, or ffmpeg problem.
+
 ## Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for commit conventions, Git hooks, and pull-request expectations.
 
 ```bash
 git clone https://github.com/sebastian-software/offcourse.git
