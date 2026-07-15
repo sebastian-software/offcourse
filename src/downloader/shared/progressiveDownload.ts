@@ -121,7 +121,6 @@ export async function downloadFile(
  * Downloads a progressive video file with streaming.
  * Similar to downloadFile but uses a simpler stream approach.
  */
-/* v8 ignore start */
 export async function downloadProgressiveVideo(
   url: string,
   outputPath: string,
@@ -171,30 +170,33 @@ export async function downloadProgressiveVideo(
     const reader = response.body.getReader();
     let downloaded = 0;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      fileStream.write(Buffer.from(value));
-      downloaded += value.length;
-
-      if (onProgress && total > 0) {
-        onProgress({
-          percent: (downloaded / total) * 100,
-          phase: "downloading",
-          downloadedBytes: downloaded,
-          totalBytes: total,
-        });
-      }
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      fileStream.end((err: Error | null) => {
-        if (err) reject(err);
-        else resolve();
-      });
+    const readable = new Readable({
+      read() {
+        reader
+          .read()
+          .then(({ done, value }) => {
+            if (done) {
+              this.push(null);
+            } else {
+              downloaded += value.length;
+              if (onProgress && total > 0) {
+                onProgress({
+                  percent: (downloaded / total) * 100,
+                  phase: "downloading",
+                  downloadedBytes: downloaded,
+                  totalBytes: total,
+                });
+              }
+              this.push(Buffer.from(value));
+            }
+          })
+          .catch((err: unknown) => {
+            this.destroy(err instanceof Error ? err : new Error(String(err)));
+          });
+      },
     });
 
+    await pipeline(readable, fileStream);
     renameSync(tempPath, outputPath);
     onProgress?.({ percent: 100, phase: "complete" });
 
@@ -208,4 +210,3 @@ export async function downloadProgressiveVideo(
     };
   }
 }
-/* v8 ignore stop */
