@@ -13,5 +13,7 @@ describe("detectSyncPlatform", () => {
 
   it("rejects unrecognized URLs instead of guessing HighLevel", () => {
     expect(detectSyncPlatform("https://example.com/course")).toBeNull();
+    expect(detectSyncPlatform("https://evilskool.com/course")).toBeNull();
+    expect(detectSyncPlatform("not-a-url")).toBeNull();
   });
 });
