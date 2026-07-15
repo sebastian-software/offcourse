@@ -7,7 +7,7 @@ export default defineConfig({
     include: ["src/**/*.test.ts"],
     exclude: ["src/**/*.integration.test.ts", "node_modules/**"],
     coverage: {
-      provider: "v8",
+      provider: "istanbul",
       reportsDirectory: "./coverage",
       reporter: ["text", "html", "lcov", "json"],
       include: ["src/**/*.ts"],
@@ -15,8 +15,9 @@ export default defineConfig({
         // Test files
         "src/**/*.test.ts",
         "src/**/*.integration.test.ts",
-        // CLI commands (interactive, hard to test)
-        "src/cli/**",
+        // Commander entrypoint parses process.argv as soon as it is imported.
+        // Command implementations remain included so CLI blind spots are visible.
+        "src/cli/index.ts",
         // Re-export index files
         "src/**/index.ts",
         // Pure I/O wrappers (testing would just test Node.js/packages)
