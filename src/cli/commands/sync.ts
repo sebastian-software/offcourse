@@ -57,6 +57,14 @@ export interface SyncOptions {
 }
 
 /**
+ * Phase 2 handles lessons that are pending or have never been scanned.
+ * Keep this tied to getLessonsToScan rather than the legacy scanned status.
+ */
+export function hasLessonsPendingValidation(db: Pick<CourseDatabase, "getLessonsToScan">): boolean {
+  return db.getLessonsToScan().length > 0;
+}
+
+/**
  * Handles the sync command.
  * Downloads all content from a Skool course with incremental state tracking.
  */
@@ -118,7 +126,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
   }
 
   const needsScan = !hasExistingData || (initialSummary?.pending ?? 0) > 0;
-  const needsValidation = hasExistingData ? db.getLessonsToValidate().length > 0 : true;
+  const needsValidation = hasExistingData ? hasLessonsPendingValidation(db) : true;
   const needsDownload = hasExistingData ? db.getLessonsToDownload().length > 0 : true;
   const courseDir = await createCourseDirectory(config.outputDir, communitySlug);
 
@@ -199,8 +207,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
     console.log(chalk.gray(`\n📁 Output: ${courseDir}\n`));
 
     // Phase 2: Validate videos (only lessons that need it)
-    const lessonsToValidate = db.getLessonsToValidate();
-    if (lessonsToValidate.length > 0) {
+    if (hasLessonsPendingValidation(db)) {
       await validateVideos(session.page, db, options);
     } else {
       console.log(chalk.gray("   ⏭️  Validation skipped (already complete)"));
