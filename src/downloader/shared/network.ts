@@ -28,6 +28,14 @@ export function sanitizeHeaderValue(value: string): string {
   return value.replace(/[\r\n]/g, "").trim();
 }
 
+export function isSameOrigin(firstUrl: string, secondUrl: string): boolean {
+  try {
+    return new URL(firstUrl).origin === new URL(secondUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Builds the shared HLS auth headers while limiting secrets to the origin that
  * originally received them.
@@ -85,7 +93,7 @@ export async function fetchWithRetry(
       lastError = new Error(`Transient HTTP ${response.status}`);
     } catch (error) {
       lastError = error;
-      if (attempt === retries) throw error;
+      if (init.signal?.aborted || attempt === retries) throw error;
     }
 
     await new Promise((resolve) => setTimeout(resolve, retryDelayMs * (attempt + 1)));
