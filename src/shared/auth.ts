@@ -3,6 +3,9 @@ import { chromium } from "playwright";
 import { getSessionPath, SESSIONS_DIR } from "../config/paths.js";
 import { ensureDir, outputJson, pathExists, readJson, removeFile } from "./fs.js";
 
+const SESSION_DIRECTORY_MODE = 0o700;
+const SESSION_FILE_MODE = 0o600;
+
 export interface AuthSession {
   context: BrowserContext;
   page: Page;
@@ -107,7 +110,10 @@ async function loadSession(browser: Browser, domain: string): Promise<BrowserCon
 async function saveSession(context: BrowserContext, domain: string): Promise<void> {
   const sessionPath = getSessionPath(domain);
   const storageState = await context.storageState();
-  await outputJson(sessionPath, storageState);
+  await outputJson(sessionPath, storageState, {
+    mode: SESSION_FILE_MODE,
+    directoryMode: SESSION_DIRECTORY_MODE,
+  });
 }
 
 /**
@@ -115,7 +121,7 @@ async function saveSession(context: BrowserContext, domain: string): Promise<voi
  * The user logs in manually, and we capture the session.
  */
 export async function performInteractiveLogin(config: AuthConfig): Promise<AuthSession> {
-  await ensureDir(SESSIONS_DIR);
+  await ensureDir(SESSIONS_DIR, { mode: SESSION_DIRECTORY_MODE });
 
   const browser = await chromium.launch({
     headless: false, // Must be visible for user interaction

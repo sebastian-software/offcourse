@@ -1,9 +1,11 @@
-/**
- * Thin wrappers around fs/promises for common operations.
- * Excluded from coverage - testing would just test Node.js itself.
- */
-import { mkdir, readFile, writeFile, unlink, access, stat } from "node:fs/promises";
+/** Thin wrappers around fs/promises for common operations. */
+import { mkdir, readFile, writeFile, unlink, access, stat, chmod } from "node:fs/promises";
 import { dirname } from "node:path";
+
+export interface FilePermissionsOptions {
+  mode?: number;
+  directoryMode?: number;
+}
 
 /**
  * Check if a file or directory exists.
@@ -20,16 +22,35 @@ export async function pathExists(path: string): Promise<boolean> {
 /**
  * Ensure a directory exists, creating it recursively if needed.
  */
-export async function ensureDir(dir: string): Promise<void> {
-  await mkdir(dir, { recursive: true });
+export async function ensureDir(dir: string, options: FilePermissionsOptions = {}): Promise<void> {
+  await mkdir(dir, { recursive: true, mode: options.mode });
+
+  // mkdir's mode only applies when creating a directory. Tighten an existing
+  // directory too when the caller handles sensitive data.
+  if (options.mode !== undefined && process.platform !== "win32") {
+    await chmod(dir, options.mode);
+  }
 }
 
 /**
  * Write a file, creating parent directories if needed.
  */
-export async function outputFile(path: string, data: string): Promise<void> {
-  await ensureDir(dirname(path));
-  await writeFile(path, data, "utf-8");
+export async function outputFile(
+  path: string,
+  data: string,
+  options: FilePermissionsOptions = {}
+): Promise<void> {
+  await ensureDir(
+    dirname(path),
+    options.directoryMode === undefined ? {} : { mode: options.directoryMode }
+  );
+  await writeFile(path, data, { encoding: "utf-8", mode: options.mode });
+
+  // writeFile's mode does not update an existing file, so explicitly correct
+  // permissions when sensitive content is overwritten.
+  if (options.mode !== undefined && process.platform !== "win32") {
+    await chmod(path, options.mode);
+  }
 }
 
 /**
@@ -43,8 +64,12 @@ export async function outputBinaryFile(path: string, data: Uint8Array): Promise<
 /**
  * Write JSON to a file, creating parent directories if needed.
  */
-export async function outputJson(path: string, data: unknown): Promise<void> {
-  await outputFile(path, JSON.stringify(data, null, 2));
+export async function outputJson(
+  path: string,
+  data: unknown,
+  options: FilePermissionsOptions = {}
+): Promise<void> {
+  await outputFile(path, JSON.stringify(data, null, 2), options);
 }
 
 /**
