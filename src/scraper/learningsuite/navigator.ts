@@ -170,7 +170,6 @@ export function parseLearningSuiteLessonText(text: string): ParsedLearningSuiteL
 // ============================================================================
 // Browser/API Automation
 // ============================================================================
-/* v8 ignore start */
 
 /**
  * Dismisses any open MUI modal dialogs that might block interactions.
@@ -1094,7 +1093,6 @@ async function extractModulesFromCoursePage(
 
   return modules;
 }
-/* v8 ignore stop */
 
 // ============================================================================
 // URL Utilities
@@ -1129,7 +1127,6 @@ export function getLearningSuiteLessonUrl(
 // ============================================================================
 // Lesson Completion
 // ============================================================================
-/* v8 ignore start */
 
 /**
  * Marks a lesson as completed by clicking the "Abschließen" button.
@@ -1256,7 +1253,6 @@ export async function isLessonCompleted(page: Page): Promise<boolean> {
     return false;
   });
 }
-/* v8 ignore stop */
 
 // Re-export shared utilities
 export { slugify, createFolderName } from "../../shared/slug.js";
