@@ -70,6 +70,18 @@ export interface BuildLearningSuiteOptions {
   shouldContinue?: () => boolean;
 }
 
+interface ParsedLearningSuiteModule {
+  title: string;
+  lessonCount: number;
+  duration: string;
+  isLocked: boolean;
+}
+
+interface ParsedLearningSuiteLessonText {
+  title: string;
+  duration: string;
+}
+
 // ============================================================================
 // Tenant Extraction
 // ============================================================================
@@ -91,6 +103,67 @@ export function extractTenantFromUrl(url: string): { subdomain: string; tenantId
   return {
     subdomain: match[1],
     tenantId: null, // Will be resolved by API
+  };
+}
+
+/**
+ * Parses LearningSuite's localized module summary text.
+ */
+export function parseLearningSuiteModulesText(text: string): ParsedLearningSuiteModule[] {
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const modules: ParsedLearningSuiteModule[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    const statsMatch =
+      /(\d+)\s*(?:LEKTION(?:EN)?|LESSONS?)\s*\|\s*(\d+)\s*(?:MIN(?:\.|S)?|MINUTEN?|MINUTES?)/i.exec(
+        line
+      );
+    const isLocked = /ERSCHEINT\s*BALD|COMING\s*SOON/i.test(line);
+
+    if (!statsMatch && !isLocked) continue;
+
+    const title = lines[i - 1]?.trim() ?? "";
+    if (
+      !title ||
+      title.length <= 3 ||
+      title.length >= 100 ||
+      /^(\d+%|START|FORTSETZEN|CONTINUE)$/i.test(title)
+    ) {
+      continue;
+    }
+
+    modules.push({
+      title,
+      lessonCount: statsMatch ? parseInt(statsMatch[1] ?? "0", 10) : 0,
+      duration: statsMatch ? `${statsMatch[2] ?? "0"} Min.` : "",
+      isLocked,
+    });
+  }
+
+  return modules;
+}
+
+/**
+ * Removes localized duration metadata from a lesson link's visible text.
+ */
+export function parseLearningSuiteLessonText(text: string): ParsedLearningSuiteLessonText | null {
+  const normalizedText = text.replace(/\s+/g, " ").trim();
+  if (normalizedText.length < 5) return null;
+
+  const durationMatch = /(\d+\s*(?:Minuten?|Sekunden?|Minutes?|Seconds?))\b/i.exec(normalizedText);
+  const title = durationMatch
+    ? normalizedText.substring(0, durationMatch.index).trim()
+    : normalizedText;
+
+  if (title.length <= 3) return null;
+
+  return {
+    title,
+    duration: durationMatch?.[0] ?? "",
   };
 }
 
@@ -562,7 +635,8 @@ async function scanModuleLessons(
   page: Page,
   module: LearningSuiteCourseStructure["modules"][0],
   courseUrl: string,
-  courseId: string
+  courseId: string,
+  titleOccurrence: number
 ): Promise<LearningSuiteCourseStructure["modules"][0]> {
   // Navigate to course page first (each worker starts fresh)
   await page.goto(courseUrl, { timeout: 30000 });
@@ -573,9 +647,10 @@ async function scanModuleLessons(
   await dismissMuiDialogs(page);
 
   // Navigate to the module by clicking on its title text
-  const moduleTitle = page.locator(`text="${module.title}"`).first();
+  const moduleTitle = page.getByText(module.title, { exact: true }).nth(titleOccurrence);
 
   if (!(await moduleTitle.isVisible().catch(() => false))) {
+    console.warn(`Skipping LearningSuite module "${module.title}": title is not visible`);
     return module; // Return unchanged if not visible
   }
 
@@ -591,12 +666,11 @@ async function scanModuleLessons(
   const moduleId = moduleIdMatch?.[1] ?? module.id;
 
   // Extract lessons directly from the module page
-  const lessonsData = await page.evaluate((cId) => {
+  const lessonCandidates = await page.evaluate((cId) => {
     const links = document.querySelectorAll("a");
     const lessons: {
-      title: string;
+      text: string;
       lessonId: string;
-      duration: string;
       isCompleted: boolean;
     }[] = [];
     const seenIds = new Set<string>();
@@ -613,32 +687,22 @@ async function scanModuleLessons(
       if (!lessonId || seenIds.has(lessonId)) continue;
       seenIds.add(lessonId);
 
-      // Extract title and duration from link text
+      // Preserve visible text for localized parsing outside the browser context.
       const text = link.textContent?.replace(/\s+/g, " ").trim() ?? "";
       if (text.length < 5) continue;
 
-      // Parse title (before duration info)
-      let title = text;
-      let duration = "";
-
-      // Duration patterns: "X Minute(n)" or "X Sekunde(n)"
-      const durationMatch = /(\d+\s*(?:Minute|Sekunde)n?)/i.exec(text);
-      if (durationMatch) {
-        const durationIdx = text.indexOf(durationMatch[0]);
-        title = text.substring(0, durationIdx).trim();
-        duration = durationMatch[0];
-      }
-
       // Check for completion checkmark
       const hasCheckmark = link.querySelector('svg[data-icon="check"]') !== null;
-
-      if (title.length > 3) {
-        lessons.push({ title, lessonId, duration, isCompleted: hasCheckmark });
-      }
+      lessons.push({ text, lessonId, isCompleted: hasCheckmark });
     }
 
     return lessons;
   }, courseId);
+
+  const lessonsData = lessonCandidates.flatMap((lesson) => {
+    const parsedText = parseLearningSuiteLessonText(lesson.text);
+    return parsedText ? [{ ...lesson, ...parsedText }] : [];
+  });
 
   return {
     ...module,
@@ -800,6 +864,13 @@ export async function buildLearningSuiteCourseStructure(
   // First extract all modules from the course page
   const initialModules = await extractModulesFromCoursePage(page, domain, courseSlug, courseId);
 
+  if (initialModules.length === 0) {
+    console.error(
+      "Could not find any LearningSuite modules on the course page; refusing to save an empty course"
+    );
+    return null;
+  }
+
   // Filter accessible modules (not locked)
   const accessibleModules = initialModules.filter((m) => !m.isLocked);
   const lockedModules = initialModules.filter((m) => m.isLocked);
@@ -832,8 +903,17 @@ export async function buildLearningSuiteCourseStructure(
       context,
       page,
       accessibleModules,
-      async (workerPage, module, _index) => {
-        const scannedModule = await scanModuleLessons(workerPage, module, courseUrl, courseId);
+      async (workerPage, module) => {
+        const titleOccurrence = initialModules
+          .slice(0, module.position)
+          .filter((candidate) => candidate.title === module.title).length;
+        const scannedModule = await scanModuleLessons(
+          workerPage,
+          module,
+          courseUrl,
+          courseId,
+          titleOccurrence
+        );
 
         processed++;
         onProgress?.({
@@ -864,7 +944,10 @@ export async function buildLearningSuiteCourseStructure(
       });
 
       // Navigate to the module by clicking on its title text
-      const moduleTitle = page.locator(`text="${module.title}"`).first();
+      const titleOccurrence = initialModules
+        .slice(0, module.position)
+        .filter((candidate) => candidate.title === module.title).length;
+      const moduleTitle = page.getByText(module.title, { exact: true }).nth(titleOccurrence);
 
       if (await moduleTitle.isVisible().catch(() => false)) {
         // Dismiss any modal dialogs that might block the click
@@ -881,12 +964,11 @@ export async function buildLearningSuiteCourseStructure(
         }
 
         // Extract lessons directly from the module page
-        const lessonsData = await page.evaluate((cId) => {
+        const lessonCandidates = await page.evaluate((cId) => {
           const links = document.querySelectorAll("a");
           const lessons: {
-            title: string;
+            text: string;
             lessonId: string;
-            duration: string;
             isCompleted: boolean;
           }[] = [];
           const seenIds = new Set<string>();
@@ -903,32 +985,22 @@ export async function buildLearningSuiteCourseStructure(
             if (!lessonId || seenIds.has(lessonId)) continue;
             seenIds.add(lessonId);
 
-            // Extract title and duration from link text
+            // Preserve visible text for localized parsing outside the browser context.
             const text = link.textContent?.replace(/\s+/g, " ").trim() ?? "";
             if (text.length < 5) continue;
 
-            // Parse title (before duration info)
-            let title = text;
-            let duration = "";
-
-            // Duration patterns: "X Minute(n)" or "X Sekunde(n)"
-            const durationMatch = /(\d+\s*(?:Minute|Sekunde)n?)/i.exec(text);
-            if (durationMatch) {
-              const durationIdx = text.indexOf(durationMatch[0]);
-              title = text.substring(0, durationIdx).trim();
-              duration = durationMatch[0];
-            }
-
             // Check for completion checkmark
             const hasCheckmark = link.querySelector('svg[data-icon="check"]') !== null;
-
-            if (title.length > 3) {
-              lessons.push({ title, lessonId, duration, isCompleted: hasCheckmark });
-            }
+            lessons.push({ text, lessonId, isCompleted: hasCheckmark });
           }
 
           return lessons;
         }, courseId);
+
+        const lessonsData = lessonCandidates.flatMap((lesson) => {
+          const parsedText = parseLearningSuiteLessonText(lesson.text);
+          return parsedText ? [{ ...lesson, ...parsedText }] : [];
+        });
 
         if (lessonsData.length > 0) {
           module.lessons = lessonsData.map((l, idx) => ({
@@ -954,6 +1026,8 @@ export async function buildLearningSuiteCourseStructure(
 
         // Dismiss any modal dialogs that appeared
         await dismissMuiDialogs(page);
+      } else {
+        console.warn(`Skipping LearningSuite module "${module.title}": title is not visible`);
       }
 
       scannedModules.push(module);
@@ -963,7 +1037,7 @@ export async function buildLearningSuiteCourseStructure(
   // Combine locked and scanned modules (maintain original order)
   const allModules = initialModules.map((m) => {
     if (m.isLocked) return m;
-    return scannedModules.find((s) => s.title === m.title) ?? m;
+    return scannedModules.find((s) => s.position === m.position) ?? m;
   });
 
   onProgress?.({ phase: "done" });
@@ -994,51 +1068,9 @@ async function extractModulesFromCoursePage(
   // Wait for content to load
   await page.waitForTimeout(2000);
 
-  // Extract modules by analyzing text content
-  const modulesData = await page.evaluate(() => {
-    const text = document.body.innerText;
-    const lines = text
-      .split("\n")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-
-    const modules: {
-      title: string;
-      lessonCount: number;
-      duration: string;
-      isLocked: boolean;
-    }[] = [];
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i] ?? "";
-
-      // Check for stats line pattern
-      const statsMatch = /(\d+)\s*LEKTIONEN?\s*\|\s*(\d+)\s*MIN/i.exec(line);
-      const isLocked = /ERSCHEINT\s*BALD|COMING\s*SOON/i.test(line);
-
-      if (statsMatch || isLocked) {
-        // The title is usually the line before the stats
-        const prevLine = lines[i - 1]?.trim() ?? "";
-
-        // Validate title
-        if (
-          prevLine &&
-          prevLine.length > 3 &&
-          prevLine.length < 100 &&
-          !/^(\d+%|START|FORTSETZEN)$/i.test(prevLine)
-        ) {
-          modules.push({
-            title: prevLine,
-            lessonCount: statsMatch ? parseInt(statsMatch[1] ?? "0", 10) : 0,
-            duration: statsMatch ? (statsMatch[2] ?? "0") + " Min." : "",
-            isLocked,
-          });
-        }
-      }
-    }
-
-    return modules;
-  });
+  // Extract modules by analyzing localized text content.
+  const pageText = await page.evaluate(() => document.body.innerText);
+  const modulesData = parseLearningSuiteModulesText(pageText);
 
   const modules: LearningSuiteCourseStructure["modules"] = [];
 
