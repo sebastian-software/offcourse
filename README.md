@@ -96,15 +96,10 @@ offcourse login <url> --force
 
 ### A lesson failed
 
-Inspect stored failure details first:
+Skool stores per-lesson failure details and supports a targeted retry:
 
 ```bash
 offcourse status <url> --errors
-```
-
-Skool keeps per-lesson failure state and supports a targeted retry:
-
-```bash
 offcourse sync-skool <url> --retry-failed
 ```
 
