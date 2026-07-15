@@ -29,7 +29,6 @@ export interface CourseStructure {
 }
 
 // Browser automation - requires Playwright
-/* v8 ignore start */
 
 /**
  * Extracts the course/community name from page data.
@@ -245,7 +244,6 @@ export async function extractModulesFromPage(page: Page): Promise<CourseModule[]
 
   return modules;
 }
-/* v8 ignore stop */
 
 /**
  * Checks if a URL points to a specific module (has 8-char hex slug).
@@ -295,7 +293,6 @@ export interface BuildCourseOptions {
   shouldContinue?: () => boolean;
 }
 
-/* v8 ignore start */
 /**
  * Builds the complete course structure by crawling all modules and lessons.
  *
@@ -425,7 +422,6 @@ export async function buildCourseStructure(
     modules: modulesWithLessons,
   };
 }
-/* v8 ignore stop */
 
 // Re-export shared utilities for backwards compatibility
 export { slugify, createFolderName } from "../shared/slug.js";
