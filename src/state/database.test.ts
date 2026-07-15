@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractCommunitySlug, getDbDir, getDbPath } from "./database.js";
+import { extractCommunitySlug, getDbDir, getDbPath, isSkoolUrl } from "./database.js";
 import { CACHE_DIR } from "../config/paths.js";
 
 /** Normalize path to POSIX format for cross-platform test assertions */
@@ -23,10 +23,10 @@ describe("extractCommunitySlug", () => {
     );
   });
 
-  it("extracts slug from URL with query params (includes params in slug)", () => {
-    // Note: current implementation doesn't strip query params
-    expect(extractCommunitySlug("https://www.skool.com/my-community?ref=abc")).toBe(
-      "my-community?ref=abc"
+  it("extracts the same slug from referral and fragmented URLs", () => {
+    expect(extractCommunitySlug("https://www.skool.com/my-community?ref=abc")).toBe("my-community");
+    expect(extractCommunitySlug("https://www.skool.com/my-community#classroom")).toBe(
+      "my-community"
     );
   });
 
@@ -49,6 +49,23 @@ describe("extractCommunitySlug", () => {
   it("returns 'unknown' for Skool root URL", () => {
     expect(extractCommunitySlug("https://www.skool.com/")).toBe("unknown");
     expect(extractCommunitySlug("https://www.skool.com")).toBe("unknown");
+  });
+});
+
+describe("isSkoolUrl", () => {
+  it("accepts Skool hosts and subdomains", () => {
+    expect(isSkoolUrl("https://skool.com/community")).toBe(true);
+    expect(isSkoolUrl("https://www.skool.com/community/classroom")).toBe(true);
+  });
+
+  it("rejects lookalike hosts and query-string mentions", () => {
+    expect(isSkoolUrl("https://evilskool.com/community")).toBe(false);
+    expect(isSkoolUrl("https://evil.com/?next=https://skool.com/community")).toBe(false);
+  });
+
+  it("rejects invalid and non-web URLs", () => {
+    expect(isSkoolUrl("not-a-url")).toBe(false);
+    expect(isSkoolUrl("ftp://skool.com/community")).toBe(false);
   });
 });
 

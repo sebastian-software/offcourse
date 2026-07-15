@@ -3,6 +3,7 @@ export {
   LessonStatus,
   VideoType,
   extractCommunitySlug,
+  isSkoolUrl,
   getDbDir,
   getDbPath,
   type CourseMetadata,

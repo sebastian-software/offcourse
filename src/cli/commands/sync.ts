@@ -28,6 +28,7 @@ import {
 import {
   CourseDatabase,
   extractCommunitySlug,
+  isSkoolUrl,
   LessonStatus,
   type LessonWithModule,
 } from "../../state/index.js";
@@ -97,7 +98,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
   console.log(chalk.blue("\n📚 Course Sync\n"));
 
   // Validate URL
-  if (!url.includes("skool.com")) {
+  if (!isSkoolUrl(url)) {
     console.log(chalk.red("❌ Invalid URL. Please provide a Skool URL."));
     console.log(chalk.gray("   Example: https://www.skool.com/your-community/classroom\n"));
     process.exit(1);
