@@ -10,6 +10,7 @@ import { USER_AGENT } from "../shared/http.js";
 import {
   checkFfmpeg,
   downloadSegmentsToFile,
+  fetchWithRetry,
   getSegmentUrls,
   mergeVideoAudio,
   parseHlsMasterPlaylist,
@@ -110,14 +111,18 @@ class LoomFetchError extends Error {
 async function fetchLoomVideoInfo(videoId: string): Promise<LoomVideoInfo> {
   const embedUrl = `https://www.loom.com/embed/${videoId}`;
 
-  const embedResponse = await fetch(embedUrl, {
-    headers: {
-      "User-Agent": USER_AGENT,
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.5",
-      "Cache-Control": "no-cache",
+  const embedResponse = await fetchWithRetry(
+    embedUrl,
+    {
+      headers: {
+        "User-Agent": USER_AGENT,
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Cache-Control": "no-cache",
+      },
     },
-  });
+    { retries: 0 }
+  );
 
   if (embedResponse.status === 429) {
     throw new Error("Rate limited by Loom (429)");
@@ -194,9 +199,11 @@ async function fetchLoomVideoInfo(videoId: string): Promise<LoomVideoInfo> {
   let height = 1080;
 
   try {
-    const oembedResponse = await fetch(oembedUrl, {
-      headers: { "User-Agent": USER_AGENT },
-    });
+    const oembedResponse = await fetchWithRetry(
+      oembedUrl,
+      { headers: { "User-Agent": USER_AGENT } },
+      { retries: 0 }
+    );
 
     if (oembedResponse.ok) {
       const data = (await oembedResponse.json()) as {
