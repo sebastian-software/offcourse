@@ -147,6 +147,12 @@ audio.m3u8`;
     expect(result).toHaveLength(0);
   });
 
+  it("returns no qualities when a relative variant cannot be resolved", () => {
+    const content = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000000\nvideo.m3u8";
+
+    expect(parseHLSPlaylist(content, "not a valid base URL")).toEqual([]);
+  });
+
   it("ignores comments and metadata", () => {
     const content = `#EXTM3U
 #EXT-X-VERSION:3
