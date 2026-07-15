@@ -49,8 +49,8 @@ describe("LearningSuite Extractor", () => {
   });
 
   describe("LearningSuite HLS segments", () => {
-    const segment = (index: number, token = "token") =>
-      `https://vz-example.b-cdn.net/video${index}.ts?token=${token}`;
+    const segment = (index: number, token = "token", rendition = "720p") =>
+      `https://vz-example.b-cdn.net/${rendition}/video${index}.ts?token=${token}`;
 
     it("extracts Bunny segment indexes", () => {
       expect(getLearningSuiteSegmentIndex(segment(42))).toBe(42);
@@ -69,6 +69,46 @@ describe("LearningSuite Extractor", () => {
     it("rejects sequences with gaps or implausibly little coverage", () => {
       expect(getCompleteLearningSuiteSegments([segment(0), segment(2)], 12)).toBeNull();
       expect(getCompleteLearningSuiteSegments([segment(0)], 196)).toBeNull();
+    });
+
+    it("selects the most complete rendition without mixing equal segment indexes", () => {
+      const low = (index: number, token = "low") => segment(index, token, "480p");
+      const high = (index: number, token = "high") => segment(index, token, "1080p");
+
+      expect(
+        getCompleteLearningSuiteSegments(
+          [low(0), low(1), high(0), high(1), high(2, "old"), high(2, "fresh")],
+          12
+        )
+      ).toEqual([high(0), high(1), high(2, "fresh")]);
+    });
+
+    it("prefers the highest quality when complete renditions have equal size", () => {
+      const low = (index: number) => segment(index, "low", "480p");
+      const high = (index: number) => segment(index, "high", "1920x1080");
+
+      expect(getCompleteLearningSuiteSegments([low(0), high(0), low(1), high(1)], 8)).toEqual([
+        high(0),
+        high(1),
+      ]);
+    });
+
+    it("rejects adaptive switches when no rendition covers the full observed range", () => {
+      expect(
+        getCompleteLearningSuiteSegments(
+          [segment(0, "low", "480p"), segment(1, "low", "480p"), segment(2, "high", "1080p")],
+          12
+        )
+      ).toBeNull();
+    });
+
+    it("groups relative segment paths by rendition", () => {
+      const relative = (index: number) => `/play_720p/video${index}.ts?token=relative`;
+
+      expect(getCompleteLearningSuiteSegments([relative(1), relative(0)], 8)).toEqual([
+        relative(0),
+        relative(1),
+      ]);
     });
   });
 });

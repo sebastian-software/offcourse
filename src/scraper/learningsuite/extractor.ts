@@ -67,25 +67,60 @@ export function getLearningSuiteSegmentIndex(url: string): number | null {
   return value ? Number.parseInt(value, 10) : null;
 }
 
+function getLearningSuiteRenditionKey(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const directory = parsed.pathname.replace(/video\d+\.ts$/i, "");
+    return `${parsed.origin}${directory}`;
+  } catch {
+    return /^(.*\/)video\d+\.ts(?:[?#]|$)/i.exec(url)?.[1] ?? null;
+  }
+}
+
+function getLearningSuiteRenditionHeight(renditionKey: string): number {
+  const directory = renditionKey.replace(/\/+$/, "").split("/").at(-1) ?? "";
+  const dimensions = /\d{3,4}x(\d{3,4})/i.exec(directory)?.[1];
+  const namedHeight = /(?:^|[_-])(\d{3,4})p?(?:$|[_-])/i.exec(directory)?.[1];
+  const height = dimensions ?? namedHeight;
+  return height ? Number.parseInt(height, 10) : 0;
+}
+
 /**
- * Deduplicates refreshed segment URLs and returns them only when the sequence
- * is complete from video0.ts through the final captured segment.
+ * Groups segment URLs by rendition, keeps refreshed tokens, and returns the
+ * most complete rendition only when it covers every observed segment index.
  */
 export function getCompleteLearningSuiteSegments(
   urls: string[],
   videoDuration?: number | null
 ): string[] | null {
-  const segmentsByIndex = new Map<number, string>();
+  const renditions = new Map<string, Map<number, string>>();
+  let lastObservedIndex = -1;
+
   for (const url of urls) {
     const index = getLearningSuiteSegmentIndex(url);
-    if (index !== null) segmentsByIndex.set(index, url);
+    const renditionKey = getLearningSuiteRenditionKey(url);
+    if (index === null || renditionKey === null) continue;
+
+    let segments = renditions.get(renditionKey);
+    if (!segments) {
+      segments = new Map<number, string>();
+      renditions.set(renditionKey, segments);
+    }
+    segments.set(index, url);
+    lastObservedIndex = Math.max(lastObservedIndex, index);
   }
 
-  if (segmentsByIndex.size === 0) return null;
+  const selectedRendition = [...renditions.entries()].sort(
+    ([keyA, segmentsA], [keyB, segmentsB]) =>
+      segmentsB.size - segmentsA.size ||
+      getLearningSuiteRenditionHeight(keyB) - getLearningSuiteRenditionHeight(keyA) ||
+      keyA.localeCompare(keyB)
+  )[0];
+  const segmentsByIndex = selectedRendition?.[1];
+  if (!segmentsByIndex || lastObservedIndex < 0) return null;
 
-  const lastIndex = Math.max(...segmentsByIndex.keys());
   const segments: string[] = [];
-  for (let index = 0; index <= lastIndex; index++) {
+  for (let index = 0; index <= lastObservedIndex; index++) {
     const url = segmentsByIndex.get(index);
     if (!url) return null;
     segments.push(url);
