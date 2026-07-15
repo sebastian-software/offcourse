@@ -131,56 +131,6 @@ export async function extractPortalSettings(
 }
 
 /**
- * Extracts course list from the courses library page.
- */
-export async function extractCourses(page: Page): Promise<HighLevelCourse[]> {
-  // Wait for the course cards to load
-  await page.waitForTimeout(2000);
-
-  const courses = await page.evaluate(() => {
-    const results: HighLevelCourse[] = [];
-
-    // Find course cards - HighLevel uses various patterns
-    const courseCards = document.querySelectorAll(
-      '[class*="course-card"], [class*="CourseCard"], [data-product-id], [class*="product-card"]'
-    );
-
-    // If no specific cards found, try to find links to course pages
-    if (courseCards.length === 0) {
-      const courseLinks = document.querySelectorAll('a[href*="/courses/products/"]');
-      const seen = new Set<string>();
-
-      courseLinks.forEach((link) => {
-        const href = (link as HTMLAnchorElement).href;
-        const match = /\/courses\/products\/([a-f0-9-]+)/.exec(href);
-        if (match?.[1] && !seen.has(match[1])) {
-          seen.add(match[1]);
-          const title =
-            link.querySelector("h3, h4, [class*='title']")?.textContent?.trim() ??
-            link.textContent?.trim() ??
-            `Course ${results.length + 1}`;
-
-          results.push({
-            id: match[1],
-            title,
-            description: "",
-            slug: match[1],
-            thumbnailUrl: link.querySelector("img")?.src ?? null,
-            instructor: null,
-            totalLessons: 0,
-            progress: 0,
-          });
-        }
-      });
-    }
-
-    return results;
-  });
-
-  return courses;
-}
-
-/**
  * Extracts course details from the course overview page via API.
  */
 export async function extractCourseDetails(

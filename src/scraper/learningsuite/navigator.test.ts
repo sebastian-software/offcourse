@@ -4,7 +4,6 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  extractTenantFromUrl,
   getLearningSuiteCourseUrl,
   getLearningSuiteLessonUrl,
   parseLearningSuiteLessonText,
@@ -76,59 +75,6 @@ describe("parseLearningSuiteLessonText", () => {
 
   it("rejects titles that are too short after removing duration metadata", () => {
     expect(parseLearningSuiteLessonText("Go 2 minutes")).toBeNull();
-  });
-});
-
-describe("extractTenantFromUrl", () => {
-  it("extracts subdomain from valid LearningSuite URL", () => {
-    const result = extractTenantFromUrl("https://mycompany.learningsuite.io/courses");
-    expect(result.subdomain).toBe("mycompany");
-    expect(result.tenantId).toBeNull(); // Will be resolved by API
-  });
-
-  it("handles URL with path and query params", () => {
-    const result = extractTenantFromUrl(
-      "https://academy.learningsuite.io/student/course/intro/abc123?tab=overview"
-    );
-    expect(result.subdomain).toBe("academy");
-  });
-
-  it("handles subdomain with hyphens", () => {
-    const result = extractTenantFromUrl("https://my-awesome-academy.learningsuite.io/");
-    expect(result.subdomain).toBe("my-awesome-academy");
-  });
-
-  it("handles subdomain with numbers", () => {
-    const result = extractTenantFromUrl("https://academy2024.learningsuite.io/courses");
-    expect(result.subdomain).toBe("academy2024");
-  });
-
-  it("returns empty subdomain for non-learningsuite domain", () => {
-    const result = extractTenantFromUrl("https://example.com/courses");
-    expect(result.subdomain).toBe("");
-    expect(result.tenantId).toBeNull();
-  });
-
-  it("returns empty subdomain for www.learningsuite.io", () => {
-    const result = extractTenantFromUrl("https://www.learningsuite.io/courses");
-    // www is treated as a subdomain, but doesn't match the pattern properly
-    // since it's the main site
-    expect(result.subdomain).toBe("www");
-  });
-
-  it("returns empty subdomain for bare learningsuite.io", () => {
-    const result = extractTenantFromUrl("https://learningsuite.io/");
-    expect(result.subdomain).toBe("");
-  });
-
-  it("handles HTTP URLs", () => {
-    const result = extractTenantFromUrl("http://demo.learningsuite.io/test");
-    expect(result.subdomain).toBe("demo");
-  });
-
-  it("throws for invalid URLs", () => {
-    expect(() => extractTenantFromUrl("not-a-valid-url")).toThrow();
-    expect(() => extractTenantFromUrl("")).toThrow();
   });
 });
 
