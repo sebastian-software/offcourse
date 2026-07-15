@@ -30,6 +30,20 @@ export interface ShutdownManager {
   isShuttingDown: () => boolean;
 }
 
+export interface ShutdownManagerOptions {
+  /** Maximum time allowed for cleanup before the process exits. */
+  cleanupTimeoutMs?: number;
+  /** Ignore duplicate signals emitted by subprocess handlers in this window. */
+  duplicateSignalWindowMs?: number;
+}
+
+const DEFAULT_CLEANUP_TIMEOUT_MS = 3000;
+const DEFAULT_DUPLICATE_SIGNAL_WINDOW_MS = 250;
+
+function getSignalExitCode(signal: string): number {
+  return signal === "SIGINT" ? 130 : 143;
+}
+
 /**
  * Creates a shutdown manager for graceful CLI termination.
  *
@@ -45,39 +59,64 @@ export interface ShutdownManager {
  * }
  * ```
  */
-export function createShutdownManager(): ShutdownManager {
+export function createShutdownManager(options: ShutdownManagerOptions = {}): ShutdownManager {
   let shuttingDown = false;
+  let shutdownStartedAt = 0;
+  let setupComplete = false;
   const resources: CleanupResources = {};
+  const cleanupTimeoutMs = options.cleanupTimeoutMs ?? DEFAULT_CLEANUP_TIMEOUT_MS;
+  const duplicateSignalWindowMs =
+    options.duplicateSignalWindowMs ?? DEFAULT_DUPLICATE_SIGNAL_WINDOW_MS;
 
   const shutdown = async (signal: string): Promise<void> => {
+    const exitCode = getSignalExitCode(signal);
+
     if (shuttingDown) {
+      if (Date.now() - shutdownStartedAt < duplicateSignalWindowMs) return;
+
       // Force exit on second signal
       console.log(chalk.red("\n\n⚠️  Force exit"));
-      process.exit(1);
+      process.exit(exitCode);
+      return;
     }
 
     shuttingDown = true;
+    shutdownStartedAt = Date.now();
+    process.exitCode = exitCode;
     console.log(chalk.yellow(`\n\n⏹️  ${signal} received, shutting down gracefully...`));
 
-    try {
-      // Run custom cleanup first
-      if (resources.onCleanup) {
-        await resources.onCleanup();
-      }
-      // Close browser last
-      if (resources.browser) {
-        await resources.browser.close();
-      }
+    // Closing the browser aborts in-flight Playwright operations, so start it
+    // immediately alongside any state cleanup instead of waiting sequentially.
+    const runCustomCleanup = async () => resources.onCleanup?.();
+    const closeBrowser = async () => resources.browser?.close();
+    const cleanup = Promise.allSettled([runCustomCleanup(), closeBrowser()]).then(() => undefined);
+
+    let cleanupFinished = false;
+    void cleanup.then(() => {
+      cleanupFinished = true;
+    });
+
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const cleanupDeadline = new Promise<void>((resolve) => {
+      timeout = setTimeout(resolve, cleanupTimeoutMs);
+    });
+
+    await Promise.race([cleanup, cleanupDeadline]);
+    if (timeout) clearTimeout(timeout);
+
+    if (cleanupFinished) {
       console.log(chalk.gray("   Cleanup complete. State saved."));
-    } catch {
-      // Ignore cleanup errors during shutdown
+    } else {
+      console.log(chalk.gray("   Cleanup timed out; forcing process exit."));
     }
 
-    process.exit(0);
+    process.exit(exitCode);
   };
 
   return {
     setup: () => {
+      if (setupComplete) return;
+      setupComplete = true;
       process.on("SIGINT", () => void shutdown("SIGINT"));
       process.on("SIGTERM", () => void shutdown("SIGTERM"));
     },

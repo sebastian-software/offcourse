@@ -170,6 +170,8 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
     const sessionInfo = result.usedCachedSession ? " (cached session)" : "";
     spinner.succeed(`Connected to Skool${sessionInfo}`);
   } catch {
+    if (shutdown.isShuttingDown()) return;
+
     spinner.fail("Failed to connect");
     db.close();
     console.log(chalk.red("\n❌ Authentication failed. Please run: offcourse login\n"));
@@ -196,6 +198,8 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
     } else {
       console.log(chalk.gray("\n   ⏭️  Scan skipped (already complete)"));
     }
+
+    if (!shutdown.shouldContinue()) return;
 
     if (options.dryRun) {
       printStatusSummary(db);
@@ -227,7 +231,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
     const MAX_RETRIES = 3;
     let retryRound = 0;
 
-    while (!options.skipVideos && videoTasks.length > 0) {
+    while (shutdown.shouldContinue() && !options.skipVideos && videoTasks.length > 0) {
       await downloadVideos(db, videoTasks, courseDir, config);
 
       // Check for retryable failures
@@ -429,6 +433,12 @@ async function scanCourseStructure(
     if (newLessons > 0) parts.push(chalk.green(`+${newLessons} new`));
     console.log(`   Found: ${parts.join(", ")}`);
   } catch (error) {
+    if (shutdown.isShuttingDown()) {
+      scanSpinner?.stop();
+      progressBar?.stop();
+      return;
+    }
+
     scanSpinner?.fail("Failed");
     progressBar?.stop();
     console.log(chalk.red("   Failed to scan course structure"));
@@ -896,9 +906,13 @@ async function downloadVideos(
   };
 
   // Run downloads with controlled concurrency
-  while (taskQueue.length > 0 || activePromises.size > 0) {
+  while (shutdown.shouldContinue() && (taskQueue.length > 0 || activePromises.size > 0)) {
     // Start new downloads up to concurrency limit
-    while (taskQueue.length > 0 && activePromises.size < config.concurrency) {
+    while (
+      shutdown.shouldContinue() &&
+      taskQueue.length > 0 &&
+      activePromises.size < config.concurrency
+    ) {
       const task = taskQueue.shift();
       if (task) {
         const promise = processTask(task).finally(() => {

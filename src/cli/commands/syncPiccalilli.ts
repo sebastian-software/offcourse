@@ -393,6 +393,8 @@ export async function syncPiccalilliCommand(
       config
     );
 
+    if (!shutdown.shouldContinue()) return;
+
     const videoTasks = extraction.results.flatMap((result) =>
       result.videoTask ? [result.videoTask] : []
     );

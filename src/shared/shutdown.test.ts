@@ -6,6 +6,7 @@ describe("shutdown", () => {
   // Store original methods using bind to avoid unbound-method issues
   const originalProcessOn = process.on.bind(process);
   const originalProcessExit = process.exit.bind(process);
+  const originalProcessExitCode = process.exitCode;
 
   let registeredHandlers: Map<string, () => void>;
   let mockProcessOn: ReturnType<typeof vi.fn>;
@@ -30,6 +31,7 @@ describe("shutdown", () => {
     // Restore originals
     process.on = originalProcessOn;
     process.exit = originalProcessExit;
+    process.exitCode = originalProcessExitCode;
   });
 
   describe("createShutdownManager", () => {
@@ -51,6 +53,14 @@ describe("shutdown", () => {
 
       expect(mockProcessOn).toHaveBeenCalledWith("SIGINT", expect.any(Function));
       expect(mockProcessOn).toHaveBeenCalledWith("SIGTERM", expect.any(Function));
+    });
+
+    it("does not register duplicate handlers when setup is called twice", () => {
+      const manager = createShutdownManager();
+      manager.setup();
+      manager.setup();
+
+      expect(mockProcessOn).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -227,7 +237,59 @@ describe("shutdown", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       // Should still call exit
-      expect(mockProcessExit).toHaveBeenCalledWith(0);
+      expect(mockProcessExit).toHaveBeenCalledWith(130);
+    });
+
+    it("forces exit when cleanup does not finish before the deadline", async () => {
+      const manager = createShutdownManager({ cleanupTimeoutMs: 10 });
+      manager.setup();
+      manager.registerCleanup(() => new Promise(() => {}));
+
+      registeredHandlers.get("SIGINT")!();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      expect(mockProcessExit).toHaveBeenCalledWith(130);
+    });
+
+    it("ignores an immediate duplicate signal while cleanup is running", async () => {
+      const manager = createShutdownManager({ cleanupTimeoutMs: 20 });
+      manager.setup();
+      manager.registerCleanup(() => new Promise(() => {}));
+      const sigintHandler = registeredHandlers.get("SIGINT")!;
+
+      sigintHandler();
+      sigintHandler();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+
+      expect(mockProcessExit).not.toHaveBeenCalled();
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(mockProcessExit).toHaveBeenCalledOnce();
+    });
+
+    it("exits immediately when a second signal is received", async () => {
+      const manager = createShutdownManager({
+        cleanupTimeoutMs: 20,
+        duplicateSignalWindowMs: 0,
+      });
+      manager.setup();
+      manager.registerCleanup(() => new Promise(() => {}));
+      const sigintHandler = registeredHandlers.get("SIGINT")!;
+
+      sigintHandler();
+      sigintHandler();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      expect(mockProcessExit).toHaveBeenCalledWith(130);
+    });
+
+    it("uses the conventional SIGTERM exit code", async () => {
+      const manager = createShutdownManager();
+      manager.setup();
+
+      registeredHandlers.get("SIGTERM")!();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(mockProcessExit).toHaveBeenCalledWith(143);
     });
   });
 

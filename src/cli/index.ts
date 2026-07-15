@@ -25,8 +25,14 @@ import {
   type SyncPiccalilliOptions,
 } from "./commands/syncPiccalilli.js";
 
+function isSignalShutdownPending(): boolean {
+  return process.exitCode === 130 || process.exitCode === 143;
+}
+
 // Global error handler to ensure clean exit
 process.on("unhandledRejection", (reason) => {
+  if (isSignalShutdownPending()) return;
+
   console.error(chalk.red("\n❌ Unhandled error"));
   if (reason instanceof Error) {
     console.error(chalk.gray(`   ${reason.message}`));
@@ -38,6 +44,8 @@ process.on("unhandledRejection", (reason) => {
 function wrapAction<T extends unknown[]>(fn: (...args: T) => Promise<void>): (...args: T) => void {
   return (...args: T) => {
     fn(...args).catch((error: unknown) => {
+      if (isSignalShutdownPending()) return;
+
       // Error already logged by command, just exit
       if (error instanceof Error && error.message.includes("already logged")) {
         process.exit(1);

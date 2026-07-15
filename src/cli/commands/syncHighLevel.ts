@@ -123,6 +123,8 @@ export async function syncHighLevelCommand(
     const sessionInfo = result.usedCachedSession ? " (cached session)" : "";
     spinner.succeed(`Connected to portal${sessionInfo}`);
   } catch (error) {
+    if (shutdown.isShuttingDown()) return;
+
     spinner.fail("Failed to connect");
     console.log(chalk.red("\n❌ Authentication failed.\n"));
     console.log(chalk.gray(`   Tried to authenticate with: ${portalUrl}`));
@@ -182,6 +184,11 @@ export async function syncHighLevelCommand(
         }
       );
     } catch (error) {
+      if (shutdown.isShuttingDown()) {
+        progressBar?.stop();
+        return;
+      }
+
       progressBar?.stop();
       console.log(chalk.red("   Failed to scan course structure"));
       if (error instanceof Error) {
@@ -505,8 +512,12 @@ async function downloadVideos(
     }
   };
 
-  while (taskQueue.length > 0 || activePromises.size > 0) {
-    while (taskQueue.length > 0 && activePromises.size < config.concurrency) {
+  while (shutdown.shouldContinue() && (taskQueue.length > 0 || activePromises.size > 0)) {
+    while (
+      shutdown.shouldContinue() &&
+      taskQueue.length > 0 &&
+      activePromises.size < config.concurrency
+    ) {
       const task = taskQueue.shift();
       if (task) {
         const promise = processTask(task).finally(() => {

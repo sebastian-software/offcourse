@@ -91,6 +91,8 @@ export async function syncLearningSuiteCommand(
     const sessionInfo = result.usedCachedSession ? " (cached session)" : "";
     spinner.succeed(`Connected to LearningSuite${sessionInfo}`);
   } catch (error) {
+    if (shutdown.isShuttingDown()) return;
+
     spinner.fail("Failed to connect");
     console.log(chalk.red("\n❌ Authentication failed.\n"));
     console.log(chalk.gray(`   Tried to authenticate with: ${url}`));
@@ -169,6 +171,12 @@ export async function syncLearningSuiteCommand(
         }
       );
     } catch (error) {
+      if (shutdown.isShuttingDown()) {
+        scanSpinner?.stop();
+        progressBar?.stop();
+        return;
+      }
+
       scanSpinner?.fail("Failed");
       progressBar?.stop();
       console.log(chalk.red("   Failed to scan course structure"));
@@ -449,6 +457,8 @@ export async function syncLearningSuiteCommand(
 
     console.log(chalk.green("\n✅ Sync complete!\n"));
   } catch (error) {
+    if (shutdown.isShuttingDown()) return;
+
     console.error(chalk.red("\n❌ Sync failed"));
     if (error instanceof Error) {
       console.error(chalk.gray(`   Error: ${error.message}`));
@@ -562,8 +572,12 @@ async function downloadVideos(
     }
   };
 
-  while (taskQueue.length > 0 || activePromises.size > 0) {
-    while (taskQueue.length > 0 && activePromises.size < config.concurrency) {
+  while (shutdown.shouldContinue() && (taskQueue.length > 0 || activePromises.size > 0)) {
+    while (
+      shutdown.shouldContinue() &&
+      taskQueue.length > 0 &&
+      activePromises.size < config.concurrency
+    ) {
       const task = taskQueue.shift();
       if (task) {
         const promise = processTask(task).finally(() => {
@@ -674,6 +688,7 @@ export async function completeLearningSuiteCommand(
   url: string,
   options: CompleteLearningSuiteOptions
 ): Promise<void> {
+  shutdown.setup();
   console.log(chalk.cyan("\n🔓 LearningSuite Complete\n"));
 
   if (!isLearningSuitePortal(url)) {
@@ -706,9 +721,12 @@ export async function completeLearningSuiteCommand(
     );
     browser = result.browser;
     session = result.session;
+    shutdown.registerBrowser(browser);
     const sessionInfo = result.usedCachedSession ? " (cached session)" : "";
     spinner.succeed(`Connected to LearningSuite${sessionInfo}`);
   } catch (error) {
+    if (shutdown.isShuttingDown()) return;
+
     spinner.fail("Failed to connect");
     console.log(chalk.red("\n❌ Authentication failed.\n"));
     if (error instanceof Error) {
@@ -725,7 +743,7 @@ export async function completeLearningSuiteCommand(
     const maxIterations = 10; // Safety limit
 
     // Iterative loop: keep going until no new content is unlocked
-    while (iteration < maxIterations) {
+    while (shutdown.shouldContinue() && iteration < maxIterations) {
       iteration++;
       console.log(
         chalk.blue(`\n📊 ${iteration === 1 ? "Scanning" : "Re-scanning"} course structure...\n`)
@@ -799,7 +817,7 @@ export async function completeLearningSuiteCommand(
       let modulesStarted = 0;
       const maxModuleStarts = 20; // Safety limit
 
-      while (modulesStarted < maxModuleStarts) {
+      while (shutdown.shouldContinue() && modulesStarted < maxModuleStarts) {
         // Find all elements containing "START" text (case-sensitive, exact match)
         const startButtons = session.page.locator("text=START");
         const startCount = await startButtons.count();
@@ -923,6 +941,8 @@ export async function completeLearningSuiteCommand(
     }
     console.log(chalk.green("✅ Complete finished!\n"));
   } catch (error) {
+    if (shutdown.isShuttingDown()) return;
+
     console.error(chalk.red("\n❌ Complete failed"));
     if (error instanceof Error) {
       console.error(chalk.gray(`   Error: ${error.message}`));
