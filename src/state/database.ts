@@ -105,11 +105,27 @@ export function getDbPath(communitySlug: string): string {
 }
 
 /**
+ * Checks whether a URL points to Skool itself or one of its subdomains.
+ */
+export function isSkoolUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const isWebUrl = url.protocol === "https:" || url.protocol === "http:";
+    const isSkoolHost = url.hostname === "skool.com" || url.hostname.endsWith(".skool.com");
+    return isWebUrl && isSkoolHost;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Extract community slug from a Skool URL.
  */
-export function extractCommunitySlug(url: string): string {
-  const match = /skool\.com\/([^/]+)/.exec(url);
-  return match?.[1] ?? "unknown";
+export function extractCommunitySlug(value: string): string {
+  if (!isSkoolUrl(value)) return "unknown";
+
+  const [communitySlug] = new URL(value).pathname.split("/").filter(Boolean);
+  return communitySlug ?? "unknown";
 }
 
 /**
