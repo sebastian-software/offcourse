@@ -9,14 +9,18 @@ const authMocks = vi.hoisted(() => ({
 
 vi.mock("../../shared/auth.js", () => ({
   clearSession: authMocks.clearSession,
+  createLoginChecker:
+    (patterns: RegExp[]) =>
+    (url: string): boolean =>
+      patterns.some((pattern) => pattern.test(url)),
   getAuthenticatedSession: authMocks.getAuthenticatedSession,
   hasValidSession: authMocks.hasValidSession,
   isSkoolLoginPage: (url: string) => url.includes("/login"),
 }));
 
-import { loginCommand } from "./login.js";
+import { loginCommand, logoutCommand } from "./login.js";
 
-describe("loginCommand", () => {
+describe("login and logout commands", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -48,5 +52,33 @@ describe("loginCommand", () => {
     await loginCommand(undefined, {});
 
     expect(authMocks.getAuthenticatedSession).not.toHaveBeenCalled();
+  });
+
+  it("uses the requested LearningSuite tenant and course for login", async () => {
+    const url =
+      "https://mrgenossenschaft.learningsuite.io/student/course/masterclass-genossenschaft/fmGcFzds";
+
+    await loginCommand(url, {});
+
+    expect(authMocks.getAuthenticatedSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        domain: "mrgenossenschaft.learningsuite.io",
+        loginUrl: url,
+        isLoginPage: expect.any(Function),
+        verifySession: expect.any(Function),
+      }),
+      { headless: false }
+    );
+    expect(authMocks.browserClose).toHaveBeenCalledOnce();
+  });
+
+  it("clears only the requested LearningSuite tenant session", async () => {
+    authMocks.clearSession.mockResolvedValue(true);
+
+    await logoutCommand(
+      "https://mrgenossenschaft.learningsuite.io/student/course/masterclass-genossenschaft/fmGcFzds"
+    );
+
+    expect(authMocks.clearSession).toHaveBeenCalledWith("mrgenossenschaft.learningsuite.io");
   });
 });

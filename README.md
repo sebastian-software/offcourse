@@ -53,6 +53,9 @@ offcourse login https://www.skool.com/<community>/classroom
 # Piccalilli OTP login (sync also prompts automatically)
 offcourse login https://piccalil.li/<course>/lessons
 
+# LearningSuite login (session is saved per tenant)
+offcourse login https://<tenant>.learningsuite.io/student/course/<course>/<id>
+
 # Unlock sequential content (LearningSuite)
 offcourse complete <url>
 

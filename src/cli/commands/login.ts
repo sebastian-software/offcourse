@@ -6,6 +6,11 @@ import {
   isSkoolLoginPage,
 } from "../../shared/auth.js";
 import {
+  createLearningSuiteSessionVerifier,
+  getLearningSuiteDomain,
+  isLearningSuiteLoginPage,
+} from "../../scraper/learningsuite/index.js";
+import {
   createPiccalilliSessionVerifier,
   isPiccalilliCourseUrl,
   isPiccalilliLoginPage,
@@ -30,27 +35,41 @@ export async function loginCommand(
   options: { force?: boolean }
 ): Promise<void> {
   const isPiccalilli = typeof url === "string" && isPiccalilliCourseUrl(url);
+  const learningSuiteDomain = typeof url === "string" ? getLearningSuiteDomain(url) : null;
+  const isLearningSuite = learningSuiteDomain !== null;
   const isSkool = url === undefined || isSkoolUrl(url);
 
-  if (!isPiccalilli && !isSkool) {
-    throw new Error("Login URLs must point to a supported Skool or Piccalilli course");
+  if (!isPiccalilli && !isLearningSuite && !isSkool) {
+    throw new Error(
+      "Login URLs must point to a supported Skool, LearningSuite, or Piccalilli course"
+    );
   }
 
-  const domain = isPiccalilli ? PICCALILLI_DOMAIN : SKOOL_DOMAIN;
-  const courseUrl = isPiccalilli
-    ? normalizePiccalilliCourseUrl(url)
-    : url
-      ? normalizeSkoolClassroomUrl(url)
-      : null;
-  const loginUrl = isPiccalilli ? PICCALILLI_LOGIN_URL : SKOOL_LOGIN_URL;
-  const isLoginPage = isPiccalilli ? isPiccalilliLoginPage : isSkoolLoginPage;
+  const domain = learningSuiteDomain ?? (isPiccalilli ? PICCALILLI_DOMAIN : SKOOL_DOMAIN);
+  const courseUrl = isLearningSuite
+    ? url
+    : isPiccalilli
+      ? normalizePiccalilliCourseUrl(url)
+      : url
+        ? normalizeSkoolClassroomUrl(url)
+        : null;
+  const loginUrl =
+    isLearningSuite && url ? url : isPiccalilli ? PICCALILLI_LOGIN_URL : SKOOL_LOGIN_URL;
+  const isLoginPage = isLearningSuite
+    ? isLearningSuiteLoginPage
+    : isPiccalilli
+      ? isPiccalilliLoginPage
+      : isSkoolLoginPage;
   const verifySession = courseUrl
-    ? isPiccalilli
-      ? createPiccalilliSessionVerifier(courseUrl)
-      : createSkoolSessionVerifier(courseUrl)
+    ? isLearningSuite
+      ? createLearningSuiteSessionVerifier(courseUrl)
+      : isPiccalilli
+        ? createPiccalilliSessionVerifier(courseUrl)
+        : createSkoolSessionVerifier(courseUrl)
     : undefined;
+  const platform = isLearningSuite ? "LearningSuite" : isPiccalilli ? "Piccalilli" : "Skool.com";
 
-  console.log(chalk.blue(`\n🔐 ${isPiccalilli ? "Piccalilli" : "Skool.com"} Login\n`));
+  console.log(chalk.blue(`\n🔐 ${platform} Login\n`));
 
   if ((await hasValidSession(domain)) && !options.force && !verifySession) {
     console.log(chalk.yellow("⚠️  You already have an active session."));
@@ -95,11 +114,15 @@ export async function loginCommand(
  * Handles the logout command.
  */
 export async function logoutCommand(url?: string): Promise<void> {
-  if (url && !isPiccalilliCourseUrl(url) && !isSkoolUrl(url)) {
-    throw new Error("Logout URLs must point to a supported Skool or Piccalilli course");
+  const learningSuiteDomain = url ? getLearningSuiteDomain(url) : null;
+  if (url && !learningSuiteDomain && !isPiccalilliCourseUrl(url) && !isSkoolUrl(url)) {
+    throw new Error(
+      "Logout URLs must point to a supported Skool, LearningSuite, or Piccalilli course"
+    );
   }
 
-  const domain = url && isPiccalilliCourseUrl(url) ? PICCALILLI_DOMAIN : SKOOL_DOMAIN;
+  const domain =
+    learningSuiteDomain ?? (url && isPiccalilliCourseUrl(url) ? PICCALILLI_DOMAIN : SKOOL_DOMAIN);
   console.log(chalk.blue("\n🔓 Logging out...\n"));
 
   if (await clearSession(domain)) {

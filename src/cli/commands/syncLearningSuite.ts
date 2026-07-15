@@ -4,15 +4,19 @@ import ora from "ora";
 import { join } from "node:path";
 import { loadConfig } from "../../config/configManager.js";
 import { downloadVideo, type VideoDownloadTask } from "../../downloader/index.js";
-import { getAuthenticatedSession, createLoginChecker } from "../../shared/auth.js";
+import { getAuthenticatedSession } from "../../shared/auth.js";
 import { createWorkerPool, closeWorkerPool } from "../../shared/parallelWorker.js";
 import { createShutdownManager } from "../../shared/shutdown.js";
 import {
   buildLearningSuiteCourseStructure,
+  createLearningSuiteSessionVerifier,
   createFolderName,
   extractLearningSuitePostContent,
+  getLearningSuiteDomain,
   getAuthToken,
   getLearningSuiteLessonUrl,
+  isLearningSuiteLoginPage,
+  isLearningSuitePortal,
   slugify,
   type LearningSuiteCourseStructure,
   type LearningSuiteScanProgress,
@@ -44,101 +48,6 @@ export interface CompleteLearningSuiteOptions {
 }
 
 /**
- * Extracts the domain from a LearningSuite URL.
- */
-function extractDomain(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url;
-  }
-}
-
-/**
- * LearningSuite-specific login page checker.
- * Note: We check for /auth at the end of path OR as a path segment to be safe.
- */
-export const isLearningSuiteLoginPage = createLoginChecker([
-  /\/auth(?:$|\/|\?)/, // /auth, /auth/, /auth?...
-  /\/login/,
-  /\/signin/,
-  /accounts\.google\.com/,
-]);
-
-/**
- * Verifies if the user has a valid LearningSuite session.
- *
- * LearningSuite stores authentication in various ways:
- * 1. localStorage tokens (accessToken, jwt, etc.)
- * 2. Cookies (session cookies)
- * 3. URL-based redirect (if we're not on /auth, we're likely logged in)
- */
-async function hasValidLearningSuiteSession(page: import("playwright").Page): Promise<boolean> {
-  const currentUrl = page.url();
-
-  // Primary check: If we're NOT on an auth page after navigation, we're logged in
-  // This is the most reliable indicator for LearningSuite
-  if (!isLearningSuiteLoginPage(currentUrl)) {
-    // Double-check we're on a student/course page (not an error page)
-    if (
-      currentUrl.includes("/student") ||
-      currentUrl.includes("/course") ||
-      currentUrl.includes("/dashboard")
-    ) {
-      return true;
-    }
-  }
-
-  // Secondary check: Look for auth tokens in storage
-  const hasToken = await page.evaluate(() => {
-    // Check localStorage for various token patterns
-    const tokenKeys = ["accessToken", "token", "authToken", "jwt", "access_token", "id_token"];
-    for (const key of tokenKeys) {
-      if (localStorage.getItem(key)) return true;
-    }
-
-    // Check sessionStorage
-    for (const key of tokenKeys) {
-      if (sessionStorage.getItem(key)) return true;
-    }
-
-    // Check for any key containing 'auth' or 'token' or 'session'
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key) {
-        const keyLower = key.toLowerCase();
-        if (
-          keyLower.includes("auth") ||
-          keyLower.includes("token") ||
-          keyLower.includes("session")
-        ) {
-          const value = localStorage.getItem(key);
-          // Make sure it's not empty
-          if (value && value.length > 10) return true;
-        }
-      }
-    }
-
-    // Check for user-related keys (often set after login)
-    const userKeys = ["user", "currentUser", "userInfo", "profile"];
-    for (const key of userKeys) {
-      if (localStorage.getItem(key)) return true;
-    }
-
-    return false;
-  });
-
-  return hasToken;
-}
-
-/**
- * Detects if a URL is a LearningSuite portal.
- */
-export function isLearningSuitePortal(url: string): boolean {
-  return url.includes(".learningsuite.io");
-}
-
-/**
  * Handles the sync-learningsuite command.
  * Downloads all content from a LearningSuite portal.
  */
@@ -151,7 +60,10 @@ export async function syncLearningSuiteCommand(
   console.log(chalk.blue("\n📚 LearningSuite Course Sync\n"));
 
   const config = loadConfig();
-  const domain = extractDomain(url);
+  const domain = getLearningSuiteDomain(url);
+  if (!domain) {
+    throw new Error("URL does not point to a LearningSuite tenant");
+  }
 
   console.log(chalk.gray(`   Portal: ${domain}`));
 
@@ -168,7 +80,7 @@ export async function syncLearningSuiteCommand(
         domain,
         loginUrl: url,
         isLoginPage: isLearningSuiteLoginPage,
-        verifySession: hasValidLearningSuiteSession,
+        verifySession: createLearningSuiteSessionVerifier(url),
       },
       { headless: useHeadless }
     );
@@ -767,7 +679,10 @@ export async function completeLearningSuiteCommand(
     process.exit(1);
   }
 
-  const domain = extractDomain(url);
+  const domain = getLearningSuiteDomain(url);
+  if (!domain) {
+    throw new Error("URL does not point to a LearningSuite tenant");
+  }
   console.log(chalk.gray(`   Domain: ${domain}`));
 
   // Get authenticated session
@@ -783,7 +698,7 @@ export async function completeLearningSuiteCommand(
         domain,
         loginUrl: url,
         isLoginPage: isLearningSuiteLoginPage,
-        verifySession: hasValidLearningSuiteSession,
+        verifySession: createLearningSuiteSessionVerifier(url),
       },
       { headless: useHeadless }
     );

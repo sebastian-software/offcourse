@@ -16,9 +16,9 @@ import {
 import {
   syncLearningSuiteCommand,
   completeLearningSuiteCommand,
-  isLearningSuitePortal,
   type SyncLearningSuiteOptions,
 } from "./commands/syncLearningSuite.js";
+import { isLearningSuitePortal } from "../scraper/learningsuite/index.js";
 import {
   isPiccalilliCourseUrl,
   syncPiccalilliCommand,
