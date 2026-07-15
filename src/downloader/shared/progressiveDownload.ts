@@ -7,6 +7,7 @@ import { dirname } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { USER_AGENT } from "../../shared/http.js";
+import { fetchWithRetry } from "./network.js";
 import type { DownloadResult, ProgressCallback, RequestHeaders } from "./types.js";
 
 function createProgressReadable(
@@ -117,7 +118,11 @@ export async function downloadFile(
       headers.Cookie = cookies;
     }
 
-    const response = await fetch(url, { headers: headers as HeadersInit });
+    const response = await fetchWithRetry(
+      url,
+      { headers: headers as HeadersInit },
+      { timeoutMs: 10 * 60_000 }
+    );
 
     if (!response.ok) {
       return {
@@ -180,7 +185,11 @@ export async function downloadProgressiveVideo(
       ...extraHeaders,
     };
 
-    const response = await fetch(url, { headers: headers as HeadersInit });
+    const response = await fetchWithRetry(
+      url,
+      { headers: headers as HeadersInit },
+      { timeoutMs: 10 * 60_000 }
+    );
 
     if (!response.ok) {
       return {
