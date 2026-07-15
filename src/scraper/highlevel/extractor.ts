@@ -50,7 +50,6 @@ export interface HighLevelPostContent {
 }
 
 // Browser/API automation - requires Playwright
-/* v8 ignore start */
 
 /**
  * Extracts the Firebase auth token from the page.
@@ -428,12 +427,10 @@ export async function extractHighLevelPostContent(
     productId,
   };
 }
-/* v8 ignore stop */
 
 // Re-export for backwards compatibility
 export { parseHLSMasterPlaylist };
 
-/* v8 ignore start */
 /**
  * Fetches and parses HLS playlist to get quality options.
  */
@@ -480,4 +477,3 @@ export async function getBestHLSQuality(
   // Return highest quality
   return qualities[0]?.url ?? null;
 }
-/* v8 ignore stop */

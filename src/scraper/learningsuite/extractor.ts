@@ -139,7 +139,6 @@ export function getCompleteLearningSuiteSegments(
 // ============================================================================
 // Browser/API Automation (Playwright-dependent)
 // ============================================================================
-/* v8 ignore start */
 
 /**
  * Extracts video information from a lesson page.
@@ -802,4 +801,3 @@ export async function interceptVideoRequests(
   // Fallback to DOM extraction
   return extractVideoFromPage(page);
 }
-/* v8 ignore stop */

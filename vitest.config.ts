@@ -7,7 +7,7 @@ export default defineConfig({
     include: ["src/**/*.test.ts"],
     exclude: ["src/**/*.integration.test.ts", "node_modules/**"],
     coverage: {
-      provider: "istanbul",
+      provider: "v8",
       reportsDirectory: "./coverage",
       reporter: ["text", "html", "lcov", "json"],
       include: ["src/**/*.ts"],
@@ -21,7 +21,7 @@ export default defineConfig({
         // Pure I/O wrappers (testing would just test Node.js/packages)
         "src/shared/fs.ts",
         "src/config/configManager.ts",
-        // Browser automation (requires Playwright, not unit testable)
+        // Browser interceptor requires a live Playwright page
         "src/scraper/videoInterceptor.ts",
         // Network validation (requires live connections)
         "src/downloader/hlsValidator.ts",

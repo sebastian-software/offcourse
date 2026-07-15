@@ -65,8 +65,7 @@ export function extractLoomId(url: string): string | null {
 // Video Info Fetching
 // ============================================================================
 
-// Network I/O and file operations - excluded from coverage
-/* v8 ignore start */
+// Network I/O and file operations
 
 /**
  * Error class for Loom fetch failures with structured error info.
@@ -464,5 +463,3 @@ export async function downloadLoomVideo(
   onProgress?.({ percent: 100, phase: "complete" });
   return { success: true };
 }
-
-/* v8 ignore stop */

@@ -155,7 +155,6 @@ export function parseHlsMediaPlaylistContent(playlist: string, playlistUrl: stri
  * Parses an HLS master playlist to get video and audio playlist URLs.
  * Supports signed URLs with query parameters.
  */
-/* v8 ignore start */
 export async function parseHlsMasterPlaylist(
   masterUrl: string,
   headers?: RequestHeaders
@@ -201,7 +200,6 @@ export async function getSegmentUrls(
     return [];
   }
 }
-/* v8 ignore stop */
 
 // ============================================================================
 // Segment Download
@@ -277,7 +275,6 @@ export async function downloadSegmentsToFile(
  * Downloads HLS segments individually to temp files, then merges with ffmpeg.
  * Used for encrypted HLS or when better compatibility is needed.
  */
-/* v8 ignore start */
 export async function downloadSegmentsWithMerge(
   segmentUrls: string[],
   outputPath: string,
@@ -393,7 +390,6 @@ export async function downloadSegmentsWithMerge(
     };
   }
 }
-/* v8 ignore stop */
 
 // ============================================================================
 // Segments URL Encoding
