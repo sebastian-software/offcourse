@@ -65,17 +65,43 @@ export function parseFfmpegTime(output: string): number {
 // FFmpeg Operations
 // ============================================================================
 
+function getTemporaryOutput(outputPath: string): { tempPath: string; format: string } {
+  const extension = path.extname(outputPath).toLowerCase();
+  const formatByExtension: Record<string, string> = {
+    ".m4a": "ipod",
+    ".m4v": "mp4",
+    ".mkv": "matroska",
+    ".mov": "mov",
+    ".mp3": "mp3",
+    ".mp4": "mp4",
+    ".ts": "mpegts",
+    ".webm": "webm",
+  };
+  const format = formatByExtension[extension];
+  if (!format) {
+    throw new Error(`Unsupported ffmpeg output extension: ${extension || "none"}`);
+  }
+  return { tempPath: `${outputPath}.tmp`, format };
+}
+
+function removeTemporaryOutput(tempPath: string): void {
+  if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+}
+
 /**
  * Merges video and audio files using ffmpeg.
  * @returns true if merge was successful, false otherwise.
  */
-/* v8 ignore start */
 export async function mergeVideoAudio(
   videoPath: string,
   audioPath: string,
   outputPath: string
 ): Promise<boolean> {
+  let tempPath: string | undefined;
+
   try {
+    const output = getTemporaryOutput(outputPath);
+    tempPath = output.tempPath;
     await execa(
       "ffmpeg",
       [
@@ -89,16 +115,21 @@ export async function mergeVideoAudio(
         "-c:a",
         "aac",
         "-y",
-        outputPath,
+        "-f",
+        output.format,
+        tempPath,
       ],
       { stdio: "ignore" }
     );
+
+    fs.renameSync(tempPath, outputPath);
 
     // Clean up temp files
     if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
     if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
     return true;
   } catch {
+    if (tempPath) removeTemporaryOutput(tempPath);
     // Clean up temp files on failure too
     if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
     if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
@@ -117,8 +148,11 @@ export async function concatSegments(
   const concatPath = path.join(tempDir, "concat.txt");
   const concatContent = segmentPaths.map((p) => `file '${p}'`).join("\n");
   fs.writeFileSync(concatPath, concatContent);
+  let tempPath: string | undefined;
 
   try {
+    const output = getTemporaryOutput(outputPath);
+    tempPath = output.tempPath;
     await execa("ffmpeg", [
       "-y",
       "-nostdin",
@@ -130,10 +164,14 @@ export async function concatSegments(
       concatPath,
       "-c",
       "copy",
-      outputPath,
+      "-f",
+      output.format,
+      tempPath,
     ]);
+    fs.renameSync(tempPath, outputPath);
     return true;
   } catch {
+    if (tempPath) removeTemporaryOutput(tempPath);
     return false;
   }
 }
@@ -153,33 +191,7 @@ export async function downloadWithFfmpeg(
   } = {}
 ): Promise<{ success: boolean; duration: number; error?: string }> {
   const { cookies, referer, authToken, onProgress } = options;
-
-  // Ensure output directory exists
-  const outputDir = path.dirname(outputPath);
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
-  }
-
-  // Build origin from URL or referer
-  const urlObj = new URL(hlsUrl);
-  const origin = referer ?? `${urlObj.protocol}//${urlObj.host}/`;
-  const originHost = new URL(origin).origin;
-
-  // Build ffmpeg command
-  const args = ["-y", "-hide_banner", "-loglevel", "warning", "-stats"];
-
-  // Add headers
-  const headerParts: string[] = [`Origin: ${originHost}`, `Referer: ${origin}`];
-  if (cookies) {
-    headerParts.push(`Cookie: ${cookies}`);
-  }
-  if (authToken) {
-    headerParts.push(`APIKEY: ${authToken}`);
-    headerParts.push(`Authorization: Bearer ${authToken}`);
-  }
-  args.push("-headers", headerParts.join("\r\n") + "\r\n");
-
-  args.push("-nostdin", "-i", hlsUrl, "-c", "copy", "-bsf:a", "aac_adtstoasc", outputPath);
+  let tempPath: string | undefined;
 
   let duration = 0;
   let currentTime = 0;
@@ -203,6 +215,47 @@ export async function downloadWithFfmpeg(
   };
 
   try {
+    // Ensure output directory exists
+    const outputDir = path.dirname(outputPath);
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+
+    const output = getTemporaryOutput(outputPath);
+    tempPath = output.tempPath;
+
+    // Build origin from URL or referer
+    const urlObj = new URL(hlsUrl);
+    const origin = referer ?? `${urlObj.protocol}//${urlObj.host}/`;
+    const originHost = new URL(origin).origin;
+
+    // Build ffmpeg command
+    const args = ["-y", "-hide_banner", "-loglevel", "warning", "-stats"];
+
+    // Add headers
+    const headerParts: string[] = [`Origin: ${originHost}`, `Referer: ${origin}`];
+    if (cookies) {
+      headerParts.push(`Cookie: ${cookies}`);
+    }
+    if (authToken) {
+      headerParts.push(`APIKEY: ${authToken}`);
+      headerParts.push(`Authorization: Bearer ${authToken}`);
+    }
+    args.push("-headers", headerParts.join("\r\n") + "\r\n");
+
+    args.push(
+      "-nostdin",
+      "-i",
+      hlsUrl,
+      "-c",
+      "copy",
+      "-bsf:a",
+      "aac_adtstoasc",
+      "-f",
+      output.format,
+      tempPath
+    );
+
     const subprocess = execa("ffmpeg", args);
 
     subprocess.stderr?.on("data", (data: Buffer) => {
@@ -220,13 +273,14 @@ export async function downloadWithFfmpeg(
     });
 
     await subprocess;
+    fs.renameSync(tempPath, outputPath);
 
     onProgress?.({ phase: "complete", percent: 100 });
 
     return { success: true, duration };
   } catch (error) {
+    if (tempPath) removeTemporaryOutput(tempPath);
     const errorMessage = error instanceof Error ? error.message : String(error);
     return { success: false, duration: 0, error: `ffmpeg error: ${errorMessage}` };
   }
 }
-/* v8 ignore stop */
