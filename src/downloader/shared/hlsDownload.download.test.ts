@@ -48,7 +48,7 @@ describe("downloadSegmentsToFile", () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(new Response("segment-one", { status: 200 }))
-      .mockResolvedValue(new Response("expired", { status: 403 }));
+      .mockResolvedValue(new Response("unavailable", { status: 503 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await downloadSegmentsToFile(
@@ -58,6 +58,38 @@ describe("downloadSegmentsToFile", () => {
 
     expect(result).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(existsSync(outputPath)).toBe(false);
+    expect(existsSync(`${outputPath}.tmp`)).toBe(false);
+  });
+
+  it("does not retry permanent client errors", async () => {
+    const root = await mkdtemp(join(tmpdir(), "offcourse-segments-"));
+    createdPaths.push(root);
+    const outputPath = join(root, "video.ts");
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("expired", { status: 403 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await downloadSegmentsToFile(["https://cdn.example.com/1.ts"], outputPath);
+
+    expect(result).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(existsSync(outputPath)).toBe(false);
+    expect(existsSync(`${outputPath}.tmp`)).toBe(false);
+  });
+
+  it("does not retry successful responses without a body", async () => {
+    const root = await mkdtemp(join(tmpdir(), "offcourse-segments-"));
+    createdPaths.push(root);
+    const outputPath = join(root, "video.ts");
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await downloadSegmentsToFile(["https://cdn.example.com/1.ts"], outputPath);
+
+    expect(result).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(existsSync(outputPath)).toBe(false);
     expect(existsSync(`${outputPath}.tmp`)).toBe(false);
   });

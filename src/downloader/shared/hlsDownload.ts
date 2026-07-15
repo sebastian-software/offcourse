@@ -5,7 +5,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as HLS from "hls-parser";
-import pRetry from "p-retry";
+import pRetry, { AbortError } from "p-retry";
 import { USER_AGENT } from "../../shared/http.js";
 import { getBaseUrl, extractQueryParams } from "../../shared/url.js";
 import type { DownloadResult, HLSQuality, ProgressCallback, RequestHeaders } from "./types.js";
@@ -193,13 +193,24 @@ export async function downloadSegmentsToFile(
             headers: { "User-Agent": USER_AGENT, ...headers } as HeadersInit,
           });
 
-          if (!response.ok || !response.body) {
-            throw new Error(`Failed to download segment ${i}: HTTP ${response.status}`);
+          if (!response.ok) {
+            const error = new Error(`Failed to download segment ${i}: HTTP ${response.status}`);
+            const isPermanentClientError =
+              response.status >= 400 &&
+              response.status < 500 &&
+              response.status !== 408 &&
+              response.status !== 429;
+            if (isPermanentClientError) throw new AbortError(error);
+            throw error;
+          }
+
+          if (!response.body) {
+            throw new AbortError(`Failed to download segment ${i}: empty response body`);
           }
 
           return Buffer.from(await response.arrayBuffer());
         },
-        { retries: 2, minTimeout: 100, maxTimeout: 200 }
+        { retries: 2, minTimeout: 500, maxTimeout: 2000 }
       );
 
       await fileHandle.writeFile(segment);
