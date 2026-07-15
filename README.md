@@ -94,7 +94,7 @@ offcourse logout <url>
 offcourse login <url> --force
 ```
 
-### A lesson failed
+### A Skool lesson failed
 
 Skool stores per-lesson failure details and supports a targeted retry:
 
@@ -103,7 +103,9 @@ offcourse status <url> --errors
 offcourse sync-skool <url> --retry-failed
 ```
 
-For other platforms, rerun `offcourse sync <url>` after resolving the reported authentication, browser, or ffmpeg problem.
+### A lesson failed on another platform
+
+Rerun `offcourse sync <url>` after resolving the reported authentication, browser, or ffmpeg problem.
 
 ## Development
 
