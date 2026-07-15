@@ -54,6 +54,12 @@ describe("fileSystem", () => {
       expect(toPosix(path)).toBe("/module/01-intro-file_________.pdf");
     });
 
+    it("keeps path traversal filenames inside the module directory", () => {
+      const path = getDownloadFilePath("/module", 0, "Intro", "../../secrets.txt");
+
+      expect(toPosix(path)).toBe("/module/01-intro-.._.._secrets.txt");
+    });
+
     it("preserves safe special characters", () => {
       const path = getDownloadFilePath("/module", 0, "Intro", "my-file_v2 (1).pdf");
       expect(toPosix(path)).toBe("/module/01-intro-my-file_v2 (1).pdf");

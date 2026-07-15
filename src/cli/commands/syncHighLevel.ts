@@ -1,7 +1,6 @@
 import chalk from "chalk";
 import cliProgress from "cli-progress";
 import ora from "ora";
-import { join } from "node:path";
 import { loadConfig } from "../../config/configManager.js";
 import { downloadVideo, type VideoDownloadTask } from "../../downloader/index.js";
 import {
@@ -22,6 +21,7 @@ import {
 import {
   createCourseDirectory,
   createModuleDirectory,
+  getDownloadFilePath,
   getVideoPath,
   saveMarkdown,
   isLessonSynced,
@@ -357,9 +357,11 @@ export async function syncHighLevelCommand(
             // Download attachments
             for (const attachment of content.attachments) {
               if (attachment.url) {
-                const attachmentPath = join(
+                const attachmentPath = getDownloadFilePath(
                   moduleDir,
-                  `${createFolderName(postIndex, post.title)}-${attachment.name}`
+                  postIndex,
+                  post.title,
+                  attachment.name
                 );
                 await downloadFile(attachment.url, attachmentPath);
               }
