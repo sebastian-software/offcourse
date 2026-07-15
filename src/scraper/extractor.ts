@@ -20,6 +20,22 @@ export interface LessonContent {
   downloadableFiles: DownloadableFile[];
 }
 
+/**
+ * Removes the known "module · course" suffix from a Skool browser title while
+ * preserving hyphens that are part of the lesson title itself.
+ */
+export function cleanLessonTitle(pageTitle: string): string {
+  const title = pageTitle.trim();
+  const courseSeparator = title.lastIndexOf(" · ");
+  if (courseSeparator === -1) return title;
+
+  const lessonAndModule = title.slice(0, courseSeparator).trim();
+  const moduleSeparator = lessonAndModule.lastIndexOf(" - ");
+  return moduleSeparator === -1
+    ? lessonAndModule
+    : lessonAndModule.slice(0, moduleSeparator).trim();
+}
+
 // Initialize Turndown for HTML to Markdown conversion
 const turndown = new TurndownService({
   headingStyle: "atx",
@@ -716,8 +732,7 @@ export async function extractLessonContent(page: Page, lessonUrl: string): Promi
   const { html: htmlContent, markdown: markdownContent } = await extractTextContent(page);
   const downloadableFiles = await extractDownloadableFiles(page);
 
-  // Clean up title: "1. Lesson Name - Module Name · Course Name" -> "1. Lesson Name"
-  const cleanTitle = title.split(" - ")[0]?.trim() ?? title;
+  const cleanTitle = cleanLessonTitle(title);
 
   return {
     title: cleanTitle,
