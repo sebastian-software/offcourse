@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createLoginChecker, isSkoolLoginPage, isHighLevelLoginPage } from "./auth.js";
+import {
+  createLoginChecker,
+  isHighLevelLoginPage,
+  isSkoolLoginPage,
+  isTransientAuthNavigationError,
+} from "./auth.js";
 
 describe("auth", () => {
   describe("createLoginChecker", () => {
@@ -53,6 +58,23 @@ describe("auth", () => {
     it("returns false for content pages", () => {
       expect(isHighLevelLoginPage("https://portal.example.com/courses")).toBe(false);
       expect(isHighLevelLoginPage("https://portal.example.com/dashboard")).toBe(false);
+    });
+  });
+
+  describe("isTransientAuthNavigationError", () => {
+    it("recognizes Playwright navigation races", () => {
+      expect(
+        isTransientAuthNavigationError(
+          new Error(
+            "page.evaluate: Execution context was destroyed, most likely because of a navigation"
+          )
+        )
+      ).toBe(true);
+      expect(isTransientAuthNavigationError(new Error("Frame was detached"))).toBe(true);
+    });
+
+    it("does not hide unrelated verifier failures", () => {
+      expect(isTransientAuthNavigationError(new Error("selector is invalid"))).toBe(false);
     });
   });
 });

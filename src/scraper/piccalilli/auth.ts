@@ -2,10 +2,11 @@ import type { Page } from "playwright";
 import { normalizePiccalilliCourseUrl } from "./navigator.js";
 
 export const PICCALILLI_DOMAIN = "piccalil.li";
+export const PICCALILLI_LOGIN_URL = "https://piccalil.li/login";
 
 export function isPiccalilliLoginPage(url: string): boolean {
   try {
-    return new URL(url).pathname === "/login";
+    return new URL(url).pathname.replace(/\/+$/, "") === "/login";
   } catch {
     return false;
   }

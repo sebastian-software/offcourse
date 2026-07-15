@@ -11,6 +11,7 @@ import {
   isPiccalilliLoginPage,
   normalizePiccalilliCourseUrl,
   PICCALILLI_DOMAIN,
+  PICCALILLI_LOGIN_URL,
 } from "../../scraper/piccalilli/index.js";
 
 const SKOOL_DOMAIN = "www.skool.com";
@@ -26,9 +27,10 @@ export async function loginCommand(
 ): Promise<void> {
   const isPiccalilli = typeof url === "string" && isPiccalilliCourseUrl(url);
   const domain = isPiccalilli ? PICCALILLI_DOMAIN : SKOOL_DOMAIN;
-  const loginUrl = isPiccalilli ? normalizePiccalilliCourseUrl(url) : SKOOL_LOGIN_URL;
+  const courseUrl = isPiccalilli ? normalizePiccalilliCourseUrl(url) : undefined;
+  const loginUrl = isPiccalilli ? PICCALILLI_LOGIN_URL : SKOOL_LOGIN_URL;
   const isLoginPage = isPiccalilli ? isPiccalilliLoginPage : isSkoolLoginPage;
-  const verifySession = isPiccalilli ? createPiccalilliSessionVerifier(loginUrl) : undefined;
+  const verifySession = courseUrl ? createPiccalilliSessionVerifier(courseUrl) : undefined;
 
   if (url && !isPiccalilli) {
     throw new Error("Explicit login URLs are currently supported for Piccalilli courses only");

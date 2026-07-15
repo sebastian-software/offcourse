@@ -20,6 +20,7 @@ import {
   isPiccalilliLoginPage,
   normalizePiccalilliCourseUrl,
   PICCALILLI_DOMAIN,
+  PICCALILLI_LOGIN_URL,
   rewritePiccalilliResourceLinks,
   type PiccalilliCourseStructure,
   type PiccalilliLesson,
@@ -109,7 +110,7 @@ async function createAuthenticatedCourseSession(
   const result = await getAuthenticatedSession(
     {
       domain: PICCALILLI_DOMAIN,
-      loginUrl: courseUrl,
+      loginUrl: PICCALILLI_LOGIN_URL,
       isLoginPage: isPiccalilliLoginPage,
       verifySession: createPiccalilliSessionVerifier(courseUrl),
     },

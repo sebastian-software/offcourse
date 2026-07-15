@@ -59,6 +59,21 @@ export const isHighLevelLoginPage = createLoginChecker([
   /firebaseapp\.com/,
 ]);
 
+/**
+ * Returns whether an auth check failed only because the page was navigating.
+ * These errors are expected while a user submits multi-step login forms.
+ */
+export function isTransientAuthNavigationError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return [
+    "Execution context was destroyed",
+    "Cannot find context with specified id",
+    "Frame was detached",
+    "frame got detached",
+    "Inspected target navigated or closed",
+  ].some((fragment) => message.includes(fragment));
+}
+
 // ============================================
 // Browser automation - not unit testable
 // ============================================
@@ -129,7 +144,18 @@ export async function performInteractiveLogin(config: AuthConfig): Promise<AuthS
     if (!config.isLoginPage(currentUrl)) {
       // Optionally verify with custom function
       if (config.verifySession) {
-        loggedIn = await config.verifySession(page);
+        try {
+          loggedIn = await config.verifySession(page);
+        } catch (error) {
+          if (!isTransientAuthNavigationError(error)) {
+            await browser.close();
+            throw error;
+          }
+
+          // The user submitted a form while the verifier was inspecting the
+          // page. Wait for the next polling cycle and try again.
+          loggedIn = false;
+        }
       } else {
         loggedIn = true;
       }

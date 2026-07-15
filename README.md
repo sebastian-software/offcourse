@@ -47,7 +47,7 @@ offcourse sync <url> --skip-videos      # Text only
 offcourse sync <url> --dry-run          # Preview
 offcourse sync <url> --limit 5          # Test with 5 lessons
 
-# Piccalilli magic-link login (sync also prompts automatically)
+# Piccalilli OTP login (sync also prompts automatically)
 offcourse login https://piccalil.li/<course>/lessons
 
 # Unlock sequential content (LearningSuite)
