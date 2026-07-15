@@ -405,7 +405,17 @@ export async function downloadLoomVideo(
           }
 
           onProgress?.({ percent: 95, phase: "merging" });
-          const mergeSuccess = await mergeVideoAudio(tempVideoPath, tempAudioPath, outputPath);
+          let mergeSuccess: boolean;
+          try {
+            mergeSuccess = await mergeVideoAudio(tempVideoPath, tempAudioPath, outputPath);
+          } catch (error) {
+            return {
+              success: false,
+              error: "Failed to merge video and audio with ffmpeg",
+              errorCode: "MERGE_FAILED",
+              details: error instanceof Error ? error.message : String(error),
+            };
+          }
           if (!mergeSuccess) {
             return {
               success: false,
