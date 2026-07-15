@@ -110,7 +110,10 @@ async function loadSession(browser: Browser, domain: string): Promise<BrowserCon
 async function saveSession(context: BrowserContext, domain: string): Promise<void> {
   const sessionPath = getSessionPath(domain);
   const storageState = await context.storageState();
-  await outputJson(sessionPath, storageState, { mode: SESSION_FILE_MODE });
+  await outputJson(sessionPath, storageState, {
+    mode: SESSION_FILE_MODE,
+    directoryMode: SESSION_DIRECTORY_MODE,
+  });
 }
 
 /**

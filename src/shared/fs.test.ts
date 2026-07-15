@@ -36,4 +36,16 @@ describe("filesystem permissions", () => {
 
     expect((await stat(file)).mode & 0o777).toBe(0o600);
   });
+
+  posixIt("creates a private parent directory for a private file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "offcourse-fs-"));
+    createdPaths.push(root);
+    const directory = join(root, "sessions");
+    const file = join(directory, "session.json");
+
+    await outputJson(file, { token: "secret" }, { mode: 0o600, directoryMode: 0o700 });
+
+    expect((await stat(directory)).mode & 0o777).toBe(0o700);
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
+  });
 });

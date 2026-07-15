@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 
 export interface FilePermissionsOptions {
   mode?: number;
+  directoryMode?: number;
 }
 
 /**
@@ -39,7 +40,10 @@ export async function outputFile(
   data: string,
   options: FilePermissionsOptions = {}
 ): Promise<void> {
-  await ensureDir(dirname(path));
+  await ensureDir(
+    dirname(path),
+    options.directoryMode === undefined ? {} : { mode: options.directoryMode }
+  );
   await writeFile(path, data, { encoding: "utf-8", mode: options.mode });
 
   // writeFile's mode does not update an existing file, so explicitly correct
