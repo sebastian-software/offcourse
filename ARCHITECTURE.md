@@ -63,7 +63,6 @@ src/
 │   │   ├── auth.ts
 │   │   ├── extractor.ts
 │   │   ├── navigator.ts
-│   │   ├── schemas.ts
 │   │   └── index.ts
 │   └── piccalilli/
 │       ├── auth.ts
