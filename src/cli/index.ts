@@ -91,7 +91,14 @@ program
           SyncLearningSuiteOptions &
           SyncPiccalilliOptions
       ) => {
-        switch (detectSyncPlatform(url)) {
+        const platform = detectSyncPlatform(url);
+        if (platform === null) {
+          throw new Error(
+            "Unsupported course URL. Use sync-skool, sync-learningsuite, sync-piccalilli, or sync-highlevel for an explicit platform."
+          );
+        }
+
+        switch (platform) {
           case "skool":
             await syncCommand(url, options);
             break;
@@ -104,10 +111,10 @@ program
           case "highlevel":
             await syncHighLevelCommand(url, options);
             break;
-          default:
-            throw new Error(
-              "Unsupported course URL. Use sync-skool, sync-learningsuite, sync-piccalilli, or sync-highlevel for an explicit platform."
-            );
+          default: {
+            const unhandledPlatform: never = platform;
+            throw new Error(`Unhandled platform: ${String(unhandledPlatform)}`);
+          }
         }
       }
     )
