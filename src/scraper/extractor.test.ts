@@ -1,10 +1,40 @@
 import { describe, expect, it } from "vitest";
 import {
+  cleanLessonTitle,
   extractLoomVideoId,
   formatMarkdown,
   getFileType,
   convertHtmlToMarkdown,
 } from "./extractor.js";
+
+describe("cleanLessonTitle", () => {
+  it("removes the known module and course suffix", () => {
+    expect(cleanLessonTitle("1. Lesson Name - Module Name · Course Name", "Module Name")).toBe(
+      "1. Lesson Name"
+    );
+  });
+
+  it("preserves hyphens inside lesson titles", () => {
+    expect(cleanLessonTitle("Part 1 - Setup")).toBe("Part 1 - Setup");
+    expect(cleanLessonTitle("1. Part 1 - Setup - Module Name · Course Name", "Module Name")).toBe(
+      "1. Part 1 - Setup"
+    );
+  });
+
+  it("handles hyphens inside the known module name", () => {
+    expect(cleanLessonTitle("Lesson - Intro - Advanced · Course Name", "Intro - Advanced")).toBe(
+      "Lesson"
+    );
+  });
+
+  it("removes only the course suffix when no module suffix is present", () => {
+    expect(cleanLessonTitle("Welcome · Course Name")).toBe("Welcome");
+  });
+
+  it("trims browser title whitespace", () => {
+    expect(cleanLessonTitle("  Lesson title  ")).toBe("Lesson title");
+  });
+});
 
 describe("extractLoomVideoId", () => {
   it("extracts ID from embed URL", () => {

@@ -727,7 +727,7 @@ async function extractContentAndQueueVideos(
       // Check if content already exists
       if (!options.skipContent && !syncStatus.content) {
         try {
-          const content = await extractLessonContent(page, lesson.url);
+          const content = await extractLessonContent(page, lesson.url, lesson.moduleName);
           const markdown = formatMarkdown(
             content.title,
             content.markdownContent,

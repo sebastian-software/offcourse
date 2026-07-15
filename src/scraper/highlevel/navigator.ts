@@ -121,8 +121,11 @@ export async function extractPortalSettings(
       locationId: parsed.locationId,
       portalName: parsed.portalName ?? parsed.name ?? "HighLevel Course",
     };
-  } catch {
-    // Fall through
+  } catch (error) {
+    console.warn(
+      "Failed to extract HighLevel portal settings:",
+      error instanceof Error ? error.message : String(error)
+    );
   }
 
   return null;
@@ -258,8 +261,11 @@ export async function extractCourseDetails(
           }
         }
       }
-    } catch {
-      // Continue to DOM fallback silently
+    } catch (error) {
+      console.warn(
+        "Failed to fetch HighLevel course details; using DOM fallback:",
+        error instanceof Error ? error.message : String(error)
+      );
     }
   }
 

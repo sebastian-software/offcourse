@@ -213,22 +213,19 @@ export async function fetchPostDetails(
     { locationId, postId }
   );
 
-  // Debug: Log raw response in Node context
   if ("error" in rawData) {
-    console.log(`[DEBUG] API Error: ${rawData.error}`);
+    console.warn(`Could not fetch HighLevel post details: ${rawData.error}`);
     return null;
   }
 
   const data = rawData.data;
   if (!data) {
-    console.log("[DEBUG] No data in response");
     return null;
   }
 
   // Validate response with Zod schema
   const parsed = safeParse(PostDetailsResponseSchema, data, "fetchPostDetails");
   if (!parsed) {
-    console.log("[DEBUG] Response validation failed");
     return null;
   }
 
