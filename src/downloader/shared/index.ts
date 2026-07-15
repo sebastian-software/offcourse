@@ -31,6 +31,14 @@ export {
 // Progressive download
 export { downloadFile, downloadProgressiveVideo } from "./progressiveDownload.js";
 
+// Network requests and authenticated headers
+export {
+  buildAuthHeaders,
+  fetchWithAuthRedirects,
+  fetchWithRetry,
+  sanitizeHeaderValue,
+} from "./network.js";
+
 // HLS download
 export {
   createSegmentsUrl,
