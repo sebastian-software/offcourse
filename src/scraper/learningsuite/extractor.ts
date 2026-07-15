@@ -77,6 +77,14 @@ function getLearningSuiteRenditionKey(url: string): string | null {
   }
 }
 
+function getLearningSuiteRenditionHeight(renditionKey: string): number {
+  const directory = renditionKey.replace(/\/+$/, "").split("/").at(-1) ?? "";
+  const dimensions = /\d{3,4}x(\d{3,4})/i.exec(directory)?.[1];
+  const namedHeight = /(?:^|[_-])(\d{3,4})p?(?:$|[_-])/i.exec(directory)?.[1];
+  const height = dimensions ?? namedHeight;
+  return height ? Number.parseInt(height, 10) : 0;
+}
+
 /**
  * Groups segment URLs by rendition, keeps refreshed tokens, and returns the
  * most complete rendition only when it covers every observed segment index.
@@ -102,7 +110,13 @@ export function getCompleteLearningSuiteSegments(
     lastObservedIndex = Math.max(lastObservedIndex, index);
   }
 
-  const segmentsByIndex = [...renditions.values()].sort((a, b) => b.size - a.size)[0];
+  const selectedRendition = [...renditions.entries()].sort(
+    ([keyA, segmentsA], [keyB, segmentsB]) =>
+      segmentsB.size - segmentsA.size ||
+      getLearningSuiteRenditionHeight(keyB) - getLearningSuiteRenditionHeight(keyA) ||
+      keyA.localeCompare(keyB)
+  )[0];
+  const segmentsByIndex = selectedRendition?.[1];
   if (!segmentsByIndex || lastObservedIndex < 0) return null;
 
   const segments: string[] = [];

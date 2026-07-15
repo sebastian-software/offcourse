@@ -83,6 +83,16 @@ describe("LearningSuite Extractor", () => {
       ).toEqual([high(0), high(1), high(2, "fresh")]);
     });
 
+    it("prefers the highest quality when complete renditions have equal size", () => {
+      const low = (index: number) => segment(index, "low", "480p");
+      const high = (index: number) => segment(index, "high", "1920x1080");
+
+      expect(getCompleteLearningSuiteSegments([low(0), high(0), low(1), high(1)], 8)).toEqual([
+        high(0),
+        high(1),
+      ]);
+    });
+
     it("rejects adaptive switches when no rendition covers the full observed range", () => {
       expect(
         getCompleteLearningSuiteSegments(
@@ -90,6 +100,15 @@ describe("LearningSuite Extractor", () => {
           12
         )
       ).toBeNull();
+    });
+
+    it("groups relative segment paths by rendition", () => {
+      const relative = (index: number) => `/play_720p/video${index}.ts?token=relative`;
+
+      expect(getCompleteLearningSuiteSegments([relative(1), relative(0)], 8)).toEqual([
+        relative(0),
+        relative(1),
+      ]);
     });
   });
 });
