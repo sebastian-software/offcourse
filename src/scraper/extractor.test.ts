@@ -9,13 +9,21 @@ import {
 
 describe("cleanLessonTitle", () => {
   it("removes the known module and course suffix", () => {
-    expect(cleanLessonTitle("1. Lesson Name - Module Name · Course Name")).toBe("1. Lesson Name");
+    expect(cleanLessonTitle("1. Lesson Name - Module Name · Course Name", "Module Name")).toBe(
+      "1. Lesson Name"
+    );
   });
 
   it("preserves hyphens inside lesson titles", () => {
     expect(cleanLessonTitle("Part 1 - Setup")).toBe("Part 1 - Setup");
-    expect(cleanLessonTitle("1. Part 1 - Setup - Module Name · Course Name")).toBe(
+    expect(cleanLessonTitle("1. Part 1 - Setup - Module Name · Course Name", "Module Name")).toBe(
       "1. Part 1 - Setup"
+    );
+  });
+
+  it("handles hyphens inside the known module name", () => {
+    expect(cleanLessonTitle("Lesson - Intro - Advanced · Course Name", "Intro - Advanced")).toBe(
+      "Lesson"
     );
   });
 
