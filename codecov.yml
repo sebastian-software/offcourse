@@ -9,8 +9,8 @@ coverage:
   status:
     project:
       default:
-        # Recalibrated against Istanbul's full-source baseline. Raise this as
-        # the newly visible CLI and browser automation gaps are covered.
+        # Baseline after removing broad V8 ignore blocks and reporting CLI commands.
+        # Raise this as the newly visible browser and state-management gaps are covered.
         target: 20%
         threshold: 1%
     patch:
