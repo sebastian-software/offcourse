@@ -2,7 +2,7 @@
  * Browser-based video URL interception - requires Playwright.
  * Excluded from coverage via vitest.config.ts.
  */
-import type { Page } from "playwright";
+import type { CDPSession, Page } from "playwright";
 
 // ============================================================================
 // Type definitions for external browser APIs
@@ -290,10 +290,13 @@ export async function captureLoomHls(
 ): Promise<{ hlsUrl: string | null; error?: string }> {
   let capturedUrl: string | null = null;
   const originalUrl = page.url();
+  let client: CDPSession | null = null;
+  let responseHandler: ((event: { response: { url: string } }) => void) | null = null;
+  let finishCapture = () => {};
 
   try {
     // Use CDP to intercept network responses
-    const client = await page.context().newCDPSession(page);
+    client = await page.context().newCDPSession(page);
     await client.send("Network.enable");
 
     // Match HLS playlists from Loom's CDN
@@ -303,25 +306,44 @@ export async function captureLoomHls(
 
     // Set up listener before navigation
     const responsePromise = new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => {
-        resolve();
-      }, timeoutMs);
+      let captureTimeout: ReturnType<typeof setTimeout> | null = null;
+      let fallbackTimeout: ReturnType<typeof setTimeout> | null = null;
+      let settled = false;
       let hasMasterPlaylist = false;
 
-      client.on("Network.responseReceived", (event) => {
+      finishCapture = () => {
+        if (settled) return;
+        settled = true;
+        if (captureTimeout) clearTimeout(captureTimeout);
+        if (fallbackTimeout) clearTimeout(fallbackTimeout);
+        resolve();
+      };
+
+      captureTimeout = setTimeout(() => {
+        finishCapture();
+      }, timeoutMs);
+
+      responseHandler = (event) => {
         const url = event.response.url;
 
         // Always prefer master playlist
         if (masterPattern.test(url)) {
           capturedUrl = url;
           hasMasterPlaylist = true;
-          clearTimeout(timeout);
-          resolve();
+          finishCapture();
         } else if (!hasMasterPlaylist && anyHlsPattern.test(url)) {
-          // Capture any HLS as fallback, but keep listening for master
+          // Keep a short window open for the preferred master playlist.
           capturedUrl = url;
+          fallbackTimeout ??= setTimeout(
+            () => {
+              finishCapture();
+            },
+            Math.min(1000, timeoutMs)
+          );
         }
-      });
+      };
+
+      client?.on("Network.responseReceived", responseHandler);
     });
 
     // Navigate directly to Loom embed with autoplay (muted)
@@ -418,10 +440,14 @@ export async function captureLoomHls(
         capturedUrl = jsUrl;
       }
     }
-
-    await client.detach();
   } catch {
     // Error during capture
+  } finally {
+    finishCapture();
+    if (client && responseHandler) {
+      client.off("Network.responseReceived", responseHandler);
+    }
+    await client?.detach().catch(() => {});
   }
 
   // Navigate back to original page
