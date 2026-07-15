@@ -3,7 +3,11 @@
  */
 import { downloadLoomVideo } from "./loomDownloader.js";
 import { downloadVimeoVideo } from "./vimeoDownloader.js";
-import { downloadHighLevelVideo, downloadHLSVideo } from "./hlsDownloader.js";
+import {
+  downloadHighLevelVideo,
+  downloadHLSVideo,
+  downloadHLSVideoWithQuality,
+} from "./hlsDownloader.js";
 import { downloadFile, type DownloadResult, type ProgressCallback } from "./shared/index.js";
 
 export interface VideoDownloadTask {
@@ -47,7 +51,15 @@ export async function downloadVideo(
       return downloadFile(videoUrl, outputPath, { onProgress, cookies, referer });
 
     case "hls":
-      return downloadHLSVideo(videoUrl, outputPath, onProgress, cookies, referer, authToken);
+      return downloadHLSVideoWithQuality(
+        videoUrl,
+        outputPath,
+        preferredQuality,
+        onProgress,
+        cookies,
+        referer,
+        authToken
+      );
 
     case "highlevel":
       return downloadHighLevelVideo(
@@ -108,6 +120,7 @@ export {
 export {
   downloadHighLevelVideo,
   downloadHLSVideo,
+  downloadHLSVideoWithQuality,
   fetchHLSQualities,
   getBestQualityUrl,
   parseHighLevelVideoUrl,

@@ -18,6 +18,11 @@ import {
   isLearningSuitePortal,
   type SyncLearningSuiteOptions,
 } from "./commands/syncLearningSuite.js";
+import {
+  isPiccalilliCourseUrl,
+  syncPiccalilliCommand,
+  type SyncPiccalilliOptions,
+} from "./commands/syncPiccalilli.js";
 
 // Global error handler to ensure clean exit
 process.on("unhandledRejection", (reason) => {
@@ -55,13 +60,16 @@ program
 
 // Login command
 program
-  .command("login")
+  .command("login [url]")
   .description("Log in to a learning platform (opens browser)")
   .option("-f, --force", "Force re-login even if session exists")
-  .action(loginCommand);
+  .action((url: string | undefined, options: { force?: boolean }) => loginCommand(url, options));
 
 // Logout command
-program.command("logout").description("Clear saved session").action(logoutCommand);
+program
+  .command("logout [url]")
+  .description("Clear saved session")
+  .action((url: string | undefined) => logoutCommand(url));
 
 // Sync command - auto-detects platform
 program
@@ -80,13 +88,18 @@ program
     wrapAction(
       async (
         url: string,
-        options: SyncOptions & SyncHighLevelOptions & SyncLearningSuiteOptions
+        options: SyncOptions &
+          SyncHighLevelOptions &
+          SyncLearningSuiteOptions &
+          SyncPiccalilliOptions
       ) => {
         // Auto-detect platform
         if (url.includes("skool.com")) {
           await syncCommand(url, options);
         } else if (isLearningSuitePortal(url)) {
           await syncLearningSuiteCommand(url, options);
+        } else if (isPiccalilliCourseUrl(url)) {
+          await syncPiccalilliCommand(url, options);
         } else if (isHighLevelPortal(url)) {
           await syncHighLevelCommand(url, options);
         } else {
@@ -97,6 +110,20 @@ program
       }
     )
   );
+
+// Explicit Piccalilli sync command
+program
+  .command("sync-piccalilli <url>")
+  .description("Download a Piccalilli course for offline access")
+  .option("--skip-videos", "Skip video downloads (only save text content)")
+  .option("--skip-content", "Skip text content and resources (only download videos)")
+  .option("--dry-run", "Scan course structure without downloading or logging in")
+  .option("--limit <n>", "Limit to first N lessons (for testing)", parseInt)
+  .option("-f, --force", "Overwrite already downloaded lessons")
+  .option("--visible", "Show browser window (default: headless)")
+  .option("-q, --quality <quality>", "Preferred video quality (e.g., 720p, 1080p)")
+  .option("--course-name <name>", "Override detected course name")
+  .action(wrapAction(syncPiccalilliCommand));
 
 // Explicit Skool sync command
 program

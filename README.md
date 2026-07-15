@@ -29,11 +29,12 @@ Requires Node.js 22+ and [ffmpeg](https://ffmpeg.org/) for HLS videos.
 
 ## Supported Platforms
 
-| Platform | URL Pattern |
-|----------|-------------|
-| [Skool](https://skool.com) | `skool.com/community/classroom` |
-| [HighLevel](https://gohighlevel.com) | `member.*.com/courses/...` |
+| Platform                                  | URL Pattern                      |
+| ----------------------------------------- | -------------------------------- |
+| [Skool](https://skool.com)                | `skool.com/community/classroom`  |
+| [HighLevel](https://gohighlevel.com)      | `member.*.com/courses/...`       |
 | [LearningSuite](https://learningsuite.io) | `*.learningsuite.io/student/...` |
+| [Piccalilli](https://piccalil.li)         | `piccalil.li/<course>/lessons`   |
 
 ## Key Commands
 
@@ -45,6 +46,9 @@ offcourse sync <url>
 offcourse sync <url> --skip-videos      # Text only
 offcourse sync <url> --dry-run          # Preview
 offcourse sync <url> --limit 5          # Test with 5 lessons
+
+# Piccalilli magic-link login (sync also prompts automatically)
+offcourse login https://piccalil.li/<course>/lessons
 
 # Unlock sequential content (LearningSuite)
 offcourse complete <url>

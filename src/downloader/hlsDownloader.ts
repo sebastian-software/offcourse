@@ -232,7 +232,7 @@ export async function downloadHLSVideo(
 /**
  * Downloads a HighLevel HLS video with quality selection.
  */
-export async function downloadHighLevelVideo(
+export async function downloadHLSVideoWithQuality(
   masterUrl: string,
   outputPath: string,
   preferredQuality?: string,
@@ -259,6 +259,29 @@ export async function downloadHighLevelVideo(
   }
 
   return downloadHLSVideo(downloadUrl, outputPath, onProgress, cookies, referer, authToken);
+}
+
+/**
+ * Backwards-compatible HighLevel name for the generic quality-aware HLS downloader.
+ */
+export async function downloadHighLevelVideo(
+  masterUrl: string,
+  outputPath: string,
+  preferredQuality?: string,
+  onProgress?: ProgressCallback,
+  cookies?: string,
+  referer?: string,
+  authToken?: string
+): Promise<HLSDownloadResult> {
+  return downloadHLSVideoWithQuality(
+    masterUrl,
+    outputPath,
+    preferredQuality,
+    onProgress,
+    cookies,
+    referer,
+    authToken
+  );
 }
 /* v8 ignore stop */
 

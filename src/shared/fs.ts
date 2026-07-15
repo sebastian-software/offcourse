@@ -33,6 +33,14 @@ export async function outputFile(path: string, data: string): Promise<void> {
 }
 
 /**
+ * Write binary data to a file, creating parent directories if needed.
+ */
+export async function outputBinaryFile(path: string, data: Uint8Array): Promise<void> {
+  await ensureDir(dirname(path));
+  await writeFile(path, data);
+}
+
+/**
  * Write JSON to a file, creating parent directories if needed.
  */
 export async function outputJson(path: string, data: unknown): Promise<void> {
