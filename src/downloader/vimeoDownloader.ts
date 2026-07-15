@@ -9,6 +9,7 @@ import {
   checkFfmpeg,
   downloadProgressiveVideo,
   downloadSegmentsToFile,
+  fetchWithRetry,
   getSegmentUrls,
   mergeVideoAudio,
   parseHlsMasterPlaylist,
@@ -210,12 +211,12 @@ export async function getVimeoVideoInfo(
   }
 
   try {
-    let response = await fetch(configUrl, { headers });
+    let response = await fetchWithRetry(configUrl, { headers });
 
     if (response.status === 403 && referer) {
       headers.Referer = `https://player.vimeo.com/video/${videoId}`;
       headers.Origin = "https://player.vimeo.com";
-      response = await fetch(configUrl, { headers });
+      response = await fetchWithRetry(configUrl, { headers });
     }
 
     if (response.status === 404) {
