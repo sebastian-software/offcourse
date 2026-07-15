@@ -7,6 +7,7 @@ import * as path from "node:path";
 import * as HLS from "hls-parser";
 import pRetry, { AbortError } from "p-retry";
 import { USER_AGENT } from "../../shared/http.js";
+import { fetchWithRetry } from "./network.js";
 import type { DownloadResult, HLSQuality, ProgressCallback, RequestHeaders } from "./types.js";
 import { checkFfmpeg, concatSegments } from "./ffmpeg.js";
 
@@ -160,7 +161,7 @@ export async function parseHlsMasterPlaylist(
   headers?: RequestHeaders
 ): Promise<{ videoUrl: string | null; audioUrl: string | null }> {
   try {
-    const response = await fetch(masterUrl, {
+    const response = await fetchWithRetry(masterUrl, {
       headers: { "User-Agent": USER_AGENT, ...headers } as HeadersInit,
     });
 
@@ -183,7 +184,7 @@ export async function getSegmentUrls(
   headers?: RequestHeaders
 ): Promise<string[]> {
   try {
-    const response = await fetch(playlistUrl, {
+    const response = await fetchWithRetry(playlistUrl, {
       headers: { "User-Agent": USER_AGENT, ...headers } as HeadersInit,
     });
 
@@ -230,9 +231,11 @@ export async function downloadSegmentsToFile(
 
       const segment = await pRetry(
         async () => {
-          const response = await fetch(segmentUrl, {
-            headers: { "User-Agent": USER_AGENT, ...headers } as HeadersInit,
-          });
+          const response = await fetchWithRetry(
+            segmentUrl,
+            { headers: { "User-Agent": USER_AGENT, ...headers } as HeadersInit },
+            { retries: 0 }
+          );
 
           if (!response.ok) {
             const error = new Error(`Failed to download segment ${i}: HTTP ${response.status}`);
@@ -338,7 +341,7 @@ export async function downloadSegmentsWithMerge(
       const segmentPath = path.join(tempDir, `segment${String(i).padStart(4, "0")}.ts`);
       segmentPaths.push(segmentPath);
 
-      const response = await fetch(segmentUrl, {
+      const response = await fetchWithRetry(segmentUrl, {
         headers: { "User-Agent": USER_AGENT, ...headers } as HeadersInit,
       });
 
