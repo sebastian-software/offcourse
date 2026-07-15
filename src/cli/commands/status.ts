@@ -2,6 +2,7 @@ import chalk from "chalk";
 import {
   CourseDatabase,
   extractCommunitySlug,
+  isSkoolUrl,
   LessonStatus,
   getDbPath,
 } from "../../state/index.js";
@@ -21,7 +22,7 @@ export function statusCommand(url: string, options: StatusOptions): void {
   console.log(chalk.blue("\n📊 Course Status\n"));
 
   // Validate URL
-  if (!url.includes("skool.com")) {
+  if (!isSkoolUrl(url)) {
     console.log(chalk.red("❌ Invalid URL. Please provide a Skool URL."));
     process.exit(1);
   }
