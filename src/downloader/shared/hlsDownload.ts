@@ -7,7 +7,6 @@ import * as path from "node:path";
 import * as HLS from "hls-parser";
 import pRetry, { AbortError } from "p-retry";
 import { USER_AGENT } from "../../shared/http.js";
-import { getBaseUrl, extractQueryParams } from "../../shared/url.js";
 import type { DownloadResult, HLSQuality, ProgressCallback, RequestHeaders } from "./types.js";
 import { checkFfmpeg, concatSegments } from "./ffmpeg.js";
 
@@ -51,6 +50,107 @@ export function parseHLSPlaylist(content: string, baseUrl: string): HLSQuality[]
   }
 }
 
+function getHlsAttribute(line: string, name: string): string | null {
+  const match = new RegExp(`(?:^|[:,])${name}=("[^"]*"|[^,]*)`).exec(line);
+  return match?.[1]?.replace(/^"|"$/g, "") ?? null;
+}
+
+/**
+ * Resolves a child HLS URI and inherits the parent query only when the child
+ * does not carry its own signed query string.
+ */
+export function resolveHlsUri(uri: string, parentUrl: string): string {
+  const resolved = new URL(uri, parentUrl);
+  const parent = new URL(parentUrl);
+  if (!resolved.search && parent.search) {
+    resolved.search = parent.search;
+  }
+  return resolved.href;
+}
+
+/**
+ * Parses the best video rendition and its associated audio rendition.
+ */
+export function parseHlsMasterPlaylistContent(
+  playlist: string,
+  masterUrl: string
+): { videoUrl: string | null; audioUrl: string | null } {
+  const lines = playlist.split("\n");
+  const audioRenditions: { groupId: string | null; url: string; isDefault: boolean }[] = [];
+  const variants: { bandwidth: number; audioGroup: string | null; url: string }[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]?.trim() ?? "";
+    if (!line) continue;
+
+    if (line.startsWith("#EXT-X-MEDIA:") && getHlsAttribute(line, "TYPE") === "AUDIO") {
+      const uri = getHlsAttribute(line, "URI");
+      if (uri) {
+        audioRenditions.push({
+          groupId: getHlsAttribute(line, "GROUP-ID"),
+          url: resolveHlsUri(uri, masterUrl),
+          isDefault: getHlsAttribute(line, "DEFAULT") === "YES",
+        });
+      }
+      continue;
+    }
+
+    if (!line.startsWith("#EXT-X-STREAM-INF:")) continue;
+
+    let uri: string | null = null;
+    for (let next = i + 1; next < lines.length; next++) {
+      const candidate = lines[next]?.trim() ?? "";
+      if (!candidate) continue;
+      if (!candidate.startsWith("#")) uri = candidate;
+      break;
+    }
+
+    if (!uri) continue;
+    variants.push({
+      bandwidth: parseInt(getHlsAttribute(line, "BANDWIDTH") ?? "0", 10),
+      audioGroup: getHlsAttribute(line, "AUDIO"),
+      url: resolveHlsUri(uri, masterUrl),
+    });
+  }
+
+  const bestVariant = variants.sort((a, b) => b.bandwidth - a.bandwidth)[0];
+  if (!bestVariant) return { videoUrl: null, audioUrl: null };
+
+  const matchingAudio = bestVariant.audioGroup
+    ? audioRenditions.filter((audio) => audio.groupId === bestVariant.audioGroup)
+    : audioRenditions;
+  const audio = matchingAudio.find((candidate) => candidate.isDefault) ?? matchingAudio[0];
+
+  return {
+    videoUrl: bestVariant.url,
+    audioUrl: audio?.url ?? null,
+  };
+}
+
+/**
+ * Extracts initialization and media segment URLs from an HLS media playlist.
+ */
+export function parseHlsMediaPlaylistContent(playlist: string, playlistUrl: string): string[] {
+  const segments: string[] = [];
+
+  for (const rawLine of playlist.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    if (line.startsWith("#EXT-X-MAP:")) {
+      const uri = getHlsAttribute(line, "URI");
+      if (uri) segments.push(resolveHlsUri(uri, playlistUrl));
+      continue;
+    }
+
+    // Every non-tag URI in a media playlist is a segment. Do not constrain
+    // this to .ts: Vimeo may use fMP4 (.m4s) or extensionless signed URLs.
+    if (!line.startsWith("#")) segments.push(resolveHlsUri(line, playlistUrl));
+  }
+
+  return segments;
+}
+
 /**
  * Parses an HLS master playlist to get video and audio playlist URLs.
  * Supports signed URLs with query parameters.
@@ -69,43 +169,7 @@ export async function parseHlsMasterPlaylist(
       return { videoUrl: null, audioUrl: null };
     }
 
-    const playlist = await response.text();
-    const lines = playlist.split("\n");
-
-    const baseUrl = getBaseUrl(masterUrl);
-    const queryParams = extractQueryParams(masterUrl);
-
-    let videoUrl: string | null = null;
-    let audioUrl: string | null = null;
-    let bestBandwidth = 0;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]?.trim();
-      if (!line) continue;
-
-      // Find audio stream
-      if (line.startsWith("#EXT-X-MEDIA:") && line.includes("TYPE=AUDIO")) {
-        const uriMatch = /URI="([^"]+)"/.exec(line);
-        if (uriMatch?.[1]) {
-          const uri = uriMatch[1];
-          audioUrl = (uri.startsWith("http") ? uri : baseUrl + uri) + queryParams;
-        }
-      }
-
-      // Find best quality video stream
-      if (line.startsWith("#EXT-X-STREAM-INF:")) {
-        const bandwidthMatch = /BANDWIDTH=(\d+)/.exec(line);
-        const bandwidth = bandwidthMatch?.[1] ? parseInt(bandwidthMatch[1], 10) : 0;
-
-        const nextLine = lines[i + 1]?.trim();
-        if (nextLine && !nextLine.startsWith("#") && bandwidth > bestBandwidth) {
-          bestBandwidth = bandwidth;
-          videoUrl = (nextLine.startsWith("http") ? nextLine : baseUrl + nextLine) + queryParams;
-        }
-      }
-    }
-
-    return { videoUrl, audioUrl };
+    return parseHlsMasterPlaylistContent(await response.text(), masterUrl);
   } catch (error) {
     console.error("Failed to parse master playlist:", error);
     return { videoUrl: null, audioUrl: null };
@@ -131,28 +195,7 @@ export async function getSegmentUrls(
       return [];
     }
 
-    const playlist = await response.text();
-    const lines = playlist.split("\n");
-
-    const baseUrl = getBaseUrl(playlistUrl);
-    const queryParams = extractQueryParams(playlistUrl);
-
-    const segments: string[] = [];
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (
-        trimmed &&
-        !trimmed.startsWith("#") &&
-        (trimmed.endsWith(".ts") || trimmed.includes(".ts?"))
-      ) {
-        const segmentUrl = trimmed.startsWith("http") ? trimmed : baseUrl + trimmed;
-        const fullUrl = segmentUrl.includes("?") ? segmentUrl : segmentUrl + queryParams;
-        segments.push(fullUrl);
-      }
-    }
-
-    return segments;
+    return parseHlsMediaPlaylistContent(await response.text(), playlistUrl);
   } catch (error) {
     console.error("Failed to get segments:", error);
     return [];

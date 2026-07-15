@@ -4,9 +4,79 @@ import {
   createSegmentsUrl,
   isSegmentsUrl,
   parseHLSPlaylist,
+  parseHlsMasterPlaylistContent,
+  parseHlsMediaPlaylistContent,
   parseSegmentsUrl,
+  resolveHlsUri,
   SEGMENTS_URL_PREFIX,
 } from "./shared/index.js";
+
+describe("signed HLS URL parsing", () => {
+  it("inherits parent query parameters for relative URIs", () => {
+    expect(
+      resolveHlsUri("../video/playlist.m3u8", "https://cdn.test/master/index.m3u8?token=abc")
+    ).toBe("https://cdn.test/video/playlist.m3u8?token=abc");
+  });
+
+  it("preserves a child URI's own query parameters", () => {
+    expect(
+      resolveHlsUri(
+        "https://video.test/playlist.m3u8?signature=child",
+        "https://cdn.test/master.m3u8?token=parent"
+      )
+    ).toBe("https://video.test/playlist.m3u8?signature=child");
+  });
+
+  it("selects the best video and its matching default audio rendition", () => {
+    const playlist = `#EXTM3U
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio-low",DEFAULT=YES,URI="audio/low.m3u8"
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio-high",DEFAULT=NO,URI="audio/alternate.m3u8?sig=own"
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio-high",DEFAULT=YES,URI="audio/default.m3u8"
+#EXT-X-STREAM-INF:BANDWIDTH=800000,AUDIO="audio-low"
+low/video.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=2400000,AUDIO="audio-high"
+high/video.m3u8`;
+
+    expect(
+      parseHlsMasterPlaylistContent(playlist, "https://cdn.test/master.m3u8?token=abc")
+    ).toEqual({
+      videoUrl: "https://cdn.test/high/video.m3u8?token=abc",
+      audioUrl: "https://cdn.test/audio/default.m3u8?token=abc",
+    });
+  });
+
+  it("returns no streams for a master playlist without variants", () => {
+    expect(parseHlsMasterPlaylistContent("#EXTM3U", "https://cdn.test/master.m3u8")).toEqual({
+      videoUrl: null,
+      audioUrl: null,
+    });
+  });
+
+  it("preserves signed queries while resolving media segments", () => {
+    expect(
+      parseHlsMediaPlaylistContent(
+        "#EXTM3U\nsegment-1.ts\n../shared/segment-2.ts?sig=own",
+        "https://cdn.test/video/playlist.m3u8?token=abc"
+      )
+    ).toEqual([
+      "https://cdn.test/video/segment-1.ts?token=abc",
+      "https://cdn.test/shared/segment-2.ts?sig=own",
+    ]);
+  });
+
+  it("includes fMP4 initialization and media segments", () => {
+    expect(
+      parseHlsMediaPlaylistContent(
+        '#EXTM3U\n#EXT-X-MAP:URI="init.mp4"\nchunk-1.m4s\nchunk-2.m4s',
+        "https://cdn.test/video/playlist.m3u8?token=abc"
+      )
+    ).toEqual([
+      "https://cdn.test/video/init.mp4?token=abc",
+      "https://cdn.test/video/chunk-1.m4s?token=abc",
+      "https://cdn.test/video/chunk-2.m4s?token=abc",
+    ]);
+  });
+});
 
 describe("getBestQualityUrl", () => {
   it("passes encrypted segment bundles through without fetching them", async () => {
@@ -75,6 +145,12 @@ audio.m3u8`;
 
     const result = parseHLSPlaylist(content, baseUrl);
     expect(result).toHaveLength(0);
+  });
+
+  it("returns no qualities when a relative variant cannot be resolved", () => {
+    const content = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000000\nvideo.m3u8";
+
+    expect(parseHLSPlaylist(content, "not a valid base URL")).toEqual([]);
   });
 
   it("ignores comments and metadata", () => {
