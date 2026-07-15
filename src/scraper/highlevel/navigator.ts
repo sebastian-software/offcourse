@@ -56,7 +56,6 @@ export interface HighLevelScanProgress {
 }
 
 // Browser/API automation - requires Playwright
-/* v8 ignore start */
 
 /**
  * Extracts the location ID from the HighLevel portal.
@@ -649,7 +648,6 @@ export async function buildHighLevelCourseStructure(
     domain,
   };
 }
-/* v8 ignore stop */
 
 // Re-export shared utilities for backwards compatibility
 export { slugify, createFolderName } from "../../shared/slug.js";
