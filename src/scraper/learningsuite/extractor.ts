@@ -737,4 +737,3 @@ export async function extractLearningSuitePostContent(
     attachments,
   };
 }
-
