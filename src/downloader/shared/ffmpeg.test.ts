@@ -59,6 +59,24 @@ describe("ffmpeg output publishing", () => {
     expect(existsSync(`${outputPath}.tmp`)).toBe(false);
   });
 
+  it("prevents credential values from injecting ffmpeg headers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "offcourse-ffmpeg-"));
+    createdPaths.push(root);
+    const outputPath = join(root, "video.mp4");
+    mockSubprocess("success");
+
+    await downloadWithFfmpeg("https://cdn.example.com/video.m3u8", outputPath, {
+      cookies: "session=abc\r\nX-Evil: yes",
+      authToken: "secret\nInjected",
+    });
+
+    const args = execaMock.mock.calls[0]?.[1] as string[];
+    const headers = args[args.indexOf("-headers") + 1];
+    expect(headers).toContain("Cookie: session=abcX-Evil: yes");
+    expect(headers).toContain("Authorization: Bearer secretInjected");
+    expect(headers).not.toContain("\r\nX-Evil: yes");
+  });
+
   it("publishes concatenated segments only after ffmpeg succeeds", async () => {
     const root = await mkdtemp(join(tmpdir(), "offcourse-ffmpeg-"));
     createdPaths.push(root);
