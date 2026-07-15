@@ -123,5 +123,7 @@ describe("ffmpeg output publishing", () => {
     expect(result).toBe(false);
     expect(existsSync(outputPath)).toBe(false);
     expect(existsSync(`${outputPath}.tmp`)).toBe(false);
+    expect(existsSync(videoPath)).toBe(false);
+    expect(existsSync(audioPath)).toBe(false);
   });
 });
