@@ -2,7 +2,7 @@
  * Loom video downloader.
  * Downloads videos from Loom using HLS streaming.
  */
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import delay from "delay";
 import pRetry, { AbortError } from "p-retry";
@@ -351,67 +351,91 @@ export async function downloadLoomVideo(
 
     if (hasFfmpeg) {
       const audioSegments = await getSegmentUrls(audioUrl);
-      const tempId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-      const tempVideoPath = join(dir, `.temp-video-${tempId}.ts`);
-      const tempAudioPath = join(dir, `.temp-audio-${tempId}.ts`);
+      if (audioSegments.length === 0) {
+        console.warn("⚠️  Loom audio playlist is empty - downloading video without audio");
+      } else {
+        const tempId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        const tempVideoPath = join(dir, `.temp-video-${tempId}.ts`);
+        const tempAudioPath = join(dir, `.temp-audio-${tempId}.ts`);
 
-      const totalSegments = videoSegments.length + audioSegments.length;
-      let completed = 0;
+        try {
+          const totalSegments = videoSegments.length + audioSegments.length;
+          let completed = 0;
 
-      const videoSuccess = await downloadSegmentsToFile(videoSegments, tempVideoPath, {
-        onProgress: (curr) => {
-          completed = curr;
-          onProgress?.({
-            percent: (completed / totalSegments) * 100,
-            phase: "downloading",
-            downloadedSegments: completed,
-            totalSegments,
+          const videoSuccess = await downloadSegmentsToFile(videoSegments, tempVideoPath, {
+            onProgress: (curr) => {
+              completed = curr;
+              onProgress?.({
+                percent: (completed / totalSegments) * 100,
+                phase: "downloading",
+                downloadedSegments: completed,
+                totalSegments,
+              });
+            },
           });
-        },
-      });
 
-      if (!videoSuccess) {
-        return {
-          success: false,
-          error: "Failed to download video segments",
-          errorCode: "DOWNLOAD_FAILED",
-          details: `Video had ${videoSegments.length} segments`,
-        };
-      }
+          if (!videoSuccess) {
+            return {
+              success: false,
+              error: "Failed to download video segments",
+              errorCode: "DOWNLOAD_FAILED",
+              details: `Video had ${videoSegments.length} segments`,
+            };
+          }
 
-      const audioSuccess = await downloadSegmentsToFile(audioSegments, tempAudioPath, {
-        onProgress: (curr) => {
-          completed = videoSegments.length + curr;
-          onProgress?.({
-            percent: (completed / totalSegments) * 100,
-            phase: "downloading",
-            downloadedSegments: completed,
-            totalSegments,
+          const audioSuccess = await downloadSegmentsToFile(audioSegments, tempAudioPath, {
+            onProgress: (curr) => {
+              completed = videoSegments.length + curr;
+              onProgress?.({
+                percent: (completed / totalSegments) * 100,
+                phase: "downloading",
+                downloadedSegments: completed,
+                totalSegments,
+              });
+            },
           });
-        },
-      });
 
-      if (!audioSuccess) {
-        return {
-          success: false,
-          error: "Failed to download audio segments",
-          errorCode: "DOWNLOAD_FAILED",
-          details: `Audio had ${audioSegments.length} segments`,
-        };
+          if (!audioSuccess) {
+            return {
+              success: false,
+              error: "Failed to download audio segments",
+              errorCode: "DOWNLOAD_FAILED",
+              details: `Audio had ${audioSegments.length} segments`,
+            };
+          }
+
+          onProgress?.({ percent: 95, phase: "merging" });
+          let mergeSuccess: boolean;
+          try {
+            mergeSuccess = await mergeVideoAudio(tempVideoPath, tempAudioPath, outputPath);
+          } catch (error) {
+            return {
+              success: false,
+              error: "Failed to merge video and audio with ffmpeg",
+              errorCode: "MERGE_FAILED",
+              details: error instanceof Error ? error.message : String(error),
+            };
+          }
+          if (!mergeSuccess) {
+            return {
+              success: false,
+              error: "Failed to merge video and audio with ffmpeg",
+              errorCode: "MERGE_FAILED",
+            };
+          }
+
+          onProgress?.({ percent: 100, phase: "complete" });
+          return { success: true };
+        } finally {
+          for (const tempPath of [tempVideoPath, tempAudioPath]) {
+            try {
+              rmSync(tempPath, { force: true });
+            } catch {
+              // Best-effort cleanup must not hide the download result.
+            }
+          }
+        }
       }
-
-      onProgress?.({ percent: 95, phase: "merging" });
-      const mergeSuccess = await mergeVideoAudio(tempVideoPath, tempAudioPath, outputPath);
-      if (!mergeSuccess) {
-        return {
-          success: false,
-          error: "Failed to merge video and audio with ffmpeg",
-          errorCode: "MERGE_FAILED",
-        };
-      }
-
-      onProgress?.({ percent: 100, phase: "complete" });
-      return { success: true };
     } else {
       console.warn("⚠️  ffmpeg not found - downloading video without audio");
     }
