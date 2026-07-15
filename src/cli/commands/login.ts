@@ -11,6 +11,14 @@ import {
   isLearningSuiteLoginPage,
 } from "../../scraper/learningsuite/index.js";
 import {
+  createJoshComeauSessionVerifier,
+  isJoshComeauCourseUrl,
+  isJoshComeauLoginPage,
+  JOSH_COMEAU_DOMAIN,
+  JOSH_COMEAU_LOGIN_URL,
+  normalizeJoshComeauCourseUrl,
+} from "../../scraper/joshcomeau/index.js";
+import {
   createPiccalilliSessionVerifier,
   isPiccalilliCourseUrl,
   isPiccalilliLoginPage,
@@ -34,42 +42,66 @@ export async function loginCommand(
   url: string | undefined,
   options: { force?: boolean }
 ): Promise<void> {
+  const isJoshComeau = typeof url === "string" && isJoshComeauCourseUrl(url);
   const isPiccalilli = typeof url === "string" && isPiccalilliCourseUrl(url);
   const learningSuiteDomain = typeof url === "string" ? getLearningSuiteDomain(url) : null;
   const isLearningSuite = learningSuiteDomain !== null;
   const isSkool = url === undefined || isSkoolUrl(url);
 
-  if (!isPiccalilli && !isLearningSuite && !isSkool) {
+  if (!isJoshComeau && !isPiccalilli && !isLearningSuite && !isSkool) {
     throw new Error(
-      "Login URLs must point to a supported Skool, LearningSuite, or Piccalilli course"
+      "Login URLs must point to a supported Skool, Josh Comeau, LearningSuite, or Piccalilli course"
     );
   }
 
-  const domain = learningSuiteDomain ?? (isPiccalilli ? PICCALILLI_DOMAIN : SKOOL_DOMAIN);
+  const domain =
+    learningSuiteDomain ??
+    (isJoshComeau ? JOSH_COMEAU_DOMAIN : isPiccalilli ? PICCALILLI_DOMAIN : SKOOL_DOMAIN);
   const courseUrl = isLearningSuite
     ? url
-    : isPiccalilli
-      ? normalizePiccalilliCourseUrl(url)
-      : url
-        ? normalizeSkoolClassroomUrl(url)
-        : null;
+    : isJoshComeau && url
+      ? normalizeJoshComeauCourseUrl(url)
+      : isPiccalilli
+        ? normalizePiccalilliCourseUrl(url)
+        : url
+          ? normalizeSkoolClassroomUrl(url)
+          : null;
   const loginUrl =
-    isLearningSuite && url ? url : isPiccalilli ? PICCALILLI_LOGIN_URL : SKOOL_LOGIN_URL;
+    isLearningSuite && url
+      ? url
+      : isJoshComeau
+        ? JOSH_COMEAU_LOGIN_URL
+        : isPiccalilli
+          ? PICCALILLI_LOGIN_URL
+          : SKOOL_LOGIN_URL;
   const isLoginPage = isLearningSuite
     ? isLearningSuiteLoginPage
-    : isPiccalilli
-      ? isPiccalilliLoginPage
-      : isSkoolLoginPage;
+    : isJoshComeau
+      ? isJoshComeauLoginPage
+      : isPiccalilli
+        ? isPiccalilliLoginPage
+        : isSkoolLoginPage;
   const verifySession = courseUrl
     ? isLearningSuite
       ? createLearningSuiteSessionVerifier(courseUrl)
-      : isPiccalilli
-        ? createPiccalilliSessionVerifier(courseUrl)
-        : createSkoolSessionVerifier(courseUrl)
+      : isJoshComeau
+        ? createJoshComeauSessionVerifier(courseUrl)
+        : isPiccalilli
+          ? createPiccalilliSessionVerifier(courseUrl)
+          : createSkoolSessionVerifier(courseUrl)
     : undefined;
-  const platform = isLearningSuite ? "LearningSuite" : isPiccalilli ? "Piccalilli" : "Skool.com";
+  const platform = isLearningSuite
+    ? "LearningSuite"
+    : isJoshComeau
+      ? "Josh Comeau Courses"
+      : isPiccalilli
+        ? "Piccalilli"
+        : "Skool.com";
 
   console.log(chalk.blue(`\n🔐 ${platform} Login\n`));
+  if (isJoshComeau) {
+    console.log(chalk.gray("   Request a Magic Link and open it in the browser window.\n"));
+  }
 
   if ((await hasValidSession(domain)) && !options.force && !verifySession) {
     console.log(chalk.yellow("⚠️  You already have an active session."));
@@ -115,14 +147,25 @@ export async function loginCommand(
  */
 export async function logoutCommand(url?: string): Promise<void> {
   const learningSuiteDomain = url ? getLearningSuiteDomain(url) : null;
-  if (url && !learningSuiteDomain && !isPiccalilliCourseUrl(url) && !isSkoolUrl(url)) {
+  if (
+    url &&
+    !learningSuiteDomain &&
+    !isJoshComeauCourseUrl(url) &&
+    !isPiccalilliCourseUrl(url) &&
+    !isSkoolUrl(url)
+  ) {
     throw new Error(
-      "Logout URLs must point to a supported Skool, LearningSuite, or Piccalilli course"
+      "Logout URLs must point to a supported Skool, Josh Comeau, LearningSuite, or Piccalilli course"
     );
   }
 
   const domain =
-    learningSuiteDomain ?? (url && isPiccalilliCourseUrl(url) ? PICCALILLI_DOMAIN : SKOOL_DOMAIN);
+    learningSuiteDomain ??
+    (url && isJoshComeauCourseUrl(url)
+      ? JOSH_COMEAU_DOMAIN
+      : url && isPiccalilliCourseUrl(url)
+        ? PICCALILLI_DOMAIN
+        : SKOOL_DOMAIN);
   console.log(chalk.blue("\n🔓 Logging out...\n"));
 
   if (await clearSession(domain)) {

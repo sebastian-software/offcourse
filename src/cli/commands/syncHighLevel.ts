@@ -81,7 +81,7 @@ export function isHighLevelPortal(url: string): boolean {
 }
 
 /**
- * Handles the sync-memberships command.
+ * Handles HighLevel course synchronization.
  * Downloads all content from a HighLevel portal (HighLevel, ClientClub, etc.).
  */
 export async function syncHighLevelCommand(

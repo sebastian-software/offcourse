@@ -72,6 +72,23 @@ describe("login and logout commands", () => {
     expect(authMocks.browserClose).toHaveBeenCalledOnce();
   });
 
+  it("uses Josh Comeau's Magic Link flow and verifies course access", async () => {
+    const url = "https://courses.joshwcomeau.com/css-for-js";
+
+    await loginCommand(url, {});
+
+    expect(authMocks.getAuthenticatedSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        domain: "courses.joshwcomeau.com",
+        loginUrl: "https://courses.joshwcomeau.com/",
+        isLoginPage: expect.any(Function),
+        verifySession: expect.any(Function),
+      }),
+      { headless: false }
+    );
+    expect(authMocks.browserClose).toHaveBeenCalledOnce();
+  });
+
   it("clears only the requested LearningSuite tenant session", async () => {
     authMocks.clearSession.mockResolvedValue(true);
 
@@ -80,5 +97,13 @@ describe("login and logout commands", () => {
     );
 
     expect(authMocks.clearSession).toHaveBeenCalledWith("mrgenossenschaft.learningsuite.io");
+  });
+
+  it("clears the shared Josh Comeau course session", async () => {
+    authMocks.clearSession.mockResolvedValue(true);
+
+    await logoutCommand("https://courses.joshwcomeau.com/joy-of-react");
+
+    expect(authMocks.clearSession).toHaveBeenCalledWith("courses.joshwcomeau.com");
   });
 });

@@ -29,12 +29,13 @@ Requires Node.js 22+ and [ffmpeg](https://ffmpeg.org/) for HLS videos.
 
 ## Supported Platforms
 
-| Platform                                  | URL Pattern                      |
-| ----------------------------------------- | -------------------------------- |
-| [Skool](https://skool.com)                | `skool.com/community/classroom`  |
-| [HighLevel](https://gohighlevel.com)      | `member.*.com/courses/...`       |
-| [LearningSuite](https://learningsuite.io) | `*.learningsuite.io/student/...` |
-| [Piccalilli](https://piccalil.li)         | `piccalil.li/<course>/lessons`   |
+| Platform                                               | URL Pattern                        |
+| ------------------------------------------------------ | ---------------------------------- |
+| [Skool](https://skool.com)                             | `skool.com/community/classroom`    |
+| [HighLevel](https://gohighlevel.com)                   | `member.*.com/courses/...`         |
+| [Josh Comeau Courses](https://courses.joshwcomeau.com) | `courses.joshwcomeau.com/<course>` |
+| [LearningSuite](https://learningsuite.io)              | `*.learningsuite.io/student/...`   |
+| [Piccalilli](https://piccalil.li)                      | `piccalil.li/<course>/lessons`     |
 
 ## Key Commands
 
@@ -52,6 +53,9 @@ offcourse login https://www.skool.com/<community>/classroom
 
 # Piccalilli OTP login (sync also prompts automatically)
 offcourse login https://piccalil.li/<course>/lessons
+
+# Josh Comeau Magic Link login (sync also prompts automatically)
+offcourse login https://courses.joshwcomeau.com/<course>
 
 # LearningSuite login (session is saved per tenant)
 offcourse login https://<tenant>.learningsuite.io/student/course/<course>/<id>
@@ -101,7 +105,7 @@ Skool stores per-lesson failure details and supports a targeted retry:
 
 ```bash
 offcourse status <url> --errors
-offcourse sync-skool <url> --retry-failed
+offcourse sync <url> --retry-failed
 ```
 
 ### A lesson failed on another platform
@@ -138,8 +142,8 @@ pnpm release           # Release to npm
    - `navigator.ts` – Course structure
    - `extractor.ts` – Content extraction
    - `schemas.ts` – Zod schemas
-2. Add CLI command in `src/cli/commands/`
-3. Register in `src/cli/index.ts`
+2. Add a platform sync handler in `src/cli/commands/`
+3. Register URL detection in `src/cli/syncPlatform.ts` and delegation in `src/cli/index.ts`
 
 ## Acknowledgments
 
