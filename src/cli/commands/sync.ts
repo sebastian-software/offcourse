@@ -64,6 +64,25 @@ export function hasLessonsPendingValidation(db: Pick<CourseDatabase, "getLessons
   return db.getLessonsToScan().length > 0;
 }
 
+/** Removes credentials and signed query data before a download URL is persisted. */
+export function redactDownloadUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return `${parsed.protocol}[redacted]`;
+    }
+
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return "[redacted]";
+  }
+}
+
+/** Redacts signed URLs embedded in downloader error and diagnostic text. */
+export function redactDownloadUrlsInText(text: string): string {
+  return text.replace(/\b(?:https?:\/\/|segments:)[^\s"'<>]+/gi, (url) => redactDownloadUrl(url));
+}
+
 /**
  * Handles the sync command.
  * Downloads all content from a Skool course with incremental state tracking.
@@ -958,7 +977,15 @@ async function downloadVideos(
         failed,
         concurrency: config.concurrency,
         retryAttempts: config.retryAttempts,
-        failures: failedAttempts,
+        failures: failedAttempts.map((attempt) => {
+          const redacted = {
+            ...attempt,
+            videoUrl: redactDownloadUrl(attempt.videoUrl),
+          };
+          if (redacted.error) redacted.error = redactDownloadUrlsInText(redacted.error);
+          if (redacted.details) redacted.details = redactDownloadUrlsInText(redacted.details);
+          return redacted;
+        }),
       };
       await outputFile(logPath, JSON.stringify(logData, null, 2));
       console.log(chalk.gray(`\n   📋 Detailed error log saved: ${logPath}`));
