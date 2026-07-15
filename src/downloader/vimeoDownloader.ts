@@ -165,8 +165,7 @@ export function parseVimeoConfig(config: VimeoConfig, videoId: string): VimeoFet
 // Video Info Fetching
 // ============================================================================
 
-// Network I/O and file operations - excluded from coverage
-/* v8 ignore start */
+// Network I/O and file operations
 
 /**
  * Extracts the unlisted hash from a Vimeo URL if present.
@@ -565,5 +564,3 @@ async function downloadHlsVideo(
     };
   }
 }
-
-/* v8 ignore stop */
