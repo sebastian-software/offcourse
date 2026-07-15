@@ -3,6 +3,7 @@ import {
   parseNextData,
   extractModulesFromNextData,
   extractLessonAccessFromNextData,
+  extractLessonsFromNextData,
 } from "./schemas.js";
 import { parallelProcess } from "../shared/parallelWorker.js";
 
@@ -137,10 +138,12 @@ export async function extractLessons(page: Page, moduleUrl: string): Promise<Les
 
   // Build access map from validated data
   let accessMap = new Map<string, boolean>();
+  let jsonLessons: ReturnType<typeof extractLessonsFromNextData> = [];
   if (nextDataJson) {
     const parsed = parseNextData(nextDataJson);
     if (parsed) {
       accessMap = extractLessonAccessFromNextData(parsed);
+      jsonLessons = extractLessonsFromNextData(parsed);
     }
   }
 
@@ -148,8 +151,8 @@ export async function extractLessons(page: Page, moduleUrl: string): Promise<Les
   const lessonData = await page.evaluate(() => {
     const results: { name: string; slug: string; href: string }[] = [];
 
-    // Skool uses styled-components with "ChildrenLink" in the class name
-    const lessonLinks = document.querySelectorAll('a[class*="ChildrenLink"]');
+    // Use the stable classroom URL shape instead of generated CSS classes.
+    const lessonLinks = document.querySelectorAll('a[href*="/classroom"][href*="md="]');
 
     lessonLinks.forEach((link, index) => {
       const anchor = link as HTMLAnchorElement;
@@ -168,8 +171,17 @@ export async function extractLessons(page: Page, moduleUrl: string): Promise<Les
     return results;
   });
 
+  const lessons =
+    lessonData.length > 0
+      ? lessonData
+      : jsonLessons.map((lesson) => ({
+          name: lesson.title,
+          slug: lesson.id,
+          href: `${moduleBasePath}?md=${lesson.id}`,
+        }));
+
   // Build final lesson list with access info
-  return lessonData.map((lesson, index) => {
+  return lessons.map((lesson, index) => {
     let isLocked = false;
 
     // Check access map from __NEXT_DATA__

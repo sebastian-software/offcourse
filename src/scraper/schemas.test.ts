@@ -7,6 +7,7 @@ import {
   parseNextData,
   extractModulesFromNextData,
   extractLessonAccessFromNextData,
+  extractLessonsFromNextData,
   extractVideoFromNextData,
   SkoolNextDataSchema,
   type SkoolNextData,
@@ -53,6 +54,25 @@ describe("SkoolNextDataSchema", () => {
     const result = SkoolNextDataSchema.safeParse({
       props: { pageProps: { course: { children: [] } } },
     });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts the current classroom overview with null course and allCourses", () => {
+    const result = SkoolNextDataSchema.safeParse({
+      props: {
+        pageProps: {
+          course: null,
+          allCourses: [
+            {
+              id: "root-course",
+              name: "a1b2c3d4",
+              metadata: { title: "Current Course", hasAccess: 1, numModules: 12 },
+            },
+          ],
+        },
+      },
+    });
+
     expect(result.success).toBe(true);
   });
 });
@@ -109,6 +129,33 @@ describe("parseNextData", () => {
 });
 
 describe("extractModulesFromNextData", () => {
+  it("extracts modules from the current allCourses structure", () => {
+    const data: SkoolNextData = {
+      props: {
+        pageProps: {
+          course: null,
+          allCourses: [
+            {
+              id: "root-1",
+              name: "a1b2c3d4",
+              metadata: { title: "New module format", hasAccess: 1 },
+            },
+            {
+              id: "root-2",
+              name: "e5f6a7b8",
+              metadata: { title: "Locked module", hasAccess: 0 },
+            },
+          ],
+        },
+      },
+    };
+
+    expect(extractModulesFromNextData(data)).toEqual([
+      { slug: "a1b2c3d4", title: "New module format", hasAccess: true },
+      { slug: "e5f6a7b8", title: "Locked module", hasAccess: false },
+    ]);
+  });
+
   it("extracts modules with valid 8-char hex slugs", () => {
     const data: SkoolNextData = {
       props: {
@@ -263,6 +310,34 @@ describe("extractModulesFromNextData", () => {
 
     const modules = extractModulesFromNextData(data);
     expect(modules[0]?.hasAccess).toBe(true);
+  });
+});
+
+describe("extractLessonsFromNextData", () => {
+  it("extracts lessons from the current selected course structure", () => {
+    const data: SkoolNextData = {
+      props: {
+        pageProps: {
+          selectedModule: "lesson-2",
+          course: {
+            children: [
+              {
+                course: { id: "lesson-1", metadata: { title: "First lesson" } },
+              },
+              {
+                course: { id: "lesson-2", metadata: { title: "Second lesson" } },
+                hasAccess: 0,
+              },
+            ],
+          },
+        },
+      },
+    };
+
+    expect(extractLessonsFromNextData(data)).toEqual([
+      { id: "lesson-1", title: "First lesson", hasAccess: true },
+      { id: "lesson-2", title: "Second lesson", hasAccess: false },
+    ]);
   });
 });
 

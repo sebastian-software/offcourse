@@ -47,6 +47,9 @@ offcourse sync <url> --skip-videos      # Text only
 offcourse sync <url> --dry-run          # Preview
 offcourse sync <url> --limit 5          # Test with 5 lessons
 
+# Skool login with community access verification
+offcourse login https://www.skool.com/<community>/classroom
+
 # Piccalilli OTP login (sync also prompts automatically)
 offcourse login https://piccalil.li/<course>/lessons
 

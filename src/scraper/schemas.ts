@@ -12,6 +12,8 @@ import { z } from "zod";
 const CourseMetadataSchema = z.looseObject({
   title: z.string().optional(),
   videoLink: z.string().optional(),
+  hasAccess: z.union([z.boolean(), z.number()]).optional(),
+  numModules: z.number().optional(),
 });
 
 const CourseInfoSchema = z.looseObject({
@@ -22,7 +24,7 @@ const CourseInfoSchema = z.looseObject({
 
 const CourseChildSchema = z.looseObject({
   course: CourseInfoSchema.optional(),
-  hasAccess: z.boolean().optional(),
+  hasAccess: z.union([z.boolean(), z.number()]).optional(),
 });
 
 // ============================================================================
@@ -34,7 +36,8 @@ const SkoolCourseSchema = z.looseObject({
 });
 
 const SkoolPagePropsSchema = z.looseObject({
-  course: SkoolCourseSchema.optional(),
+  course: SkoolCourseSchema.nullable().optional(),
+  allCourses: z.array(CourseInfoSchema).optional(),
   selectedModule: z.string().optional(),
 });
 
@@ -60,6 +63,7 @@ export interface SkoolModule {
 
 export interface SkoolLesson {
   id: string;
+  title: string;
   hasAccess: boolean;
 }
 
@@ -94,7 +98,14 @@ export function parseNextData(json: string): SkoolNextData | null {
  * Extracts modules from parsed __NEXT_DATA__.
  */
 export function extractModulesFromNextData(data: SkoolNextData): SkoolModule[] {
-  const children = data.props?.pageProps?.course?.children;
+  const pageProps = data.props?.pageProps;
+  const currentCourses = pageProps?.allCourses;
+  const children = Array.isArray(currentCourses)
+    ? currentCourses.map((course) => ({
+        course,
+        hasAccess: course.metadata?.hasAccess,
+      }))
+    : pageProps?.course?.children;
   if (!Array.isArray(children)) return [];
 
   const modules: SkoolModule[] = [];
@@ -113,11 +124,37 @@ export function extractModulesFromNextData(data: SkoolNextData): SkoolModule[] {
     modules.push({
       slug: course.name,
       title: course.metadata?.title ?? `Module ${modules.length + 1}`,
-      hasAccess: child.hasAccess !== false,
+      hasAccess: child.hasAccess !== false && child.hasAccess !== 0,
     });
   }
 
   return modules;
+}
+
+/**
+ * Extracts lessons from the selected course in current Skool page data.
+ */
+export function extractLessonsFromNextData(data: SkoolNextData): SkoolLesson[] {
+  const children = data.props?.pageProps?.course?.children;
+  if (!Array.isArray(children)) return [];
+
+  const lessons: SkoolLesson[] = [];
+  const seen = new Set<string>();
+
+  for (const child of children) {
+    const course = child.course;
+    if (!course?.id || seen.has(course.id)) continue;
+    seen.add(course.id);
+
+    const access = child.hasAccess ?? course.metadata?.hasAccess;
+    lessons.push({
+      id: course.id,
+      title: course.metadata?.title ?? `Lesson ${lessons.length + 1}`,
+      hasAccess: access !== false && access !== 0,
+    });
+  }
+
+  return lessons;
 }
 
 /**
@@ -132,8 +169,8 @@ export function extractLessonAccessFromNextData(data: SkoolNextData): Map<string
   for (const child of children) {
     const id = child.course?.id;
     const hasAccess = child.hasAccess;
-    if (id && typeof hasAccess === "boolean") {
-      accessMap.set(id, hasAccess);
+    if (id && (typeof hasAccess === "boolean" || typeof hasAccess === "number")) {
+      accessMap.set(id, hasAccess !== false && hasAccess !== 0);
     }
   }
 

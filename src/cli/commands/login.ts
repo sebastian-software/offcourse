@@ -13,9 +13,13 @@ import {
   PICCALILLI_DOMAIN,
   PICCALILLI_LOGIN_URL,
 } from "../../scraper/piccalilli/index.js";
-
-const SKOOL_DOMAIN = "www.skool.com";
-const SKOOL_LOGIN_URL = "https://www.skool.com/login";
+import {
+  createSkoolSessionVerifier,
+  isSkoolUrl,
+  normalizeSkoolClassroomUrl,
+  SKOOL_DOMAIN,
+  SKOOL_LOGIN_URL,
+} from "../../scraper/skoolAuth.js";
 
 /**
  * Handles the login command.
@@ -26,19 +30,29 @@ export async function loginCommand(
   options: { force?: boolean }
 ): Promise<void> {
   const isPiccalilli = typeof url === "string" && isPiccalilliCourseUrl(url);
+  const isSkool = url === undefined || isSkoolUrl(url);
+
+  if (!isPiccalilli && !isSkool) {
+    throw new Error("Login URLs must point to a supported Skool or Piccalilli course");
+  }
+
   const domain = isPiccalilli ? PICCALILLI_DOMAIN : SKOOL_DOMAIN;
-  const courseUrl = isPiccalilli ? normalizePiccalilliCourseUrl(url) : undefined;
+  const courseUrl = isPiccalilli
+    ? normalizePiccalilliCourseUrl(url)
+    : url
+      ? normalizeSkoolClassroomUrl(url)
+      : null;
   const loginUrl = isPiccalilli ? PICCALILLI_LOGIN_URL : SKOOL_LOGIN_URL;
   const isLoginPage = isPiccalilli ? isPiccalilliLoginPage : isSkoolLoginPage;
-  const verifySession = courseUrl ? createPiccalilliSessionVerifier(courseUrl) : undefined;
-
-  if (url && !isPiccalilli) {
-    throw new Error("Explicit login URLs are currently supported for Piccalilli courses only");
-  }
+  const verifySession = courseUrl
+    ? isPiccalilli
+      ? createPiccalilliSessionVerifier(courseUrl)
+      : createSkoolSessionVerifier(courseUrl)
+    : undefined;
 
   console.log(chalk.blue(`\n🔐 ${isPiccalilli ? "Piccalilli" : "Skool.com"} Login\n`));
 
-  if ((await hasValidSession(domain)) && !options.force) {
+  if ((await hasValidSession(domain)) && !options.force && !verifySession) {
     console.log(chalk.yellow("⚠️  You already have an active session."));
     console.log(chalk.gray("   Use --force to re-login anyway.\n"));
     return;
@@ -81,6 +95,10 @@ export async function loginCommand(
  * Handles the logout command.
  */
 export async function logoutCommand(url?: string): Promise<void> {
+  if (url && !isPiccalilliCourseUrl(url) && !isSkoolUrl(url)) {
+    throw new Error("Logout URLs must point to a supported Skool or Piccalilli course");
+  }
+
   const domain = url && isPiccalilliCourseUrl(url) ? PICCALILLI_DOMAIN : SKOOL_DOMAIN;
   console.log(chalk.blue("\n🔓 Logging out...\n"));
 

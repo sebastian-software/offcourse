@@ -21,6 +21,11 @@ import {
   saveMarkdown,
 } from "../../storage/fileSystem.js";
 import {
+  createSkoolSessionVerifier,
+  SKOOL_DOMAIN,
+  SKOOL_LOGIN_URL,
+} from "../../scraper/skoolAuth.js";
+import {
   CourseDatabase,
   extractCommunitySlug,
   LessonStatus,
@@ -40,9 +45,6 @@ interface DownloadAttempt {
   details?: string | undefined;
   timestamp: string;
 }
-
-const SKOOL_DOMAIN = "www.skool.com";
-const SKOOL_LOGIN_URL = "https://www.skool.com/login";
 
 export interface SyncOptions {
   skipVideos?: boolean;
@@ -150,6 +152,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
         domain: SKOOL_DOMAIN,
         loginUrl: SKOOL_LOGIN_URL,
         isLoginPage: isSkoolLoginPage,
+        verifySession: createSkoolSessionVerifier(url),
       },
       { headless: useHeadless }
     );
@@ -347,6 +350,21 @@ async function scanCourseStructure(
         shouldContinue: shutdown.shouldContinue,
       }
     );
+
+    const discoveredLessons = courseStructure.modules.reduce(
+      (sum, module) => sum + module.lessons.length,
+      0
+    );
+    if (courseStructure.modules.length === 0) {
+      throw new Error(
+        "Skool returned no course modules; the page may have changed or failed to load"
+      );
+    }
+    if (discoveredLessons === 0) {
+      throw new Error(
+        "Skool returned no lessons; the page structure may have changed or this account lacks access"
+      );
+    }
 
     // Update metadata
     db.updateCourseMetadata(courseStructure.name, courseStructure.url);
