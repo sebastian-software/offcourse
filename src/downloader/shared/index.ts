@@ -36,6 +36,7 @@ export {
   buildAuthHeaders,
   fetchWithAuthRedirects,
   fetchWithRetry,
+  isSameOrigin,
   sanitizeHeaderValue,
 } from "./network.js";
 
