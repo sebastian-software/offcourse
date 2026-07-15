@@ -1,5 +1,28 @@
-import { describe, expect, it } from "vitest";
-import { extractLoomId } from "./loomDownloader.js";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const sharedMocks = vi.hoisted(() => ({
+  checkFfmpeg: vi.fn<() => Promise<boolean>>(),
+  downloadSegmentsToFile:
+    vi.fn<
+      (
+        segments: string[],
+        outputPath: string,
+        options?: { onProgress?: (current: number, total: number) => void }
+      ) => Promise<boolean>
+    >(),
+  getSegmentUrls: vi.fn<(playlistUrl: string) => Promise<string[]>>(),
+  mergeVideoAudio:
+    vi.fn<(videoPath: string, audioPath: string, outputPath: string) => Promise<boolean>>(),
+  parseHlsMasterPlaylist:
+    vi.fn<(playlistUrl: string) => Promise<{ videoUrl: string | null; audioUrl: string | null }>>(),
+}));
+
+vi.mock("./shared/index.js", () => sharedMocks);
+
+import { downloadLoomVideo, extractLoomId } from "./loomDownloader.js";
 
 describe("extractLoomId", () => {
   it("extracts ID from embed URL", () => {
@@ -39,5 +62,86 @@ describe("extractLoomId", () => {
     const longId = "a".repeat(32);
     const url = `https://loom.com/embed/${longId}`;
     expect(extractLoomId(url)).toBe(longId);
+  });
+});
+
+describe("downloadLoomVideo", () => {
+  let testDir: string;
+
+  beforeEach(() => {
+    testDir = mkdtempSync(join(tmpdir(), "offcourse-loom-"));
+    vi.clearAllMocks();
+    sharedMocks.checkFfmpeg.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it("falls back to a video-only download when the audio playlist is empty", async () => {
+    sharedMocks.getSegmentUrls
+      .mockResolvedValueOnce(["https://cdn.example/video-1.ts"])
+      .mockResolvedValueOnce([]);
+    sharedMocks.downloadSegmentsToFile.mockResolvedValue(true);
+
+    const outputPath = join(testDir, "video.ts");
+    const result = await downloadLoomVideo(
+      "https://luna.loom.com/example/mediaplaylist-video-bitrate1000.m3u8",
+      outputPath
+    );
+
+    expect(result).toEqual({ success: true });
+    expect(sharedMocks.downloadSegmentsToFile).toHaveBeenCalledOnce();
+    expect(sharedMocks.downloadSegmentsToFile).toHaveBeenCalledWith(
+      ["https://cdn.example/video-1.ts"],
+      outputPath,
+      expect.any(Object)
+    );
+    expect(sharedMocks.mergeVideoAudio).not.toHaveBeenCalled();
+  });
+
+  it("removes the downloaded video temp file when the audio download fails", async () => {
+    sharedMocks.getSegmentUrls
+      .mockResolvedValueOnce(["https://cdn.example/video-1.ts"])
+      .mockResolvedValueOnce(["https://cdn.example/audio-1.ts"]);
+    sharedMocks.downloadSegmentsToFile
+      .mockImplementationOnce(async (_segments, path) => {
+        writeFileSync(path, "video");
+        return true;
+      })
+      .mockResolvedValueOnce(false);
+
+    const result = await downloadLoomVideo(
+      "https://luna.loom.com/example/mediaplaylist-video-bitrate1000.m3u8",
+      join(testDir, "video.ts")
+    );
+
+    expect(result).toMatchObject({ success: false, errorCode: "DOWNLOAD_FAILED" });
+    const tempVideoPath = sharedMocks.downloadSegmentsToFile.mock.calls[0]?.[1];
+    expect(tempVideoPath).toBeTypeOf("string");
+    if (!tempVideoPath) throw new Error("Expected a video temp path");
+    expect(existsSync(tempVideoPath)).toBe(false);
+  });
+
+  it("removes both temp files when merging throws", async () => {
+    sharedMocks.getSegmentUrls
+      .mockResolvedValueOnce(["https://cdn.example/video-1.ts"])
+      .mockResolvedValueOnce(["https://cdn.example/audio-1.ts"]);
+    sharedMocks.downloadSegmentsToFile.mockImplementation(async (_segments, path) => {
+      writeFileSync(path, "segment data");
+      return true;
+    });
+    sharedMocks.mergeVideoAudio.mockRejectedValue(new Error("ffmpeg crashed"));
+
+    await expect(
+      downloadLoomVideo(
+        "https://luna.loom.com/example/mediaplaylist-video-bitrate1000.m3u8",
+        join(testDir, "video.ts")
+      )
+    ).rejects.toThrow("ffmpeg crashed");
+
+    for (const call of sharedMocks.downloadSegmentsToFile.mock.calls) {
+      expect(existsSync(call[1])).toBe(false);
+    }
   });
 });
