@@ -7,7 +7,69 @@ import {
   extractTenantFromUrl,
   getLearningSuiteCourseUrl,
   getLearningSuiteLessonUrl,
+  parseLearningSuiteLessonText,
+  parseLearningSuiteModulesText,
 } from "./navigator.js";
+
+describe("parseLearningSuiteModulesText", () => {
+  it("parses German and English module statistics", () => {
+    expect(
+      parseLearningSuiteModulesText(`
+        Einführung
+        3 LEKTIONEN | 25 MIN.
+        Getting Started
+        2 LESSONS | 10 MINUTES
+      `)
+    ).toEqual([
+      { title: "Einführung", lessonCount: 3, duration: "25 Min.", isLocked: false },
+      { title: "Getting Started", lessonCount: 2, duration: "10 Min.", isLocked: false },
+    ]);
+  });
+
+  it("keeps duplicate module titles as separate entries", () => {
+    const modules = parseLearningSuiteModulesText(`
+      Resources
+      1 LESSON | 5 MIN
+      Resources
+      2 LESSONS | 8 MINS
+    `);
+
+    expect(modules).toHaveLength(2);
+    expect(modules.map((module) => module.lessonCount)).toEqual([1, 2]);
+  });
+
+  it("parses locked modules in both locales", () => {
+    expect(
+      parseLearningSuiteModulesText(`
+        Später
+        ERSCHEINT BALD
+        Later
+        COMING SOON
+      `)
+    ).toEqual([
+      { title: "Später", lessonCount: 0, duration: "", isLocked: true },
+      { title: "Later", lessonCount: 0, duration: "", isLocked: true },
+    ]);
+  });
+});
+
+describe("parseLearningSuiteLessonText", () => {
+  it.each([
+    ["Willkommen 2 Minuten", "Willkommen", "2 Minuten"],
+    ["Kurz erklärt 30 Sekunden", "Kurz erklärt", "30 Sekunden"],
+    ["Welcome 2 minutes", "Welcome", "2 minutes"],
+    ["Quick tour 30 seconds", "Quick tour", "30 seconds"],
+  ])("strips localized duration from %s", (text, title, duration) => {
+    expect(parseLearningSuiteLessonText(text)).toEqual({ title, duration });
+  });
+
+  it("keeps titles without duration metadata", () => {
+    expect(parseLearningSuiteLessonText('What is "quality"?')).toEqual({
+      title: 'What is "quality"?',
+      duration: "",
+    });
+  });
+});
 
 describe("extractTenantFromUrl", () => {
   it("extracts subdomain from valid LearningSuite URL", () => {
