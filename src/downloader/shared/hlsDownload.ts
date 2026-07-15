@@ -5,6 +5,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as HLS from "hls-parser";
+import pRetry from "p-retry";
 import { USER_AGENT } from "../../shared/http.js";
 import { getBaseUrl, extractQueryParams } from "../../shared/url.js";
 import type { DownloadResult, HLSQuality, ProgressCallback, RequestHeaders } from "./types.js";
@@ -167,7 +168,6 @@ export async function getSegmentUrls(
  * Downloads HLS segments and writes them to a file.
  * Used when ffmpeg is not available or not needed.
  */
-/* v8 ignore start */
 export async function downloadSegmentsToFile(
   segments: string[],
   outputPath: string,
@@ -178,40 +178,43 @@ export async function downloadSegmentsToFile(
 ): Promise<boolean> {
   const { onProgress, headers } = options;
   const tempPath = `${outputPath}.tmp`;
-  const fileStream = fs.createWriteStream(tempPath);
+  let fileHandle: fs.promises.FileHandle | undefined;
 
   try {
+    fileHandle = await fs.promises.open(tempPath, "w");
+
     for (let i = 0; i < segments.length; i++) {
       const segmentUrl = segments[i];
       if (!segmentUrl) continue;
 
-      const response = await fetch(segmentUrl, {
-        headers: { "User-Agent": USER_AGENT, ...headers } as HeadersInit,
-      });
+      const segment = await pRetry(
+        async () => {
+          const response = await fetch(segmentUrl, {
+            headers: { "User-Agent": USER_AGENT, ...headers } as HeadersInit,
+          });
 
-      if (!response.ok || !response.body) continue;
+          if (!response.ok || !response.body) {
+            throw new Error(`Failed to download segment ${i}: HTTP ${response.status}`);
+          }
 
-      const reader = response.body.getReader();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        fileStream.write(Buffer.from(value));
-      }
+          return Buffer.from(await response.arrayBuffer());
+        },
+        { retries: 2, minTimeout: 100, maxTimeout: 200 }
+      );
+
+      await fileHandle.writeFile(segment);
 
       onProgress?.(i + 1, segments.length);
     }
 
-    await new Promise<void>((resolve, reject) => {
-      fileStream.end((err: Error | null) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+    await fileHandle.close();
+    fileHandle = undefined;
 
     fs.renameSync(tempPath, outputPath);
     return true;
   } catch {
-    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+    await fileHandle?.close().catch(() => undefined);
+    await fs.promises.rm(tempPath, { force: true }).catch(() => undefined);
     return false;
   }
 }
@@ -220,6 +223,7 @@ export async function downloadSegmentsToFile(
  * Downloads HLS segments individually to temp files, then merges with ffmpeg.
  * Used for encrypted HLS or when better compatibility is needed.
  */
+/* v8 ignore start */
 export async function downloadSegmentsWithMerge(
   segmentUrls: string[],
   outputPath: string,
