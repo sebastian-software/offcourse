@@ -85,8 +85,6 @@ export function getAccessToken(token: FirebaseAuthRaw): string | undefined {
 // Page Utilities (Playwright)
 // ============================================================================
 
-/* v8 ignore start */
-
 /**
  * Checks if the page has a valid (non-expired) Firebase auth token in localStorage.
  */
@@ -147,5 +145,3 @@ export async function extractFirebaseAuthFromPage(page: Page): Promise<FirebaseA
     { keyPattern: FIREBASE_AUTH_KEY_PATTERN }
   );
 }
-
-/* v8 ignore stop */
