@@ -45,6 +45,13 @@ high/video.m3u8`;
     });
   });
 
+  it("returns no streams for a master playlist without variants", () => {
+    expect(parseHlsMasterPlaylistContent("#EXTM3U", "https://cdn.test/master.m3u8")).toEqual({
+      videoUrl: null,
+      audioUrl: null,
+    });
+  });
+
   it("preserves signed queries while resolving media segments", () => {
     expect(
       parseHlsMediaPlaylistContent(
