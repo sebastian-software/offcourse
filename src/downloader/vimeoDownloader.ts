@@ -39,7 +39,14 @@ export interface VimeoFetchResult extends FetchResult<VimeoVideoInfo> {
 
 export interface VimeoDownloadResult extends DownloadResult {
   errorCode?:
-    VimeoFetchResult["errorCode"] | "INVALID_URL" | "NO_STREAM" | "DOWNLOAD_FAILED" | undefined;
+    | VimeoFetchResult["errorCode"]
+    | "INVALID_URL"
+    | "NO_STREAM"
+    | "NO_SEGMENTS"
+    | "FFMPEG_NOT_FOUND"
+    | "DOWNLOAD_FAILED"
+    | "MERGE_FAILED"
+    | undefined;
 }
 
 export interface VimeoConfig {
@@ -427,7 +434,7 @@ async function downloadHlsVideo(
       return {
         success: false,
         error: "No segments found in video playlist",
-        errorCode: "DOWNLOAD_FAILED",
+        errorCode: "NO_SEGMENTS",
       };
     }
 
@@ -437,7 +444,7 @@ async function downloadHlsVideo(
         return {
           success: false,
           error: "No segments found in Vimeo audio playlist",
-          errorCode: "DOWNLOAD_FAILED",
+          errorCode: "NO_SEGMENTS",
         };
       }
 
@@ -445,7 +452,7 @@ async function downloadHlsVideo(
         return {
           success: false,
           error: "ffmpeg is required to merge Vimeo's separate video and audio streams",
-          errorCode: "DOWNLOAD_FAILED",
+          errorCode: "FFMPEG_NOT_FOUND",
         };
       }
 
@@ -453,18 +460,9 @@ async function downloadHlsVideo(
       const tempId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
       const tempVideoPath = join(dir, `.vimeo-video-${tempId}.ts`);
       const tempAudioPath = join(dir, `.vimeo-audio-${tempId}.ts`);
-      const cleanup = () => {
-        for (const tempPath of [tempVideoPath, tempAudioPath]) {
-          try {
-            rmSync(tempPath, { force: true });
-          } catch {
-            // Best-effort cleanup must not hide the download result.
-          }
-        }
-      };
-      const totalSegments = videoSegments.length + audioSegments.length;
 
       try {
+        const totalSegments = videoSegments.length + audioSegments.length;
         const videoSuccess = await downloadSegmentsToFile(videoSegments, tempVideoPath, {
           headers,
           onProgress: (current) => {
@@ -505,19 +503,35 @@ async function downloadHlsVideo(
         }
 
         onProgress?.({ percent: 95, phase: "merging" });
-        const mergeSuccess = await mergeVideoAudio(tempVideoPath, tempAudioPath, outputPath);
+        let mergeSuccess: boolean;
+        try {
+          mergeSuccess = await mergeVideoAudio(tempVideoPath, tempAudioPath, outputPath);
+        } catch (error) {
+          return {
+            success: false,
+            error: "Failed to merge Vimeo video and audio",
+            errorCode: "MERGE_FAILED",
+            details: error instanceof Error ? error.message : String(error),
+          };
+        }
         if (!mergeSuccess) {
           return {
             success: false,
             error: "Failed to merge Vimeo video and audio",
-            errorCode: "DOWNLOAD_FAILED",
+            errorCode: "MERGE_FAILED",
           };
         }
 
         onProgress?.({ percent: 100, phase: "complete" });
         return { success: true };
       } finally {
-        cleanup();
+        for (const tempPath of [tempVideoPath, tempAudioPath]) {
+          try {
+            rmSync(tempPath, { force: true });
+          } catch {
+            // Best-effort cleanup must not hide the download result.
+          }
+        }
       }
     }
 
