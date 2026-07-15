@@ -214,6 +214,7 @@ export async function fetchPostDetails(
   );
 
   if ("error" in rawData) {
+    console.warn(`Could not fetch HighLevel post details: ${rawData.error}`);
     return null;
   }
 
