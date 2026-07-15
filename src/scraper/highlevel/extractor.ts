@@ -104,56 +104,6 @@ export async function extractVideoFromPage(page: Page): Promise<HighLevelVideoIn
 }
 
 /**
- * Extracts video info by intercepting network requests during page load.
- */
-export async function interceptVideoRequests(
-  page: Page,
-  postUrl: string
-): Promise<HighLevelVideoInfo | null> {
-  const hlsUrls: string[] = [];
-  const drmUrls: string[] = [];
-
-  // Set up request interception
-  const requestHandler = (request: { url: () => string }) => {
-    const url = request.url();
-
-    // Capture HLS master playlist requests
-    if (url.includes(".m3u8") || url.includes("master.m3u8")) {
-      hlsUrls.push(url);
-    }
-
-    // Capture DRM license requests
-    if (url.includes("assets-drm/assets-license")) {
-      drmUrls.push(url);
-    }
-  };
-
-  page.on("request", requestHandler);
-
-  // Navigate to the post page
-  await page.goto(postUrl, { timeout: 30000 });
-  await page.waitForLoadState("domcontentloaded");
-  await page.waitForTimeout(3000);
-
-  // Remove the handler
-  page.off("request", requestHandler);
-
-  // Get the HLS master playlist URL
-  const masterPlaylistUrl = hlsUrls.find((url) => url.includes("master.m3u8"));
-
-  if (masterPlaylistUrl) {
-    return {
-      type: "hls",
-      url: masterPlaylistUrl,
-      masterPlaylistUrl,
-    };
-  }
-
-  // Fallback to DOM extraction
-  return extractVideoFromPage(page);
-}
-
-/**
  * Fetches post details from the API.
  */
 export async function fetchPostDetails(
@@ -431,49 +381,3 @@ export async function extractHighLevelPostContent(
 // Re-export for backwards compatibility
 export { parseHLSMasterPlaylist };
 
-/**
- * Fetches and parses HLS playlist to get quality options.
- */
-export async function getHLSQualities(
-  page: Page,
-  masterPlaylistUrl: string
-): Promise<
-  {
-    label: string;
-    url: string;
-    bandwidth: number;
-    width?: number | undefined;
-    height?: number | undefined;
-  }[]
-> {
-  try {
-    const content = await page.evaluate(async (url) => {
-      const res = await fetch(url);
-      if (!res.ok) return null;
-      return res.text();
-    }, masterPlaylistUrl);
-
-    if (!content) return [];
-
-    return parseHLSMasterPlaylist(content, masterPlaylistUrl);
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Gets the best quality URL from an HLS master playlist.
- */
-export async function getBestHLSQuality(
-  page: Page,
-  masterPlaylistUrl: string
-): Promise<string | null> {
-  const qualities = await getHLSQualities(page, masterPlaylistUrl);
-
-  if (qualities.length === 0) {
-    return masterPlaylistUrl;
-  }
-
-  // Return highest quality
-  return qualities[0]?.url ?? null;
-}
