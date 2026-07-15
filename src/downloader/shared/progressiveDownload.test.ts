@@ -107,12 +107,19 @@ describe("downloadProgressiveVideo", () => {
         callback(new Error("disk full"));
       },
     });
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("video-data"));
+      },
+      cancel,
+    });
     vi.mocked(createWriteStream).mockReturnValueOnce(
       failingStream as unknown as ReturnType<typeof createWriteStream>
     );
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response("video-data", { status: 200 }))
+      vi.fn(async () => new Response(body, { status: 200 }))
     );
 
     const result = await downloadProgressiveVideo("https://cdn.example.com/video.mp4", outputPath);
@@ -122,6 +129,7 @@ describe("downloadProgressiveVideo", () => {
       error: "disk full",
       errorCode: "DOWNLOAD_FAILED",
     });
+    expect(cancel).toHaveBeenCalledOnce();
     expect(existsSync(outputPath)).toBe(false);
     expect(existsSync(`${outputPath}.tmp`)).toBe(false);
   });

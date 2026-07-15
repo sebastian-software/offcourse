@@ -9,6 +9,73 @@ import { pipeline } from "node:stream/promises";
 import { USER_AGENT } from "../../shared/http.js";
 import type { DownloadResult, ProgressCallback, RequestHeaders } from "./types.js";
 
+function createProgressReadable(
+  body: ReadableStream<Uint8Array>,
+  total: number,
+  onProgress?: ProgressCallback
+): Readable {
+  const reader = body.getReader();
+  let downloaded = 0;
+  let completed = false;
+
+  const releaseReader = () => {
+    try {
+      reader.releaseLock();
+    } catch {
+      // A pending read keeps the reader locked until cancellation settles.
+    }
+  };
+
+  return new Readable({
+    read() {
+      reader
+        .read()
+        .then(({ done, value }) => {
+          if (done) {
+            completed = true;
+            releaseReader();
+            this.push(null);
+          } else {
+            downloaded += value.length;
+            if (onProgress && total > 0) {
+              onProgress({
+                percent: (downloaded / total) * 100,
+                phase: "downloading",
+                downloadedBytes: downloaded,
+                totalBytes: total,
+              });
+            }
+            this.push(Buffer.from(value));
+          }
+        })
+        .catch((err: unknown) => {
+          this.destroy(err instanceof Error ? err : new Error(String(err)));
+        });
+    },
+    destroy(error, callback) {
+      if (completed) {
+        callback(error);
+        return;
+      }
+
+      reader.cancel(error ?? undefined).then(
+        () => {
+          completed = true;
+          releaseReader();
+          callback(error);
+        },
+        (cancelError: unknown) => {
+          completed = true;
+          releaseReader();
+          callback(
+            error ?? (cancelError instanceof Error ? cancelError : new Error(String(cancelError)))
+          );
+        }
+      );
+    },
+  });
+}
+
 // ============================================================================
 // Direct File Download
 // ============================================================================
@@ -72,34 +139,7 @@ export async function downloadFile(
     }
 
     const fileStream = createWriteStream(tempPath);
-    const reader = response.body.getReader();
-    let downloaded = 0;
-
-    const readable = new Readable({
-      read() {
-        reader
-          .read()
-          .then(({ done, value }) => {
-            if (done) {
-              this.push(null);
-            } else {
-              downloaded += value.length;
-              if (onProgress && total > 0) {
-                onProgress({
-                  percent: (downloaded / total) * 100,
-                  phase: "downloading",
-                  downloadedBytes: downloaded,
-                  totalBytes: total,
-                });
-              }
-              this.push(Buffer.from(value));
-            }
-          })
-          .catch((err: unknown) => {
-            this.destroy(err instanceof Error ? err : new Error(String(err)));
-          });
-      },
-    });
+    const readable = createProgressReadable(response.body, total, onProgress);
 
     await pipeline(readable, fileStream);
     renameSync(tempPath, outputPath);
@@ -167,34 +207,7 @@ export async function downloadProgressiveVideo(
     }
 
     const fileStream = createWriteStream(tempPath);
-    const reader = response.body.getReader();
-    let downloaded = 0;
-
-    const readable = new Readable({
-      read() {
-        reader
-          .read()
-          .then(({ done, value }) => {
-            if (done) {
-              this.push(null);
-            } else {
-              downloaded += value.length;
-              if (onProgress && total > 0) {
-                onProgress({
-                  percent: (downloaded / total) * 100,
-                  phase: "downloading",
-                  downloadedBytes: downloaded,
-                  totalBytes: total,
-                });
-              }
-              this.push(Buffer.from(value));
-            }
-          })
-          .catch((err: unknown) => {
-            this.destroy(err instanceof Error ? err : new Error(String(err)));
-          });
-      },
-    });
+    const readable = createProgressReadable(response.body, total, onProgress);
 
     await pipeline(readable, fileStream);
     renameSync(tempPath, outputPath);
