@@ -60,7 +60,6 @@ export function getDownloadFilePath(
 // ============================================
 // I/O functions - require filesystem access
 // ============================================
-/* v8 ignore start */
 
 /**
  * Creates the output directory structure for a course.
@@ -171,5 +170,3 @@ export async function downloadFile(
     return { success: false, error: String(error) };
   }
 }
-
-/* v8 ignore stop */
