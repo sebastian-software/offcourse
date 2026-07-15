@@ -7,6 +7,7 @@ import {
   downloadSegmentsWithMerge,
   downloadWithFfmpeg,
   fetchWithAuthRedirects,
+  isSameOrigin,
   isSegmentsUrl,
   parseHLSPlaylist,
   parseSegmentsUrl,
@@ -86,6 +87,7 @@ async function fetchHLSQualitiesInternal(
 
     const content = await response.text();
     const finalUrl = response.url || normalizedUrl;
+    state.visited.add(finalUrl);
 
     if (!content.startsWith("#EXTM3U")) {
       if (content.startsWith("{") || content.startsWith("[")) {
@@ -213,6 +215,9 @@ export async function downloadHLSVideo(
     return downloadSegmentsWithMerge(segmentUrls, outputPath, { onProgress });
   }
 
+  let resolvedUrl: string;
+  let resolvedCookies = cookies;
+  let resolvedAuthToken = authToken;
   try {
     const testResponse = await fetchWithAuthRedirects(hlsUrl, {
       cookies,
@@ -228,6 +233,11 @@ export async function downloadHLSVideo(
         errorCode: "FETCH_FAILED",
       };
     }
+    resolvedUrl = testResponse.url || hlsUrl;
+    if (!isSameOrigin(resolvedUrl, hlsUrl)) {
+      resolvedCookies = undefined;
+      resolvedAuthToken = undefined;
+    }
   } catch (error) {
     return {
       success: false,
@@ -236,10 +246,10 @@ export async function downloadHLSVideo(
     };
   }
 
-  const result = await downloadWithFfmpeg(hlsUrl, outputPath, {
-    cookies,
+  const result = await downloadWithFfmpeg(resolvedUrl, outputPath, {
+    cookies: resolvedCookies,
     referer,
-    authToken,
+    authToken: resolvedAuthToken,
     onProgress,
   });
 
@@ -287,7 +297,15 @@ export async function downloadHLSVideoWithQuality(
     console.warn("Failed to fetch quality options, using master URL:", error);
   }
 
-  return downloadHLSVideo(downloadUrl, outputPath, onProgress, cookies, referer, authToken);
+  const credentialsStayInOrigin = isSameOrigin(downloadUrl, masterUrl);
+  return downloadHLSVideo(
+    downloadUrl,
+    outputPath,
+    onProgress,
+    credentialsStayInOrigin ? cookies : undefined,
+    referer,
+    credentialsStayInOrigin ? authToken : undefined
+  );
 }
 
 /**
