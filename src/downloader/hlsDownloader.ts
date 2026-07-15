@@ -27,7 +27,6 @@ export type HLSDownloadResult = DownloadResultWithDuration;
 /**
  * Fetches an HLS master playlist and parses quality variants.
  */
-/* v8 ignore next 80 */
 export async function fetchHLSQualities(
   masterUrl: string,
   cookies?: string,
@@ -111,7 +110,6 @@ export async function fetchHLSQualities(
 /**
  * Gets the best quality URL from a master playlist.
  */
-/* v8 ignore start */
 export async function getBestQualityUrl(
   masterUrl: string,
   preferredHeight?: number,
@@ -287,7 +285,6 @@ export async function downloadHighLevelVideo(
     authToken
   );
 }
-/* v8 ignore stop */
 
 // ============================================================================
 // URL Parsing
