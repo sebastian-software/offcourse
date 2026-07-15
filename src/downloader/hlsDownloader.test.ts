@@ -56,6 +56,19 @@ high/video.m3u8`;
       "https://cdn.test/shared/segment-2.ts?sig=own",
     ]);
   });
+
+  it("includes fMP4 initialization and media segments", () => {
+    expect(
+      parseHlsMediaPlaylistContent(
+        '#EXTM3U\n#EXT-X-MAP:URI="init.mp4"\nchunk-1.m4s\nchunk-2.m4s',
+        "https://cdn.test/video/playlist.m3u8?token=abc"
+      )
+    ).toEqual([
+      "https://cdn.test/video/init.mp4?token=abc",
+      "https://cdn.test/video/chunk-1.m4s?token=abc",
+      "https://cdn.test/video/chunk-2.m4s?token=abc",
+    ]);
+  });
 });
 
 describe("getBestQualityUrl", () => {

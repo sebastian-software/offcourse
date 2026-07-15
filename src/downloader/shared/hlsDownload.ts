@@ -128,17 +128,27 @@ export function parseHlsMasterPlaylistContent(
 }
 
 /**
- * Extracts transport-stream segment URLs from a media playlist.
+ * Extracts initialization and media segment URLs from an HLS media playlist.
  */
 export function parseHlsMediaPlaylistContent(playlist: string, playlistUrl: string): string[] {
-  return playlist
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(
-      (line) =>
-        line.length > 0 && !line.startsWith("#") && (line.endsWith(".ts") || line.includes(".ts?"))
-    )
-    .map((uri) => resolveHlsUri(uri, playlistUrl));
+  const segments: string[] = [];
+
+  for (const rawLine of playlist.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    if (line.startsWith("#EXT-X-MAP:")) {
+      const uri = getHlsAttribute(line, "URI");
+      if (uri) segments.push(resolveHlsUri(uri, playlistUrl));
+      continue;
+    }
+
+    // Every non-tag URI in a media playlist is a segment. Do not constrain
+    // this to .ts: Vimeo may use fMP4 (.m4s) or extensionless signed URLs.
+    if (!line.startsWith("#")) segments.push(resolveHlsUri(line, playlistUrl));
+  }
+
+  return segments;
 }
 
 /**

@@ -454,65 +454,71 @@ async function downloadHlsVideo(
       const tempVideoPath = join(dir, `.vimeo-video-${tempId}.ts`);
       const tempAudioPath = join(dir, `.vimeo-audio-${tempId}.ts`);
       const cleanup = () => {
-        rmSync(tempVideoPath, { force: true });
-        rmSync(tempAudioPath, { force: true });
+        for (const tempPath of [tempVideoPath, tempAudioPath]) {
+          try {
+            rmSync(tempPath, { force: true });
+          } catch {
+            // Best-effort cleanup must not hide the download result.
+          }
+        }
       };
       const totalSegments = videoSegments.length + audioSegments.length;
 
-      const videoSuccess = await downloadSegmentsToFile(videoSegments, tempVideoPath, {
-        headers,
-        onProgress: (current) => {
-          onProgress?.({
-            percent: (current / totalSegments) * 90,
-            phase: "downloading",
-            downloadedSegments: current,
-            totalSegments,
-          });
-        },
-      });
-      if (!videoSuccess) {
-        cleanup();
-        return {
-          success: false,
-          error: "Failed to download Vimeo video segments",
-          errorCode: "DOWNLOAD_FAILED",
-        };
-      }
+      try {
+        const videoSuccess = await downloadSegmentsToFile(videoSegments, tempVideoPath, {
+          headers,
+          onProgress: (current) => {
+            onProgress?.({
+              percent: (current / totalSegments) * 90,
+              phase: "downloading",
+              downloadedSegments: current,
+              totalSegments,
+            });
+          },
+        });
+        if (!videoSuccess) {
+          return {
+            success: false,
+            error: "Failed to download Vimeo video segments",
+            errorCode: "DOWNLOAD_FAILED",
+          };
+        }
 
-      const audioSuccess = await downloadSegmentsToFile(audioSegments, tempAudioPath, {
-        headers,
-        onProgress: (current) => {
-          const completed = videoSegments.length + current;
-          onProgress?.({
-            percent: (completed / totalSegments) * 90,
-            phase: "downloading",
-            downloadedSegments: completed,
-            totalSegments,
-          });
-        },
-      });
-      if (!audioSuccess) {
-        cleanup();
-        return {
-          success: false,
-          error: "Failed to download Vimeo audio segments",
-          errorCode: "DOWNLOAD_FAILED",
-        };
-      }
+        const audioSuccess = await downloadSegmentsToFile(audioSegments, tempAudioPath, {
+          headers,
+          onProgress: (current) => {
+            const completed = videoSegments.length + current;
+            onProgress?.({
+              percent: (completed / totalSegments) * 90,
+              phase: "downloading",
+              downloadedSegments: completed,
+              totalSegments,
+            });
+          },
+        });
+        if (!audioSuccess) {
+          return {
+            success: false,
+            error: "Failed to download Vimeo audio segments",
+            errorCode: "DOWNLOAD_FAILED",
+          };
+        }
 
-      onProgress?.({ percent: 95, phase: "merging" });
-      const mergeSuccess = await mergeVideoAudio(tempVideoPath, tempAudioPath, outputPath);
-      if (!mergeSuccess) {
-        cleanup();
-        return {
-          success: false,
-          error: "Failed to merge Vimeo video and audio",
-          errorCode: "DOWNLOAD_FAILED",
-        };
-      }
+        onProgress?.({ percent: 95, phase: "merging" });
+        const mergeSuccess = await mergeVideoAudio(tempVideoPath, tempAudioPath, outputPath);
+        if (!mergeSuccess) {
+          return {
+            success: false,
+            error: "Failed to merge Vimeo video and audio",
+            errorCode: "DOWNLOAD_FAILED",
+          };
+        }
 
-      onProgress?.({ percent: 100, phase: "complete" });
-      return { success: true };
+        onProgress?.({ percent: 100, phase: "complete" });
+        return { success: true };
+      } finally {
+        cleanup();
+      }
     }
 
     const success = await downloadSegmentsToFile(videoSegments, outputPath, {
