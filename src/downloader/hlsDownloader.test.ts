@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseHighLevelVideoUrl } from "./hlsDownloader.js";
+import { getBestQualityUrl, parseHighLevelVideoUrl } from "./hlsDownloader.js";
 import {
   createSegmentsUrl,
   isSegmentsUrl,
@@ -7,6 +7,14 @@ import {
   parseSegmentsUrl,
   SEGMENTS_URL_PREFIX,
 } from "./shared/index.js";
+
+describe("getBestQualityUrl", () => {
+  it("passes encrypted segment bundles through without fetching them", async () => {
+    const segmentsUrl = createSegmentsUrl(["https://vz-example.b-cdn.net/video0.ts?token=secret"]);
+
+    await expect(getBestQualityUrl(segmentsUrl)).resolves.toBe(segmentsUrl);
+  });
+});
 
 describe("parseHLSPlaylist", () => {
   const baseUrl = "https://cdn.example.com/video/";

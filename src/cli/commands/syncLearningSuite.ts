@@ -41,6 +41,7 @@ export interface SyncLearningSuiteOptions {
   visible?: boolean;
   quality?: string;
   courseName?: string;
+  force?: boolean;
 }
 
 export interface CompleteLearningSuiteOptions {
@@ -308,8 +309,9 @@ export async function syncLearningSuiteCommand(
 
       try {
         const syncStatus = await isLessonSynced(moduleDir, lessonIndex, lesson.title);
-        const needsContent = !options.skipContent && !syncStatus.content;
-        const needsVideo = !options.skipVideos && !syncStatus.video;
+        const needsContent =
+          !options.skipContent && (options.force === true || !syncStatus.content);
+        const needsVideo = !options.skipVideos && (options.force === true || !syncStatus.video);
 
         if (!needsContent && !needsVideo) {
           resultsLock.skipped++;

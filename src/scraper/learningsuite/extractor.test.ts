@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { detectVideoType } from "./extractor.js";
+import {
+  detectVideoType,
+  getCompleteLearningSuiteSegments,
+  getLearningSuiteSegmentIndex,
+} from "./extractor.js";
 
 describe("LearningSuite Extractor", () => {
   describe("detectVideoType", () => {
@@ -41,6 +45,30 @@ describe("LearningSuite Extractor", () => {
     it("is case insensitive", () => {
       expect(detectVideoType("https://VIMEO.COM/123")).toBe("vimeo");
       expect(detectVideoType("https://example.com/VIDEO.MP4")).toBe("native");
+    });
+  });
+
+  describe("LearningSuite HLS segments", () => {
+    const segment = (index: number, token = "token") =>
+      `https://vz-example.b-cdn.net/video${index}.ts?token=${token}`;
+
+    it("extracts Bunny segment indexes", () => {
+      expect(getLearningSuiteSegmentIndex(segment(42))).toBe(42);
+      expect(getLearningSuiteSegmentIndex("https://example.com/playlist.m3u8")).toBeNull();
+    });
+
+    it("returns a complete ordered sequence and keeps the freshest token", () => {
+      expect(
+        getCompleteLearningSuiteSegments(
+          [segment(2), segment(0, "old"), segment(1), segment(0, "new")],
+          12
+        )
+      ).toEqual([segment(0, "new"), segment(1), segment(2)]);
+    });
+
+    it("rejects sequences with gaps or implausibly little coverage", () => {
+      expect(getCompleteLearningSuiteSegments([segment(0), segment(2)], 12)).toBeNull();
+      expect(getCompleteLearningSuiteSegments([segment(0)], 196)).toBeNull();
     });
   });
 });

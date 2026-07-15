@@ -119,6 +119,10 @@ export async function getBestQualityUrl(
   referer?: string,
   authToken?: string
 ): Promise<string> {
+  if (isSegmentsUrl(masterUrl)) {
+    return masterUrl;
+  }
+
   const qualities = await fetchHLSQualities(masterUrl, cookies, referer, authToken);
 
   if (qualities.length === 0) {

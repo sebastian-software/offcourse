@@ -61,6 +61,46 @@ export function detectVideoType(url: string): LearningSuiteVideoInfo["type"] {
   return "unknown";
 }
 
+/** Extracts the sequence number from LearningSuite's Bunny HLS segment URLs. */
+export function getLearningSuiteSegmentIndex(url: string): number | null {
+  const value = /(?:^|\/)video(\d+)\.ts(?:[?#]|$)/i.exec(url)?.[1];
+  return value ? Number.parseInt(value, 10) : null;
+}
+
+/**
+ * Deduplicates refreshed segment URLs and returns them only when the sequence
+ * is complete from video0.ts through the final captured segment.
+ */
+export function getCompleteLearningSuiteSegments(
+  urls: string[],
+  videoDuration?: number | null
+): string[] | null {
+  const segmentsByIndex = new Map<number, string>();
+  for (const url of urls) {
+    const index = getLearningSuiteSegmentIndex(url);
+    if (index !== null) segmentsByIndex.set(index, url);
+  }
+
+  if (segmentsByIndex.size === 0) return null;
+
+  const lastIndex = Math.max(...segmentsByIndex.keys());
+  const segments: string[] = [];
+  for (let index = 0; index <= lastIndex; index++) {
+    const url = segmentsByIndex.get(index);
+    if (!url) return null;
+    segments.push(url);
+  }
+
+  // Bunny currently uses roughly four-second segments. This generous upper
+  // bound prevents a lone startup segment from being treated as a full video
+  // when seeking failed before the final segment could be observed.
+  if (videoDuration && Number.isFinite(videoDuration) && videoDuration / segments.length > 8) {
+    return null;
+  }
+
+  return segments;
+}
+
 // ============================================================================
 // Browser/API Automation (Playwright-dependent)
 // ============================================================================
@@ -165,7 +205,7 @@ export async function extractVideoFromPage(page: Page): Promise<LearningSuiteVid
     if (video) {
       const source = video.querySelector("source");
       const src = source?.src ?? video.src ?? video.currentSrc;
-      if (src && !src.includes(".m3u8")) {
+      if (src && !src.includes(".m3u8") && /^https?:\/\//i.test(src)) {
         return src;
       }
     }
@@ -383,7 +423,7 @@ export async function extractLearningSuitePostContent(
     const url = request.url();
 
     // Capture .ts segment URLs with tokens - these are the actual video data
-    if (url.includes("b-cdn.net") && url.includes(".ts") && url.includes("token=")) {
+    if (url.includes("b-cdn.net") && url.includes(".ts")) {
       if (!segmentUrls.includes(url)) {
         segmentUrls.push(url);
       }
@@ -514,6 +554,8 @@ export async function extractLearningSuitePostContent(
     .then(() => true)
     .catch(() => false);
 
+  let videoDuration: number | null = null;
+
   // If video player exists, trigger video load and seek to capture ALL segments
   if (hasVideoPlayer) {
     // Try clicking play button first
@@ -533,49 +575,37 @@ export async function extractLearningSuitePostContent(
       }
     }
 
-    // Get video duration and seek to multiple positions to capture all segments
-    // HLS players load segments on-demand, so we need to seek to trigger loading
+    // Playwright locators pierce open Shadow DOM. LearningSuite's current player
+    // renders its <video> there, so document.querySelector("video") cannot find it.
+    const videoLocator = page.locator("video").first();
+
+    // Get video duration and seek to multiple positions to capture all segments.
+    // A three-second interval is shorter than Bunny's roughly four-second
+    // segments, ensuring that every segment gets requested at least once.
     try {
-      const videoDuration = await page.evaluate(() => {
-        const video = document.querySelector("video");
-        return video?.duration ?? 0;
-      });
+      if ((await videoLocator.count()) > 0) {
+        videoDuration = await videoLocator.evaluate(
+          (video) => (video as HTMLVideoElement).duration || 0
+        );
+      }
 
-      if (videoDuration > 0) {
-        // Calculate expected segment count (assuming ~4s per segment for Bunny CDN)
-        const segmentDuration = 4; // Bunny CDN uses ~4 second segments
-
-        // For longer videos, we need to seek to MORE positions
-        // HLS players typically buffer ~3-4 segments ahead
-        // So we need to seek every ~12-16 seconds to capture all segments
-        const seekInterval = segmentDuration * 3; // Seek every ~12 seconds
+      if (videoDuration !== null && videoDuration > 0) {
         const seekPositions: number[] = [];
 
-        // Generate seek positions throughout the video
-        for (let t = 0; t < videoDuration; t += seekInterval) {
+        for (let t = 0; t < videoDuration; t += 3) {
           seekPositions.push(t);
         }
-        // Always include near the end
-        seekPositions.push(videoDuration - 2);
-        seekPositions.push(videoDuration - 0.5);
+        seekPositions.push(Math.max(0, videoDuration - 0.5));
 
         for (const seekTime of seekPositions) {
-          await page.evaluate((time) => {
-            const video = document.querySelector("video");
-            if (video) {
-              video.currentTime = time;
-            }
+          await videoLocator.evaluate((video, time) => {
+            (video as HTMLVideoElement).currentTime = time;
           }, seekTime);
-          // Wait for segments to load - shorter wait since we have many positions
-          await page.waitForTimeout(800);
+          await page.waitForTimeout(250);
         }
 
-        // Seek back to start
-        await page.evaluate(() => {
-          const video = document.querySelector("video");
-          if (video) {
-            video.currentTime = 0;
-          }
+        await videoLocator.evaluate((video) => {
+          (video as HTMLVideoElement).currentTime = 0;
         });
         await page.waitForTimeout(500);
       }
@@ -591,21 +621,16 @@ export async function extractLearningSuitePostContent(
   page.off("request", requestHandler);
   page.off("response", responseHandler);
 
-  // Sort and deduplicate segment URLs by video number
-  const sortedSegments = [...new Set(segmentUrls)].sort((a, b) => {
-    const numA = parseInt(/video(\d+)\.ts/.exec(a)?.[1] ?? "0", 10);
-    const numB = parseInt(/video(\d+)\.ts/.exec(b)?.[1] ?? "0", 10);
-    return numA - numB;
-  });
+  const completeSegments = getCompleteLearningSuiteSegments(segmentUrls, videoDuration);
 
   // Try to get video from intercepted requests first
   let video: LearningSuiteVideoInfo | null = null;
 
   // Use captured segment URLs if we have them (LearningSuite's encrypted HLS)
-  if (sortedSegments.length > 0) {
+  if (completeSegments) {
     // Create a special URL that contains the segments as a data URL
     // The downloader will handle this specially
-    const segmentData = JSON.stringify(sortedSegments);
+    const segmentData = JSON.stringify(completeSegments);
     const segmentUrl = `segments:${Buffer.from(segmentData).toString("base64")}`;
     video = {
       type: "hls", // We'll handle this in the downloader
