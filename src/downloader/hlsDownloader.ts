@@ -6,6 +6,7 @@ import {
   checkFfmpeg,
   downloadSegmentsWithMerge,
   downloadWithFfmpeg,
+  fetchWithAuthRedirects,
   isSegmentsUrl,
   parseHLSPlaylist,
   parseSegmentsUrl,
@@ -33,35 +34,58 @@ export async function fetchHLSQualities(
   referer?: string,
   authToken?: string
 ): Promise<HLSQuality[]> {
+  let credentialOrigin: string;
   try {
-    const urlObj = new URL(masterUrl);
-    const origin = referer ?? `${urlObj.protocol}//${urlObj.host}/`;
+    credentialOrigin = new URL(masterUrl).origin;
+  } catch (error) {
+    console.error("[HLS] Failed to fetch qualities:", error);
+    return [];
+  }
 
-    const headers: Record<string, string> = {
-      Origin: new URL(origin).origin,
-      Referer: origin,
-      Accept: "*/*",
-    };
-    if (cookies) {
-      headers.Cookie = cookies;
-    }
-    if (authToken) {
-      headers.APIKEY = authToken;
-      headers.Authorization = `Bearer ${authToken}`;
-    }
+  return fetchHLSQualitiesInternal(masterUrl, cookies, referer, authToken, {
+    credentialOrigin,
+    depth: 0,
+    visited: new Set(),
+  });
+}
 
-    const response = await fetch(masterUrl, {
-      headers,
-      redirect: "follow",
+interface HLSFetchState {
+  credentialOrigin: string;
+  depth: number;
+  visited: Set<string>;
+}
+
+const MAX_PLAYLIST_DEPTH = 3;
+
+async function fetchHLSQualitiesInternal(
+  masterUrl: string,
+  cookies: string | undefined,
+  referer: string | undefined,
+  authToken: string | undefined,
+  state: HLSFetchState
+): Promise<HLSQuality[]> {
+  try {
+    const normalizedUrl = new URL(masterUrl).href;
+    if (state.depth > MAX_PLAYLIST_DEPTH || state.visited.has(normalizedUrl)) {
+      console.error(`[HLS] Playlist recursion stopped for ${normalizedUrl}`);
+      return [];
+    }
+    state.visited.add(normalizedUrl);
+
+    const response = await fetchWithAuthRedirects(normalizedUrl, {
+      cookies,
+      referer,
+      authToken,
+      credentialOrigin: state.credentialOrigin,
     });
 
     if (!response.ok) {
-      console.error(`[HLS] Fetch failed: ${response.status} for ${masterUrl}`);
+      console.error(`[HLS] Fetch failed: ${response.status} for ${normalizedUrl}`);
       return [];
     }
 
     const content = await response.text();
-    const finalUrl = response.url;
+    const finalUrl = response.url || normalizedUrl;
 
     if (!content.startsWith("#EXTM3U")) {
       if (content.startsWith("{") || content.startsWith("[")) {
@@ -75,13 +99,22 @@ export async function fetchHLSQualities(
             (json.src as string | undefined) ??
             (json.source as string | undefined);
           if (playlistUrl && typeof playlistUrl === "string") {
-            return await fetchHLSQualities(playlistUrl, cookies, referer, authToken);
+            return await fetchHLSQualitiesInternal(
+              new URL(playlistUrl, finalUrl).href,
+              cookies,
+              referer,
+              authToken,
+              { ...state, depth: state.depth + 1 }
+            );
           }
           const jsonStr = JSON.stringify(json);
           const cdnMatch =
             /(https?:\/\/[^"'\s]*(?:b-cdn\.net|mediadelivery\.net|vz-)[^"'\s]*)/i.exec(jsonStr);
           if (cdnMatch?.[1]) {
-            return await fetchHLSQualities(cdnMatch[1], cookies, referer, authToken);
+            return await fetchHLSQualitiesInternal(cdnMatch[1], cookies, referer, authToken, {
+              ...state,
+              depth: state.depth + 1,
+            });
           }
         } catch {
           // Not valid JSON
@@ -93,7 +126,10 @@ export async function fetchHLSQualities(
           content
         );
       if (cdnMatch?.[1]) {
-        return await fetchHLSQualities(cdnMatch[1], cookies, referer, authToken);
+        return await fetchHLSQualitiesInternal(cdnMatch[1], cookies, referer, authToken, {
+          ...state,
+          depth: state.depth + 1,
+        });
       }
 
       console.error(`[HLS] Invalid playlist (starts with: ${content.substring(0, 50)}...)`);
@@ -178,22 +214,13 @@ export async function downloadHLSVideo(
   }
 
   try {
-    const urlObj = new URL(hlsUrl);
-    const origin = referer ?? `${urlObj.protocol}//${urlObj.host}/`;
-
-    const headers: Record<string, string> = {
-      Origin: new URL(origin).origin,
-      Referer: origin,
-    };
-    if (cookies) {
-      headers.Cookie = cookies;
-    }
-    if (authToken) {
-      headers.APIKEY = authToken;
-      headers.Authorization = `Bearer ${authToken}`;
-    }
-
-    const testResponse = await fetch(hlsUrl, { headers, method: "HEAD" });
+    const testResponse = await fetchWithAuthRedirects(hlsUrl, {
+      cookies,
+      referer,
+      authToken,
+      credentialOrigin: new URL(hlsUrl).origin,
+      method: "HEAD",
+    });
     if (!testResponse.ok) {
       return {
         success: false,
