@@ -50,6 +50,6 @@ export default tseslint.config(
   },
   prettier,
   {
-    ignores: ["dist/**", "node_modules/**"],
-  },
+    ignores: [".pnpm-store/**", "coverage/**", "dist/**", "docs/test-stream/**", "node_modules/**"],
+  }
 );

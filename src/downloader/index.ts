@@ -15,15 +15,7 @@ export interface VideoDownloadTask {
   lessonName: string;
   videoUrl: string;
   videoType:
-    | "loom"
-    | "vimeo"
-    | "youtube"
-    | "wistia"
-    | "native"
-    | "hls"
-    | "highlevel"
-    | "unknown"
-    | null;
+    "loom" | "vimeo" | "youtube" | "wistia" | "native" | "hls" | "highlevel" | "unknown" | null;
   outputPath: string;
   preferredQuality?: string | undefined;
   cookies?: string | undefined;

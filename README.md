@@ -68,19 +68,20 @@ Both course scanning and content extraction run in parallel using multiple brows
 ```bash
 git clone https://github.com/sebastian-software/offcourse.git
 cd offcourse
-npm install
-npm run build
-npm link  # optional: link globally
+corepack enable
+pnpm install
+pnpm build
+pnpm link --global  # optional: link globally
 ```
 
 ### Commands
 
 ```bash
-npm run dev        # Watch mode
-npm run lint       # ESLint
-npm run typecheck  # TypeScript
-npm test           # Tests
-npm run release    # Release to npm
+pnpm dev               # Watch mode
+pnpm check             # Format, lint, types, unit tests, and build
+pnpm test              # Unit tests in watch mode
+pnpm test:integration  # Network/ffmpeg integration tests
+pnpm release           # Release to npm
 ```
 
 ### Adding a New Platform
@@ -112,6 +113,6 @@ MIT
 
 <p align="center">
   <a href="https://oss.sebastian-software.com">Open Source at Sebastian Software</a><br />
-  Copyright &copy; 2025 Sebastian Software GmbH
+  Copyright &copy; 2026 Sebastian Software GmbH
 </p>
 <!-- sebastian-software-branding:end -->

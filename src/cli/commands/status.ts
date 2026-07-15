@@ -144,4 +144,3 @@ export async function statusListCommand(): Promise<void> {
     }
   }
 }
-

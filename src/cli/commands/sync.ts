@@ -708,7 +708,7 @@ async function extractContentAndQueueVideos(
           lessonId: lesson.id,
           lessonName: lesson.name,
           videoUrl: lesson.hlsUrl ?? lesson.videoUrl,
-          videoType: lesson.videoType as VideoDownloadTask["videoType"],
+          videoType: lesson.videoType,
           outputPath: getVideoPath(moduleDir, lesson.position, lesson.name),
         });
       }
@@ -963,7 +963,7 @@ async function buildDownloadTasksFromDb(
         lessonId: lesson.id,
         lessonName: lesson.name,
         videoUrl: lesson.hlsUrl,
-        videoType: lesson.videoType as VideoDownloadTask["videoType"],
+        videoType: lesson.videoType,
         outputPath: getVideoPath(moduleDir, lesson.position, lesson.name),
       });
     }
@@ -1131,7 +1131,7 @@ async function retryFailedLessons(
         lessonId: lesson.id,
         lessonName: lesson.name,
         videoUrl: validation.hlsUrl,
-        videoType: videoInfo.type as VideoDownloadTask["videoType"],
+        videoType: videoInfo.type,
         outputPath,
       });
 

@@ -36,11 +36,7 @@ export interface VimeoFetchResult extends FetchResult<VimeoVideoInfo> {
 
 export interface VimeoDownloadResult extends DownloadResult {
   errorCode?:
-    | VimeoFetchResult["errorCode"]
-    | "INVALID_URL"
-    | "NO_STREAM"
-    | "DOWNLOAD_FAILED"
-    | undefined;
+    VimeoFetchResult["errorCode"] | "INVALID_URL" | "NO_STREAM" | "DOWNLOAD_FAILED" | undefined;
 }
 
 // ============================================================================

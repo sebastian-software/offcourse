@@ -6,24 +6,73 @@ on:
   pull_request:
     branches: [main]
 
-jobs:
-  test:
-    runs-on: ${{ matrix.os }}
+permissions:
+  contents: read
 
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: [22, 24]
+jobs:
+  quality:
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Run unit tests with coverage
+        run: pnpm test:coverage
+
+      - name: Build package
+        run: pnpm build
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          fail_ci_if_error: false
+          verbose: true
+
+  compatibility:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: [22, 26]
+        exclude:
+          - os: ubuntu-latest
+            node-version: 22
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
           cache: "pnpm"
@@ -31,34 +80,30 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Type check
-        run: pnpm run typecheck
+      - name: Run unit tests
+        run: pnpm test:run
 
-      - name: Lint
-        run: pnpm run lint
+  integration:
+    runs-on: ubuntu-latest
 
-      # Install ffmpeg for integration tests
-      - name: Install ffmpeg (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js 26
+        uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
-      - name: Install ffmpeg (macOS)
-        if: matrix.os == 'macos-latest'
-        run: brew install ffmpeg
-
-      - name: Install ffmpeg (Windows)
-        if: matrix.os == 'windows-latest'
-        run: choco install ffmpeg -y
-
-      - name: Run tests with coverage
-        run: pnpm run test:coverage
-
-      # Upload coverage only from Ubuntu/Node 22
-      - name: Upload coverage to Codecov
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/lcov.info
-          fail_ci_if_error: false
-          verbose: true
+      - name: Run integration tests
+        run: pnpm test:integration

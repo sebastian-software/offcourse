@@ -4,12 +4,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    // Include both unit tests (*.test.ts) and integration tests (*.integration.test.ts)
-    include: ["src/**/*.test.ts", "src/**/*.integration.test.ts"],
-    exclude: ["node_modules/**"],
-    // Longer timeouts for integration tests with network/ffmpeg operations
-    testTimeout: 60000,
-    hookTimeout: 30000,
+    include: ["src/**/*.test.ts"],
+    exclude: ["src/**/*.integration.test.ts", "node_modules/**"],
     coverage: {
       provider: "v8",
       reportsDirectory: "./coverage",

@@ -23,8 +23,7 @@ export class AsyncQueue<T> {
   private readonly queue: PQueue;
   private readonly maxRetries: number;
   private readonly onProgress:
-    | ((completed: number, total: number, current?: string) => void)
-    | undefined;
+    ((completed: number, total: number, current?: string) => void) | undefined;
 
   constructor(options: QueueOptions) {
     this.queue = new PQueue({ concurrency: options.concurrency });

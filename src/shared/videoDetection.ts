@@ -8,13 +8,7 @@ import type { Page } from "playwright";
  * Supported video provider types.
  */
 export type VideoProviderType =
-  | "vimeo"
-  | "loom"
-  | "youtube"
-  | "wistia"
-  | "hls"
-  | "native"
-  | "unknown";
+  "vimeo" | "loom" | "youtube" | "wistia" | "hls" | "native" | "unknown";
 
 /**
  * Detected video information.

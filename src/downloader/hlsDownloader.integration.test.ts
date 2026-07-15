@@ -6,7 +6,7 @@
  * - Network access (for HLS streams)
  * - Temp directory for output files
  *
- * Run with: npm run test:integration
+ * Run with: pnpm test:integration
  */
 
 import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";

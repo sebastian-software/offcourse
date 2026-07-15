@@ -38,7 +38,8 @@ src/
 │       ├── login.ts        # Authentication flow
 │       ├── sync.ts         # Skool download orchestration
 │       ├── syncHighLevel.ts # HighLevel download orchestration
-│       └── syncLearningSuite.ts # LearningSuite download orchestration
+│       ├── syncLearningSuite.ts # LearningSuite download orchestration
+│       └── syncPiccalilli.ts # Piccalilli download orchestration
 │
 ├── config/                 # Configuration management
 │   ├── schema.ts           # Zod schemas for all config types
@@ -50,11 +51,13 @@ src/
 │   ├── navigator.ts        # Course structure discovery - Skool
 │   ├── extractor.ts        # Content extraction - Skool
 │   ├── videoInterceptor.ts # Network interception for video URLs
-│   └── highlevel/          # HighLevel (GoHighLevel) scraper
+│   ├── highlevel/          # HighLevel (GoHighLevel) scraper
 │       ├── auth.ts         # Firebase auth, session management
 │       ├── navigator.ts    # Course structure via API
 │       ├── extractor.ts    # Video/content extraction
 │       └── index.ts        # Exports
+│   ├── learningsuite/      # LearningSuite scraper
+│   └── piccalilli/         # Piccalilli scraper and OTP authentication
 │
 ├── downloader/             # Video download handlers
 │   ├── index.ts            # Download dispatcher by video type
@@ -91,6 +94,7 @@ Handles user interaction via Commander.js. Each command is a separate module.
 - **sync-skool**: Skool-specific sync (uses `sync.ts`)
 - **sync-highlevel**: HighLevel-specific sync (uses `syncHighLevel.ts`)
 - **sync-learningsuite**: LearningSuite-specific sync (uses `syncLearningSuite.ts`)
+- **sync-piccalilli**: Piccalilli-specific sync (uses `syncPiccalilli.ts`)
 - **inspect**: Debug tool for analyzing page structure
 - **config**: Read/write configuration values
 
@@ -116,6 +120,12 @@ Platform-specific logic for extracting course content.
 - **navigator.ts**: Course structure extraction via GraphQL API
 - **extractor.ts**: Video/content extraction (HLS, Vimeo, Loom, native)
 - **schemas.ts**: Zod schemas for GraphQL responses
+
+#### Piccalilli Scraper (`src/scraper/piccalilli/`)
+
+- **auth.ts**: Email/OTP authentication with reusable browser sessions
+- **navigator.ts**: Course and lesson discovery from the course navigation
+- **extractor.ts**: Lesson content, resources, and video extraction
 
 To add a new platform, create a new directory under `src/scraper/` with the same interfaces.
 
@@ -210,6 +220,13 @@ Used by: Course scanning, content extraction, video downloads.
 - **URL Pattern**: `{subdomain}.learningsuite.io/student/course/{courseId}`
 - **Tenant ID**: Extracted from subdomain or API responses
 
+### Piccalilli
+
+- **Auth**: Email/OTP login with persisted Playwright storage state
+- **Structure**: DOM-based course and lesson discovery
+- **Content**: Markdown, linked resources, and embedded videos
+- **URL Pattern**: `piccalil.li/<course>/lessons`
+
 ## Adding a New Platform
 
 1. **Create scraper directory**: `src/scraper/<platform>/`
@@ -230,28 +247,28 @@ Used by: Course scanning, content extraction, video downloads.
 
 ## Technology Choices
 
-| Purpose | Technology | Rationale |
-|---------|------------|-----------|
-| Browser automation | Playwright | Reliable, handles SPAs, session persistence |
-| CLI framework | Commander.js | Standard, declarative command definition |
-| Validation | Zod | Runtime validation with TypeScript inference |
-| HTML → Markdown | Turndown | Mature, configurable |
-| Styling | Chalk + Ora | Clean terminal output with spinners |
-| Database | better-sqlite3 | Fast, embedded SQLite for state management |
-| HLS downloads | ffmpeg | Industry standard for HLS stream processing |
+| Purpose            | Technology     | Rationale                                    |
+| ------------------ | -------------- | -------------------------------------------- |
+| Browser automation | Playwright     | Reliable, handles SPAs, session persistence  |
+| CLI framework      | Commander.js   | Standard, declarative command definition     |
+| Validation         | Zod            | Runtime validation with TypeScript inference |
+| HTML → Markdown    | Turndown       | Mature, configurable                         |
+| Styling            | Chalk + Ora    | Clean terminal output with spinners          |
+| Database           | better-sqlite3 | Fast, embedded SQLite for state management   |
+| HLS downloads      | ffmpeg         | Industry standard for HLS stream processing  |
 
 ## Development Tooling
 
-| Tool | Purpose | Configuration |
-|------|---------|---------------|
-| TypeScript | Type safety | `tsconfig.json` |
-| ESLint | Linting | `eslint.config.js` |
-| Prettier | Code formatting | `.prettierrc` (defaults) |
-| Vitest | Testing | `vitest.config.ts` |
-| Husky | Git hooks | `.husky/` |
-| lint-staged | Pre-commit formatting | `package.json` |
-| commitlint | Commit message validation | `commitlint.config.js` |
-| release-it | Release management | `.release-it.json` |
+| Tool        | Purpose                   | Configuration            |
+| ----------- | ------------------------- | ------------------------ |
+| TypeScript  | Type safety               | `tsconfig.json`          |
+| ESLint      | Linting                   | `eslint.config.js`       |
+| Prettier    | Code formatting           | `.prettierrc` (defaults) |
+| Vitest      | Testing                   | `vitest.config.ts`       |
+| Husky       | Git hooks                 | `.husky/`                |
+| lint-staged | Pre-commit formatting     | `package.json`           |
+| commitlint  | Commit message validation | `commitlint.config.js`   |
+| release-it  | Release management        | `.release-it.json`       |
 
 ### Git Hooks
 

@@ -2,6 +2,7 @@
 
 import { Command } from "commander";
 import chalk from "chalk";
+import packageJson from "../../package.json" with { type: "json" };
 import { configGetCommand, configSetCommand, configShowCommand } from "./commands/config.js";
 import { inspectCommand } from "./commands/inspect.js";
 import { loginCommand, logoutCommand } from "./commands/login.js";
@@ -56,7 +57,7 @@ const program = new Command();
 program
   .name("offcourse")
   .description("Download online courses for offline access – of course!")
-  .version("0.1.0");
+  .version(packageJson.version);
 
 // Login command
 program
