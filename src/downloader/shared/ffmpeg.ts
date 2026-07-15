@@ -13,7 +13,6 @@ import type { ProgressCallback } from "./types.js";
 /**
  * Checks if ffmpeg is available on the system.
  */
-/* v8 ignore next 8 */
 export async function checkFfmpeg(): Promise<boolean> {
   try {
     await execa("ffmpeg", ["-version"]);
