@@ -162,7 +162,6 @@ export async function extractPiccalilliLesson(
         timeout: 10000,
       })
       .catch(() => {});
-    await page.waitForTimeout(500);
 
     const extracted = await page.evaluate(() => {
       const title =
