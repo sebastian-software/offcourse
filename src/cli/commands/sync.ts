@@ -400,52 +400,51 @@ async function scanCourseStructure(
       );
     }
 
-    // Update metadata
-    db.updateCourseMetadata(courseStructure.name, courseStructure.url);
-
     // Track new lessons found
     let newLessons = 0;
 
-    for (let moduleIndex = 0; moduleIndex < courseStructure.modules.length; moduleIndex++) {
-      const module = courseStructure.modules[moduleIndex];
-      if (!module) continue;
+    db.withTransaction(() => {
+      db.updateCourseMetadata(courseStructure.name, courseStructure.url);
 
-      // Check if module exists
-      const existingModule = db.getModuleBySlug(module.slug);
-      const moduleRecord = db.upsertModule(module.slug, module.name, moduleIndex, module.isLocked);
+      for (let moduleIndex = 0; moduleIndex < courseStructure.modules.length; moduleIndex++) {
+        const module = courseStructure.modules[moduleIndex];
+        if (!module) continue;
 
-      // Track new modules (existingModule is null for new ones)
-      void existingModule;
-
-      for (let lessonIndex = 0; lessonIndex < module.lessons.length; lessonIndex++) {
-        const lesson = module.lessons[lessonIndex];
-        if (!lesson) continue;
-
-        // Check if lesson exists
-        const existingLesson = db.getLessonByUrl(lesson.url);
-        db.upsertLesson(
-          moduleRecord.id,
-          lesson.slug,
-          lesson.name,
-          lesson.url,
-          lessonIndex,
-          lesson.isLocked
+        const moduleRecord = db.upsertModule(
+          module.slug,
+          module.name,
+          moduleIndex,
+          module.isLocked
         );
 
-        if (!existingLesson) {
-          newLessons++;
+        for (let lessonIndex = 0; lessonIndex < module.lessons.length; lessonIndex++) {
+          const lesson = module.lessons[lessonIndex];
+          if (!lesson) continue;
+
+          const existingLesson = db.getLessonByUrl(lesson.url);
+          db.upsertLesson(
+            moduleRecord.id,
+            lesson.slug,
+            lesson.name,
+            lesson.url,
+            lessonIndex,
+            lesson.isLocked
+          );
+
+          if (!existingLesson) {
+            newLessons++;
+          }
+
+          if (options.limit && db.getLessonCount() >= options.limit) {
+            break;
+          }
         }
 
-        // Check limit
         if (options.limit && db.getLessonCount() >= options.limit) {
           break;
         }
       }
-
-      if (options.limit && db.getLessonCount() >= options.limit) {
-        break;
-      }
-    }
+    });
 
     const meta = db.getCourseMetadata();
     console.log();
