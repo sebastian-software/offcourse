@@ -7,7 +7,10 @@ import {
   detectHlsVideo,
 } from "../../shared/videoDetection.js";
 import { PostDetailsResponseSchema, VideoLicenseResponseSchema, safeParse } from "./schemas.js";
-import { getFirebaseAccessTokenFromPage } from "../../shared/firebase.js";
+import {
+  getFirebaseAccessTokenFromPage,
+  waitForFirebaseAccessTokenFromPage,
+} from "../../shared/firebase.js";
 
 // Alias for backwards compatibility and internal use
 const parseHLSMasterPlaylist = parseHLSPlaylist;
@@ -259,7 +262,7 @@ export async function extractHighLevelPostContent(
   // Navigate to post page
   await page.goto(postUrl, { timeout: 30000 });
   await page.waitForLoadState("domcontentloaded");
-  await page.waitForTimeout(3000);
+  await waitForFirebaseAccessTokenFromPage(page);
 
   // Fetch post details from API
   const postDetails = await fetchPostDetails(page, locationId, postId);
