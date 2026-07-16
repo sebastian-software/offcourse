@@ -23,8 +23,6 @@ export default defineConfig({
         "src/config/configManager.ts",
         // Browser interceptor requires a live Playwright page
         "src/scraper/videoInterceptor.ts",
-        // Network validation (requires live connections)
-        "src/downloader/hlsValidator.ts",
       ],
     },
   },

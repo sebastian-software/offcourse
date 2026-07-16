@@ -1,6 +1,5 @@
 /**
- * HLS stream validation - requires network access to verify streams.
- * Excluded from coverage via vitest.config.ts.
+ * HLS stream validation with direct and browser-based fallback strategies.
  */
 import { extractLoomId, getLoomVideoInfoDetailed } from "./loomDownloader.js";
 import {
