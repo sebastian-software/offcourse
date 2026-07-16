@@ -137,13 +137,15 @@ https://vz-example.b-cdn.net/video-id/720p/video1.ts?token=one`)
 https://vz-example.b-cdn.net/video-id/1080p/playlist.m3u8?token=playlist
 video0.ts?token=zero&amp;expires=1
 video1.ts
+video2.ts?sig=alternative
 #EXT-X-ENDLIST`)
       ).toEqual({
-        segmentUrls: ["https://vz-example.b-cdn.net/video-id/1080p/video0.ts?token=zero&expires=1"],
-        hlsUrls: [
-          "https://vz-example.b-cdn.net/video-id/1080p/playlist.m3u8",
-          "https://vz-example.b-cdn.net/video-id/1080p/playlist.m3u8?token=playlist",
+        segmentUrls: [
+          "https://vz-example.b-cdn.net/video-id/1080p/video0.ts?token=zero&expires=1",
+          "https://vz-example.b-cdn.net/video-id/1080p/video1.ts",
+          "https://vz-example.b-cdn.net/video-id/1080p/video2.ts?sig=alternative",
         ],
+        hlsUrls: ["https://vz-example.b-cdn.net/video-id/1080p/playlist.m3u8?token=playlist"],
       });
     });
 
