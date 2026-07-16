@@ -1,10 +1,12 @@
 import type { Page } from "playwright";
+import { createSegmentsUrl } from "../../downloader/shared/index.js";
 import {
   detectVimeoEmbed,
   detectLoomEmbed,
   detectYouTubeEmbed,
   detectWistiaEmbed,
 } from "../../shared/videoDetection.js";
+import { captureEncryptedHLSSegments } from "../videoInterceptor.js";
 
 export interface LearningSuiteVideoInfo {
   type: "hls" | "vimeo" | "loom" | "youtube" | "wistia" | "native" | "unknown";
@@ -513,8 +515,7 @@ export async function extractLearningSuitePostContent(
   // Set up request interception to capture HLS video URLs
   const hlsUrls: string[] = [];
 
-  // Capture segment URLs with their individual auth tokens
-  // Each .ts segment has a unique token like: video0.ts?token=abc123&expires=...
+  // Capture requests emitted during navigation before the active seeker attaches.
   const segmentUrls: string[] = [];
 
   const requestHandler = (request: { url: () => string }) => {
@@ -596,65 +597,21 @@ export async function extractLearningSuitePostContent(
 
   let videoDuration: number | null = null;
 
-  // If video player exists, trigger video load and seek to capture ALL segments
+  // If video player exists, use the shared active seeker to capture all segments.
   if (hasVideoPlayer) {
-    // Try clicking play button first
-    const playButton = page.locator(
-      '[aria-label*="play" i], [class*="play" i], button[class*="Play"], [data-testid*="play"]'
-    );
-    try {
-      await playButton.first().click({ timeout: 2000 });
-      await page.waitForTimeout(2000);
-    } catch {
-      // Play button not found, try clicking video directly
-      try {
-        await page.locator("video").first().click({ timeout: 2000 });
-        await page.waitForTimeout(2000);
-      } catch {
-        // Video not clickable
-      }
+    // Hand request capture over to the shared seeker after navigation so each
+    // phase has exactly one listener while early segments remain preserved.
+    page.off("request", requestHandler);
+
+    const captured = await captureEncryptedHLSSegments(page, {
+      cdnPattern: /b-cdn\.net.*\.ts/i,
+      seekInterval: 3,
+      seekDelay: 250,
+    });
+    videoDuration = captured.videoDuration;
+    for (const segmentUrl of captured.segmentUrls) {
+      if (!segmentUrls.includes(segmentUrl)) segmentUrls.push(segmentUrl);
     }
-
-    // Playwright locators pierce open Shadow DOM. LearningSuite's current player
-    // renders its <video> there, so document.querySelector("video") cannot find it.
-    const videoLocator = page.locator("video").first();
-
-    // Get video duration and seek to multiple positions to capture all segments.
-    // A three-second interval is shorter than Bunny's roughly four-second
-    // segments, ensuring that every segment gets requested at least once.
-    try {
-      if ((await videoLocator.count()) > 0) {
-        videoDuration = await videoLocator.evaluate(
-          (video) => (video as HTMLVideoElement).duration || 0
-        );
-      }
-
-      if (videoDuration !== null && videoDuration > 0) {
-        const seekPositions: number[] = [];
-
-        for (let t = 0; t < videoDuration; t += 3) {
-          seekPositions.push(t);
-        }
-        seekPositions.push(Math.max(0, videoDuration - 0.5));
-
-        for (const seekTime of seekPositions) {
-          await videoLocator.evaluate((video, time) => {
-            (video as HTMLVideoElement).currentTime = time;
-          }, seekTime);
-          await page.waitForTimeout(250);
-        }
-
-        await videoLocator.evaluate((video) => {
-          (video as HTMLVideoElement).currentTime = 0;
-        });
-        await page.waitForTimeout(500);
-      }
-    } catch {
-      // Seek failed
-    }
-
-    // Give more time for all segment requests to complete
-    await page.waitForTimeout(1500);
   }
 
   // Remove handlers
@@ -668,10 +625,7 @@ export async function extractLearningSuitePostContent(
 
   // Use captured segment URLs if we have them (LearningSuite's encrypted HLS)
   if (completeSegments) {
-    // Create a special URL that contains the segments as a data URL
-    // The downloader will handle this specially
-    const segmentData = JSON.stringify(completeSegments);
-    const segmentUrl = `segments:${Buffer.from(segmentData).toString("base64")}`;
+    const segmentUrl = createSegmentsUrl(completeSegments);
     video = {
       type: "hls", // We'll handle this in the downloader
       url: segmentUrl,

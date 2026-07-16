@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { Page } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { captureLoomHls } from "./videoInterceptor.js";
+import { captureEncryptedHLSSegments, captureLoomHls } from "./videoInterceptor.js";
 
 class FakeCdpSession extends EventEmitter {
   send = vi.fn().mockResolvedValue({});
@@ -91,5 +91,51 @@ describe("captureLoomHls", () => {
     });
     expect(client.detach).toHaveBeenCalledOnce();
     expect(client.listenerCount("Network.responseReceived")).toBe(0);
+  });
+});
+
+describe("captureEncryptedHLSSegments", () => {
+  it("uses shadow-DOM-piercing locators and preserves LearningSuite seek timing", async () => {
+    const requests = new EventEmitter();
+    const videoLocator = {
+      first: vi.fn(),
+      isVisible: vi.fn().mockResolvedValue(true),
+      click: vi.fn().mockImplementation(async () => {
+        requests.emit("request", {
+          url: () => "https://vz-example.b-cdn.net/720p/video1.ts?token=one",
+        });
+        requests.emit("request", {
+          url: () => "https://vz-example.b-cdn.net/720p/video0.ts?token=zero",
+        });
+      }),
+      count: vi.fn().mockResolvedValue(1),
+      evaluate: vi.fn().mockResolvedValueOnce(7).mockResolvedValue(undefined),
+    };
+    videoLocator.first.mockReturnValue(videoLocator);
+    const locator = vi.fn().mockReturnValue(videoLocator);
+    const waitForTimeout = vi.fn().mockResolvedValue(undefined);
+    const page = {
+      on: requests.on.bind(requests),
+      off: requests.off.bind(requests),
+      locator,
+      waitForTimeout,
+    } as unknown as Page;
+
+    await expect(
+      captureEncryptedHLSSegments(page, {
+        cdnPattern: /b-cdn\.net.*\.ts/i,
+        seekInterval: 3,
+        seekDelay: 250,
+      })
+    ).resolves.toEqual({
+      segmentUrls: [
+        "https://vz-example.b-cdn.net/720p/video0.ts?token=zero",
+        "https://vz-example.b-cdn.net/720p/video1.ts?token=one",
+      ],
+      videoDuration: 7,
+    });
+    expect(locator).toHaveBeenCalledWith("video");
+    expect(waitForTimeout).toHaveBeenCalledWith(250);
+    expect(requests.listenerCount("request")).toBe(0);
   });
 });

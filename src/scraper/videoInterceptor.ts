@@ -488,6 +488,9 @@ export interface CaptureEncryptedHLSOptions {
    */
   seekInterval?: number;
 
+  /** Delay after each seek while the player requests segments. Default: 800 ms. */
+  seekDelay?: number;
+
   /**
    * Maximum time to wait for video duration to be available (ms).
    * Default: 10000
@@ -531,12 +534,14 @@ export interface CaptureEncryptedHLSResult {
  * ## Usage
  *
  * ```typescript
+ * import { createSegmentsUrl } from "../downloader/shared/index.js";
+ *
  * const result = await captureEncryptedHLSSegments(page, {
  *   cdnPattern: /b-cdn\.net.*\.ts.*token=/,
  * });
  *
  * if (result.segmentUrls.length > 0) {
- *   const segmentsUrl = `segments:${Buffer.from(JSON.stringify(result.segmentUrls)).toString("base64")}`;
+ *   const segmentsUrl = createSegmentsUrl(result.segmentUrls);
  *   // Pass to downloadHLSVideo or downloadHLSSegments
  * }
  * ```
@@ -553,6 +558,7 @@ export async function captureEncryptedHLSSegments(
     cdnPattern,
     segmentDuration = 4,
     seekInterval = segmentDuration * 3,
+    seekDelay = 800,
     durationTimeout = 10000,
   } = options;
 
@@ -591,15 +597,23 @@ export async function captureEncryptedHLSSegments(
       }
     }
 
+    // Playwright locators pierce open Shadow DOM, unlike document.querySelector.
+    const videoLocator = page.locator("video").first();
+
     // Get video duration
     let videoDuration = 0;
     const startTime = Date.now();
 
     while (videoDuration === 0 && Date.now() - startTime < durationTimeout) {
-      videoDuration = await page.evaluate(() => {
-        const video = document.querySelector("video");
-        return video?.duration ?? 0;
-      });
+      try {
+        if ((await videoLocator.count()) > 0) {
+          videoDuration = await videoLocator.evaluate(
+            (video) => (video as HTMLVideoElement).duration || 0
+          );
+        }
+      } catch {
+        videoDuration = 0;
+      }
 
       if (videoDuration === 0 || !Number.isFinite(videoDuration)) {
         videoDuration = 0;
@@ -626,22 +640,22 @@ export async function captureEncryptedHLSSegments(
 
     // Seek through video to trigger all segment requests
     for (const seekTime of seekPositions) {
-      await page.evaluate((time) => {
-        const video = document.querySelector("video");
-        if (video) {
-          video.currentTime = time;
-        }
-      }, seekTime);
-      await page.waitForTimeout(800);
+      try {
+        await videoLocator.evaluate((video, time) => {
+          (video as HTMLVideoElement).currentTime = time;
+        }, seekTime);
+      } catch {
+        break;
+      }
+      await page.waitForTimeout(seekDelay);
     }
 
     // Seek back to start
-    await page.evaluate(() => {
-      const video = document.querySelector("video");
-      if (video) {
-        video.currentTime = 0;
-      }
-    });
+    await videoLocator
+      .evaluate((video) => {
+        (video as HTMLVideoElement).currentTime = 0;
+      })
+      .catch(() => {});
 
     // Give time for final segment requests
     await page.waitForTimeout(1500);
@@ -660,16 +674,4 @@ export async function captureEncryptedHLSSegments(
   } finally {
     page.off("request", requestHandler);
   }
-}
-
-/**
- * Creates a `segments:` URL from an array of segment URLs.
- * This URL can be passed to `downloadHLSVideo` or `downloadHLSSegments`.
- *
- * @param segmentUrls Array of segment URLs with auth tokens
- * @returns Data URL in format `segments:base64encodedJSON`
- */
-export function createSegmentsUrl(segmentUrls: string[]): string {
-  const segmentData = JSON.stringify(segmentUrls);
-  return `segments:${Buffer.from(segmentData).toString("base64")}`;
 }

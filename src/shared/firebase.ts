@@ -145,3 +145,10 @@ export async function extractFirebaseAuthFromPage(page: Page): Promise<FirebaseA
     { keyPattern: FIREBASE_AUTH_KEY_PATTERN }
   );
 }
+
+/** Extracts and validates a Firebase access token from the page's localStorage. */
+export async function getFirebaseAccessTokenFromPage(page: Page): Promise<string | null> {
+  const rawToken = await extractFirebaseAuthFromPage(page);
+  const parsed = FirebaseAuthTokenSchema.safeParse(rawToken);
+  return parsed.success ? parsed.data.stsTokenManager.accessToken : null;
+}

@@ -613,94 +613,25 @@ export async function buildLearningSuiteCourseStructure(
         currentModule: module.title,
       });
 
-      // Navigate to the module by clicking on its title text
       const titleOccurrence = initialModules
         .slice(0, module.position)
         .filter((candidate) => candidate.title === module.title).length;
-      const moduleTitle = page.getByText(module.title, { exact: true }).nth(titleOccurrence);
+      const scannedModule = await scanModuleLessons(
+        page,
+        module,
+        courseUrl,
+        courseId,
+        titleOccurrence
+      );
 
-      if (await moduleTitle.isVisible().catch(() => false)) {
-        // Dismiss any modal dialogs that might block the click
-        await dismissMuiDialogs(page);
-        await moduleTitle.click();
-        await page.waitForLoadState("domcontentloaded").catch(() => {});
-        await page.waitForTimeout(2000);
+      onProgress?.({
+        phase: "lessons",
+        currentModule: module.title,
+        currentModuleIndex: i + 1,
+        lessonsFound: scannedModule.lessons.length,
+      });
 
-        // Extract module ID from URL (format: /t/{moduleId})
-        const currentUrl = page.url();
-        const moduleIdMatch = /\/t\/([^/]+)/.exec(currentUrl);
-        if (moduleIdMatch?.[1]) {
-          module.id = moduleIdMatch[1];
-        }
-
-        // Extract lessons directly from the module page
-        const lessonCandidates = await page.evaluate((cId) => {
-          const links = document.querySelectorAll("a");
-          const lessons: {
-            text: string;
-            lessonId: string;
-            isCompleted: boolean;
-          }[] = [];
-          const seenIds = new Set<string>();
-
-          for (const link of Array.from(links)) {
-            const href = link.href;
-
-            // Check if this is a lesson link (contains courseId but not /t/)
-            if (!href.includes(`/${cId}/`) || href.includes("/t/")) continue;
-
-            // Extract lesson ID from URL
-            const parts = href.split("/");
-            const lessonId = parts[parts.length - 1];
-            if (!lessonId || seenIds.has(lessonId)) continue;
-            seenIds.add(lessonId);
-
-            // Preserve visible text for localized parsing outside the browser context.
-            const text = link.textContent?.replace(/\s+/g, " ").trim() ?? "";
-            if (text.length < 5) continue;
-
-            // Check for completion checkmark
-            const hasCheckmark = link.querySelector('svg[data-icon="check"]') !== null;
-            lessons.push({ text, lessonId, isCompleted: hasCheckmark });
-          }
-
-          return lessons;
-        }, courseId);
-
-        const lessonsData = lessonCandidates.flatMap((lesson) => {
-          const parsedText = parseLearningSuiteLessonText(lesson.text);
-          return parsedText ? [{ ...lesson, ...parsedText }] : [];
-        });
-
-        if (lessonsData.length > 0) {
-          module.lessons = lessonsData.map((l, idx) => ({
-            id: l.lessonId,
-            title: l.title,
-            position: idx,
-            moduleId: module.id,
-            isLocked: false,
-            isCompleted: l.isCompleted,
-          }));
-        }
-
-        onProgress?.({
-          phase: "lessons",
-          currentModule: module.title,
-          currentModuleIndex: i + 1,
-          lessonsFound: module.lessons.length,
-        });
-
-        // Go back to the course page
-        await page.goto(courseUrl, { waitUntil: "domcontentloaded" }).catch(() => {});
-        await page.waitForTimeout(1500);
-
-        // Dismiss any modal dialogs that appeared
-        await dismissMuiDialogs(page);
-      } else {
-        console.warn(`Skipping LearningSuite module "${module.title}": title is not visible`);
-      }
-
-      scannedModules.push(module);
+      scannedModules.push(scannedModule);
     }
   }
 
