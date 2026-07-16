@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { getBestQualityUrl, parseHighLevelVideoUrl } from "./hlsDownloader.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { fetchHLSQualities, getBestQualityUrl, parseHighLevelVideoUrl } from "./hlsDownloader.js";
 import {
   createSegmentsUrl,
   isSegmentsUrl,
@@ -10,6 +10,70 @@ import {
   resolveHlsUri,
   SEGMENTS_URL_PREFIX,
 } from "./shared/index.js";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+describe("fetchHLSQualities security", () => {
+  it("stops self-referential playlist responses", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ playlist: "https://video.example/master" }), {
+        status: 200,
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(
+      fetchHLSQualities("https://video.example/master", "session=abc", undefined, "secret")
+    ).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("caps response-body playlist recursion", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const inputUrl =
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const current = Number(new URL(inputUrl).pathname.slice(1));
+      return Promise.resolve(
+        new Response(JSON.stringify({ playlist: `https://video.example/${current + 1}` }), {
+          status: 200,
+        })
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(fetchHLSQualities("https://video.example/0")).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("does not forward credentials to a body-discovered foreign URL", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ playlist: "https://cdn.example/master.m3u8" }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response("#EXTM3U", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchHLSQualities(
+      "https://video.example/config",
+      "session=abc",
+      "https://course.example/lesson",
+      "secret"
+    );
+
+    const secondHeaders = fetchMock.mock.calls[1]?.[1]?.headers as Record<string, string>;
+    expect(secondHeaders.Cookie).toBeUndefined();
+    expect(secondHeaders.APIKEY).toBeUndefined();
+    expect(secondHeaders.Authorization).toBeUndefined();
+  });
+});
 
 describe("signed HLS URL parsing", () => {
   it("inherits parent query parameters for relative URIs", () => {

@@ -4,6 +4,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execa } from "execa";
+import { buildAuthHeaders } from "./network.js";
 import type { ProgressCallback } from "./types.js";
 
 // ============================================================================
@@ -227,23 +228,13 @@ export async function downloadWithFfmpeg(
     const output = getTemporaryOutput(outputPath);
     tempPath = output.tempPath;
 
-    // Build origin from URL or referer
-    const urlObj = new URL(hlsUrl);
-    const origin = referer ?? `${urlObj.protocol}//${urlObj.host}/`;
-    const originHost = new URL(origin).origin;
-
     // Build ffmpeg command
     const args = ["-y", "-hide_banner", "-loglevel", "warning", "-stats"];
 
-    // Add headers
-    const headerParts: string[] = [`Origin: ${originHost}`, `Referer: ${origin}`];
-    if (cookies) {
-      headerParts.push(`Cookie: ${cookies}`);
-    }
-    if (authToken) {
-      headerParts.push(`APIKEY: ${authToken}`);
-      headerParts.push(`Authorization: Bearer ${authToken}`);
-    }
+    const headers = buildAuthHeaders(hlsUrl, { cookies, referer, authToken });
+    const headerParts = Object.entries(headers).flatMap(([name, value]) =>
+      value && name !== "Accept" ? [`${name}: ${value}`] : []
+    );
     args.push("-headers", headerParts.join("\r\n") + "\r\n");
 
     args.push(
