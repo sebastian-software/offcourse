@@ -144,11 +144,8 @@ export interface LearningSuiteBunnyPayload {
 /** Extracts usable Bunny playlist and segment URLs from playlist or API response text. */
 export function parseLearningSuiteBunnyPayload(text: string): LearningSuiteBunnyPayload {
   const normalized = text.replaceAll("\\/", "/").replaceAll("&amp;", "&");
-  const segmentUrls: string[] = [];
-  const hlsUrls: string[] = [];
-  const addUnique = (values: string[], value: string) => {
-    if (!values.includes(value)) values.push(value);
-  };
+  const segmentUrls = new Set<string>();
+  const hlsUrls = new Set<string>();
 
   if (normalized.trimStart().startsWith("#EXTM3U")) {
     const lines = normalized.split("\n").map((line) => line.trim());
@@ -168,20 +165,24 @@ export function parseLearningSuiteBunnyPayload(text: string): LearningSuiteBunny
       if (!line || line.startsWith("#") || !line.includes(".ts")) continue;
 
       if (/^https?:\/\//i.test(line)) {
-        addUnique(segmentUrls, line);
-      } else if (baseUrl && line.includes("token=")) {
+        segmentUrls.add(line);
+      } else if (baseUrl) {
+        // LearningSuite requires a short-lived token on every relative segment;
+        // unauthenticated paths are deliberately unusable outside the browser.
+        if (!line.includes("token=")) continue;
+
         try {
-          addUnique(segmentUrls, new URL(line, baseUrl).toString());
+          segmentUrls.add(new URL(line, baseUrl).toString());
         } catch {
           // Ignore malformed relative segment URLs.
         }
       }
     }
 
-    const firstBunnySegment = segmentUrls.find((url) => /\/video\d+\.ts(?:[?#]|$)/i.test(url));
+    const firstBunnySegment = [...segmentUrls].find((url) => /\/video\d+\.ts(?:[?#]|$)/i.test(url));
     if (firstBunnySegment) {
       try {
-        addUnique(hlsUrls, new URL("playlist.m3u8", firstBunnySegment).toString());
+        hlsUrls.add(new URL("playlist.m3u8", firstBunnySegment).toString());
       } catch {
         // The generic URL scan below may still find a playlist URL.
       }
@@ -191,11 +192,11 @@ export function parseLearningSuiteBunnyPayload(text: string): LearningSuiteBunny
   const cdnUrlRegex = /https?:\/\/vz-[^"'\s<>]+\.b-cdn\.net[^"'\s<>]*/gi;
   for (const match of normalized.matchAll(cdnUrlRegex)) {
     const url = match[0];
-    if (/\.m3u8(?:[?#]|$)/i.test(url)) addUnique(hlsUrls, url);
-    if (/\.ts(?:[?#]|$)/i.test(url)) addUnique(segmentUrls, url);
+    if (/\.m3u8(?:[?#]|$)/i.test(url)) hlsUrls.add(url);
+    if (/\.ts(?:[?#]|$)/i.test(url)) segmentUrls.add(url);
   }
 
-  return { segmentUrls, hlsUrls };
+  return { segmentUrls: [...segmentUrls], hlsUrls: [...hlsUrls] };
 }
 
 // ============================================================================
