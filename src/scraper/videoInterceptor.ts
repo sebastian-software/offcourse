@@ -73,7 +73,6 @@ export async function captureVimeoConfig(
     );
     if (videoWrapper) {
       await videoWrapper.click().catch(() => {});
-      await page.waitForTimeout(1000);
     }
 
     // Step 2: Wait for Vimeo iframe to appear
@@ -364,11 +363,13 @@ export async function captureLoomHls(
 
     // Try to click play button if video doesn't autoplay
     try {
-      await page.waitForTimeout(2000);
-      const playButton = await page.$(
-        '[data-testid="play-button"], .PlayButton, [aria-label="Play"], button[class*="play"]'
-      );
-      if (playButton) {
+      const playButton = page
+        .locator(
+          '[data-testid="play-button"], .PlayButton, [aria-label="Play"], button[class*="play"]'
+        )
+        .first();
+      await playButton.waitFor({ state: "visible", timeout: 2000 }).catch(() => {});
+      if (await playButton.isVisible().catch(() => false)) {
         // Mute again before clicking play
         await page
           .evaluate(() => {
@@ -589,7 +590,6 @@ export async function captureEncryptedHLSSegments(
         const element = page.locator(selector).first();
         if (await element.isVisible({ timeout: 1000 }).catch(() => false)) {
           await element.click({ timeout: 2000 });
-          await page.waitForTimeout(2000);
           break;
         }
       } catch {
