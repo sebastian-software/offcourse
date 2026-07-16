@@ -30,57 +30,78 @@ Offcourse is a modular CLI tool for downloading online courses. The architecture
 
 ```
 src/
-├── cli/                    # Command-line interface
-│   ├── index.ts            # Entry point, command registration
+├── cli/                         # Command-line interface
+│   ├── index.ts                 # Commander entry point and command registration
+│   ├── syncPlatform.ts          # Auto-detection for supported platform URLs
 │   └── commands/
-│       ├── config.ts       # Configuration management
-│       ├── inspect.ts      # Page analysis for debugging
-│       ├── login.ts        # Authentication flow
-│       ├── sync.ts         # Skool download orchestration
-│       ├── syncHighLevel.ts # HighLevel download orchestration
+│       ├── config.ts            # Configuration management
+│       ├── inspect.ts           # Page analysis for debugging
+│       ├── login.ts             # Authentication flow
+│       ├── status.ts            # Skool sync-state reporting
+│       ├── sync.ts              # Skool download orchestration
+│       ├── syncHighLevel.ts     # HighLevel download orchestration
 │       ├── syncLearningSuite.ts # LearningSuite download orchestration
-│       └── syncPiccalilli.ts # Piccalilli download orchestration
+│       └── syncPiccalilli.ts    # Piccalilli download orchestration
 │
-├── config/                 # Configuration management
-│   ├── schema.ts           # Zod schemas for all config types
-│   ├── configManager.ts    # Load/save configuration
-│   └── paths.ts            # Path resolution utilities
+├── config/                      # Configuration management
+│   ├── schema.ts                # Zod schemas for all config types
+│   ├── configManager.ts         # Load/save configuration
+│   └── paths.ts                 # Path resolution utilities
 │
-├── scraper/                # Platform-specific extraction
-│   ├── auth.ts             # Session management (Playwright) - Skool
-│   ├── navigator.ts        # Course structure discovery - Skool
-│   ├── extractor.ts        # Content extraction - Skool
-│   ├── videoInterceptor.ts # Network interception for video URLs
-│   ├── highlevel/          # HighLevel (GoHighLevel) scraper
-│       ├── auth.ts         # Firebase auth, session management
-│       ├── navigator.ts    # Course structure via API
-│       ├── extractor.ts    # Video/content extraction
-│       └── index.ts        # Exports
-│   ├── learningsuite/      # LearningSuite scraper
-│   └── piccalilli/         # Piccalilli scraper and OTP authentication
+├── scraper/                     # Platform-specific extraction
+│   ├── extractor.ts             # Skool lesson content extraction
+│   ├── navigator.ts             # Skool course discovery
+│   ├── schemas.ts               # Shared scraper response schemas
+│   ├── skoolAuth.ts             # Skool login detection and session verification
+│   ├── videoInterceptor.ts      # Network interception for video URLs
+│   ├── highlevel/
+│   │   ├── extractor.ts
+│   │   ├── navigator.ts
+│   │   ├── schemas.ts
+│   │   └── index.ts
+│   ├── learningsuite/
+│   │   ├── auth.ts
+│   │   ├── extractor.ts
+│   │   ├── navigator.ts
+│   │   └── index.ts
+│   └── piccalilli/
+│       ├── auth.ts
+│       ├── extractor.ts
+│       ├── navigator.ts
+│       └── index.ts
 │
-├── downloader/             # Video download handlers
-│   ├── index.ts            # Download dispatcher by video type
-│   ├── queue.ts            # Async queue with concurrency control
-│   ├── loomDownloader.ts   # Loom-specific HLS download
-│   ├── vimeoDownloader.ts  # Vimeo-specific download
-│   └── hlsDownloader.ts    # Generic HLS download (ffmpeg-based)
+├── downloader/                  # Video download handlers
+│   ├── index.ts                 # Download dispatcher by video type
+│   ├── queue.ts                 # Async download queue
+│   ├── hlsDownloader.ts         # Generic/HighLevel HLS downloads
+│   ├── hlsValidator.ts          # HLS validation
+│   ├── loomDownloader.ts        # Loom-specific downloads
+│   ├── vimeoDownloader.ts       # Vimeo-specific downloads
+│   └── shared/
+│       ├── ffmpeg.ts
+│       ├── hlsDownload.ts
+│       ├── progressiveDownload.ts
+│       ├── types.ts
+│       └── index.ts
 │
-├── shared/                 # Shared utilities
-│   ├── index.ts            # Exports
-│   ├── auth.ts             # Session management
-│   ├── http.ts             # HTTP utilities
-│   ├── url.ts              # URL parsing utilities
-│   ├── slug.ts             # Slug generation
-│   ├── fs.ts               # File system utilities
-│   └── parallelWorker.ts   # Parallel processing with browser tabs
+├── shared/                      # Cross-platform utilities
+│   ├── auth.ts                  # Shared Playwright session management
+│   ├── firebase.ts              # HighLevel Firebase token helpers
+│   ├── fs.ts                    # File-system utilities
+│   ├── http.ts                  # HTTP defaults
+│   ├── parallelWorker.ts        # Browser-tab worker pools
+│   ├── shutdown.ts              # Signal and resource cleanup
+│   ├── slug.ts                  # Slug generation
+│   ├── url.ts                   # URL normalization
+│   ├── videoDetection.ts        # Shared video-host detection
+│   └── index.ts
 │
-├── state/                  # State management
-│   ├── index.ts            # State exports
-│   └── database.ts         # SQLite database for sync state
+├── state/
+│   ├── database.ts              # SQLite-backed Skool sync state
+│   └── index.ts
 │
-└── storage/                # File system operations
-    └── fileSystem.ts       # Directory creation, file saving
+└── storage/
+    └── fileSystem.ts            # Course directory and file operations
 ```
 
 ## Key Components
@@ -104,14 +125,15 @@ Platform-specific logic for extracting course content.
 
 #### Skool Scraper (root level)
 
-- **auth.ts**: Manages Playwright browser sessions, session persistence
+- **skoolAuth.ts**: Detects login pages and verifies saved Skool sessions
+- **src/shared/auth.ts**: Manages Playwright browser sessions and persistence
 - **navigator.ts**: Discovers course structure (modules, lessons, URLs)
 - **extractor.ts**: Extracts video URLs and text content from lesson pages
 - **videoInterceptor.ts**: Intercepts network requests to capture video URLs
 
 #### HighLevel Scraper (`src/scraper/highlevel/`)
 
-- **auth.ts**: Firebase authentication, session management with token refresh
+- **src/shared/auth.ts** and **src/shared/firebase.ts**: Firebase session and token handling
 - **navigator.ts**: Extracts course structure via API interception
 - **extractor.ts**: Extracts HLS video URLs, embedded videos (Vimeo, Loom), and content
 
@@ -168,7 +190,7 @@ Centralized configuration with Zod validation.
 1. User runs: offcourse sync <url>
                     │
 2. Auto-detect      │
-   platform ────────────► Skool? LearningSuite? HighLevel? Unknown?
+   platform ────────────► Skool? LearningSuite? Piccalilli? HighLevel? Unsupported?
                     │
 3. Load config      │
                     ▼
@@ -195,7 +217,7 @@ The `parallelWorker` module provides a shared worker pool for parallel operation
 - **Progress Tracking**: Real-time aggregated progress across all workers
 - **Error Isolation**: Failed tasks don't crash other workers
 
-Used by: Course scanning, content extraction, video downloads.
+Used by course scanning and content extraction. Video downloads use the separate downloader queue and its `concurrency` setting.
 
 ## Platform-Specific Details
 
@@ -273,7 +295,7 @@ Used by: Course scanning, content extraction, video downloads.
 ### Git Hooks
 
 - **pre-commit**: Formats staged files with Prettier via lint-staged
-- **pre-push**: Runs ESLint and TypeScript type checking
+- **pre-push**: Runs the full `pnpm check` gate
 - **commit-msg**: Validates conventional commit format
 
 ### Release Process
