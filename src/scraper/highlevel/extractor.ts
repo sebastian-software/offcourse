@@ -6,13 +6,8 @@ import {
   detectYouTubeEmbed,
   detectHlsVideo,
 } from "../../shared/videoDetection.js";
-import {
-  FirebaseAuthTokenSchema,
-  PostDetailsResponseSchema,
-  VideoLicenseResponseSchema,
-  safeParse,
-  type FirebaseAuthRaw,
-} from "./schemas.js";
+import { PostDetailsResponseSchema, VideoLicenseResponseSchema, safeParse } from "./schemas.js";
+import { getFirebaseAccessTokenFromPage } from "../../shared/firebase.js";
 
 // Alias for backwards compatibility and internal use
 const parseHLSMasterPlaylist = parseHLSPlaylist;
@@ -54,23 +49,7 @@ export interface HighLevelPostContent {
 /**
  * Extracts the Firebase auth token from the page.
  */
-export async function getAuthToken(page: Page): Promise<string | null> {
-  const rawData = await page.evaluate((): FirebaseAuthRaw | null => {
-    const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
-    if (!tokenKey) return null;
-
-    try {
-      return JSON.parse(localStorage.getItem(tokenKey) ?? "{}") as FirebaseAuthRaw;
-    } catch {
-      return null;
-    }
-  });
-
-  if (!rawData) return null;
-
-  const parsed = safeParse(FirebaseAuthTokenSchema, rawData, "getAuthToken");
-  return parsed?.stsTokenManager.accessToken ?? null;
-}
+export const getAuthToken = getFirebaseAccessTokenFromPage;
 
 /**
  * Extracts video info from a HighLevel post page using shared detection utilities.
@@ -124,51 +103,25 @@ export async function fetchPostDetails(
     type: string;
   }[];
 } | null> {
-  // Fetch raw data from browser context
-  type FetchResult = { error: string; status?: number } | { data: unknown };
-
-  const rawData = await page.evaluate(
-    async ({ locationId, postId }): Promise<FetchResult> => {
-      try {
-        const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
-        const tokenData = tokenKey
-          ? (JSON.parse(localStorage.getItem(tokenKey) ?? "{}") as FirebaseAuthRaw)
-          : null;
-        const token = tokenData?.stsTokenManager?.accessToken;
-
-        if (!token) {
-          return { error: "No auth token" };
-        }
-
-        const res = await fetch(
-          `https://services.leadconnectorhq.com/membership/locations/${locationId}/posts/${postId}?source=courses`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-
-        if (!res.ok) {
-          return { error: `HTTP ${res.status}`, status: res.status };
-        }
-
-        const data: unknown = await res.json();
-        return { data };
-      } catch (error) {
-        return { error: String(error) };
-      }
-    },
-    { locationId, postId }
-  );
-
-  if ("error" in rawData) {
-    console.warn(`Could not fetch HighLevel post details: ${rawData.error}`);
+  const authToken = await getAuthToken(page);
+  if (!authToken) {
+    console.warn("Could not fetch HighLevel post details: No auth token");
     return null;
   }
 
-  const data = rawData.data;
-  if (!data) {
+  let data: unknown;
+  try {
+    const response = await page.request.get(
+      `https://services.leadconnectorhq.com/membership/locations/${locationId}/posts/${postId}?source=courses`,
+      { headers: { Authorization: `Bearer ${authToken}` } }
+    );
+    if (!response.ok()) {
+      console.warn(`Could not fetch HighLevel post details: HTTP ${response.status()}`);
+      return null;
+    }
+    data = await response.json();
+  } catch (error) {
+    console.warn(`Could not fetch HighLevel post details: ${String(error)}`);
     return null;
   }
 
