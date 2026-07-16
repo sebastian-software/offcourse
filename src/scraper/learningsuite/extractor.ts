@@ -136,6 +136,68 @@ export function getCompleteLearningSuiteSegments(
   return segments;
 }
 
+export interface LearningSuiteBunnyPayload {
+  segmentUrls: string[];
+  hlsUrls: string[];
+}
+
+/** Extracts usable Bunny playlist and segment URLs from playlist or API response text. */
+export function parseLearningSuiteBunnyPayload(text: string): LearningSuiteBunnyPayload {
+  const normalized = text.replaceAll("\\/", "/").replaceAll("&amp;", "&");
+  const segmentUrls: string[] = [];
+  const hlsUrls: string[] = [];
+  const addUnique = (values: string[], value: string) => {
+    if (!values.includes(value)) values.push(value);
+  };
+
+  if (normalized.trimStart().startsWith("#EXTM3U")) {
+    const lines = normalized.split("\n").map((line) => line.trim());
+    const firstAbsoluteCdnUrl = lines.find(
+      (line) => /^https?:\/\//i.test(line) && line.includes("b-cdn.net")
+    );
+    let baseUrl: string | null = null;
+    if (firstAbsoluteCdnUrl) {
+      try {
+        baseUrl = new URL(".", firstAbsoluteCdnUrl).toString();
+      } catch {
+        baseUrl = null;
+      }
+    }
+
+    for (const line of lines) {
+      if (!line || line.startsWith("#") || !line.includes(".ts")) continue;
+
+      if (/^https?:\/\//i.test(line)) {
+        addUnique(segmentUrls, line);
+      } else if (baseUrl && line.includes("token=")) {
+        try {
+          addUnique(segmentUrls, new URL(line, baseUrl).toString());
+        } catch {
+          // Ignore malformed relative segment URLs.
+        }
+      }
+    }
+
+    const firstBunnySegment = segmentUrls.find((url) => /\/video\d+\.ts(?:[?#]|$)/i.test(url));
+    if (firstBunnySegment) {
+      try {
+        addUnique(hlsUrls, new URL("playlist.m3u8", firstBunnySegment).toString());
+      } catch {
+        // The generic URL scan below may still find a playlist URL.
+      }
+    }
+  }
+
+  const cdnUrlRegex = /https?:\/\/vz-[^"'\s<>]+\.b-cdn\.net[^"'\s<>]*/gi;
+  for (const match of normalized.matchAll(cdnUrlRegex)) {
+    const url = match[0];
+    if (/\.m3u8(?:[?#]|$)/i.test(url)) addUnique(hlsUrls, url);
+    if (/\.ts(?:[?#]|$)/i.test(url)) addUnique(segmentUrls, url);
+  }
+
+  return { segmentUrls, hlsUrls };
+}
+
 // ============================================================================
 // Browser/API Automation (Playwright-dependent)
 // ============================================================================
@@ -503,69 +565,11 @@ export async function extractLearningSuitePostContent(
 
         if (status === 200) {
           const text = await response.text();
-
-          // Check if it's HLS playlist content
-          if (text.startsWith("#EXTM3U")) {
-            // Extract ALL segment URLs from the playlist
-            // Lines that end with .ts and include tokens are segments
-            const lines = text.split("\n");
-            let baseUrl = "";
-
-            // First, try to find the base URL from full URLs in the playlist
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (trimmed.startsWith("http") && trimmed.includes("b-cdn.net")) {
-                const match = /(https?:\/\/[^/]+\/[^/]+\/)/.exec(trimmed);
-                if (match?.[1]) {
-                  baseUrl = match[1];
-                  break;
-                }
-              }
-            }
-
-            for (const line of lines) {
-              const trimmed = line.trim();
-              // Skip comment lines and empty lines
-              if (trimmed.startsWith("#") || trimmed === "") continue;
-
-              // Check if this line is a segment URL (contains .ts)
-              if (trimmed.includes(".ts")) {
-                let segmentUrl = trimmed;
-
-                // If it's a full URL, add it directly
-                if (trimmed.startsWith("http")) {
-                  if (!segmentUrls.includes(segmentUrl)) {
-                    segmentUrls.push(segmentUrl);
-                  }
-                } else if (baseUrl && trimmed.includes("token=")) {
-                  // Relative URL with token - construct full URL
-                  segmentUrl = baseUrl + trimmed;
-                  if (!segmentUrls.includes(segmentUrl)) {
-                    segmentUrls.push(segmentUrl);
-                  }
-                }
-              }
-            }
-
-            // Extract CDN base URL from playlist content
-            const cdnMatch = /(https?:\/\/vz-[^"'\s]+\.b-cdn\.net\/[^"'\s]+)/g.exec(text);
-            if (cdnMatch?.[1]) {
-              const extractedBase = cdnMatch[1].replace(/\/[^/]+\.ts.*$/, "/playlist.m3u8");
-              if (!hlsUrls.includes(extractedBase)) {
-                hlsUrls.unshift(extractedBase);
-              }
-            }
+          const parsed = parseLearningSuiteBunnyPayload(text);
+          for (const segmentUrl of parsed.segmentUrls) {
+            if (!segmentUrls.includes(segmentUrl)) segmentUrls.push(segmentUrl);
           }
-
-          // Look for CDN URLs in JSON or other response
-          const cdnUrlRegex = /(https?:\/\/vz-[^"'\s]+\.b-cdn\.net[^"'\s]*)/g;
-          let match;
-          while ((match = cdnUrlRegex.exec(text)) !== null) {
-            const cdnUrl = match[1];
-            if (cdnUrl && !hlsUrls.includes(cdnUrl)) {
-              hlsUrls.push(cdnUrl);
-            }
-          }
+          hlsUrls.unshift(...parsed.hlsUrls.filter((url) => !hlsUrls.includes(url)));
         }
       } catch {
         // Response body might not be readable
