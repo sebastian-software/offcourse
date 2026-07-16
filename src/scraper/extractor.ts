@@ -4,6 +4,10 @@ import {
   parseNextData,
   extractVideoFromNextData as extractVideoFromNextDataSchema,
 } from "./schemas.js";
+import { waitForAttachedContent } from "./waits.js";
+
+const VIDEO_PLAYER_SELECTOR =
+  'iframe[src*="loom.com"], iframe[src*="vimeo"], iframe[src*="youtube"], video';
 
 export interface DownloadableFile {
   url: string;
@@ -121,19 +125,7 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
   });
 
   if (skoolClicked.clicked) {
-    // Wait for iframe to appear after click
-    try {
-      await page.waitForSelector(
-        'iframe[src*="loom.com"], iframe[src*="vimeo"], iframe[src*="youtube"], video',
-        {
-          timeout: 5000,
-        }
-      );
-    } catch {
-      // Timeout is fine, we'll check for video anyway
-    }
-    // Extra wait for iframe content to load
-    await page.waitForTimeout(1000);
+    await waitForAttachedContent(page, VIDEO_PLAYER_SELECTOR);
     return true;
   }
 
@@ -174,7 +166,7 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
   });
 
   if (loomClicked) {
-    await page.waitForTimeout(2500);
+    await waitForAttachedContent(page, VIDEO_PLAYER_SELECTOR);
     return true;
   }
 
@@ -215,7 +207,7 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
   });
 
   if (playClicked) {
-    await page.waitForTimeout(2500);
+    await waitForAttachedContent(page, VIDEO_PLAYER_SELECTOR);
     return true;
   }
 
@@ -244,7 +236,7 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
   });
 
   if (thumbnailClicked) {
-    await page.waitForTimeout(2500);
+    await waitForAttachedContent(page, VIDEO_PLAYER_SELECTOR);
     return true;
   }
 
@@ -277,7 +269,7 @@ async function tryClickVideoPreview(page: Page): Promise<boolean> {
           const box = await element.boundingBox();
           if (box && box.width > 200 && box.height > 100) {
             await element.click();
-            await page.waitForTimeout(2500);
+            await waitForAttachedContent(page, VIDEO_PLAYER_SELECTOR);
             return true;
           }
         }
@@ -726,7 +718,10 @@ export async function extractLessonContent(
   if (currentUrl !== lessonUrl) {
     await page.goto(lessonUrl, { timeout: 30000 });
     await page.waitForLoadState("domcontentloaded");
-    await page.waitForTimeout(2000);
+    await waitForAttachedContent(
+      page,
+      '#__NEXT_DATA__, main h1, main h2, [class*="lesson-content" i]'
+    );
   }
 
   const title = await page.title();
