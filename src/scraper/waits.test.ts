@@ -1,6 +1,6 @@
 import type { Page } from "playwright";
 import { describe, expect, it, vi } from "vitest";
-import { waitForAttachedContent, waitForVisibleContent } from "./waits.js";
+import { waitForAttachedContent } from "./waits.js";
 
 function createPage(waitFor: ReturnType<typeof vi.fn>): {
   page: Page;
@@ -20,13 +20,5 @@ describe("scraper content waits", () => {
 
     expect(locator).toHaveBeenCalledWith("main, article");
     expect(waitFor).toHaveBeenCalledWith({ state: "attached", timeout: 1234 });
-  });
-
-  it("waits for visible content and treats timeout as a best-effort fallback", async () => {
-    const waitFor = vi.fn().mockRejectedValue(new Error("timed out"));
-    const { page } = createPage(waitFor);
-
-    await expect(waitForVisibleContent(page, "video")).resolves.toBeUndefined();
-    expect(waitFor).toHaveBeenCalledWith({ state: "visible", timeout: 5000 });
   });
 });

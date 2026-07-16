@@ -440,11 +440,13 @@ export async function buildHighLevelCourseStructure(
     timeout: 30000,
     waitUntil: "networkidle",
   });
+
+  // Stop accepting new captures before awaiting the snapshot. Otherwise a
+  // response arriving during the Firebase readiness wait can add work that is
+  // never awaited and race with the captured-title fallback below.
+  page.off("response", responseHandler);
   await Promise.allSettled([...pendingCourseTitleCaptures]);
   await waitForFirebaseAccessTokenFromPage(page);
-
-  // Remove the handler
-  page.off("response", responseHandler);
 
   // Extract course details
   onProgress?.({ phase: "course" });

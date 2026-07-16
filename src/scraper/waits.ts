@@ -15,16 +15,3 @@ export async function waitForAttachedContent(
     .waitFor({ state: "attached", timeout })
     .catch(() => {});
 }
-
-/** Waits for an interaction target without turning a missing target into a hard failure. */
-export async function waitForVisibleContent(
-  page: Page,
-  selector: string,
-  timeout = 5000
-): Promise<void> {
-  await page
-    .locator(selector)
-    .first()
-    .waitFor({ state: "visible", timeout })
-    .catch(() => {});
-}
