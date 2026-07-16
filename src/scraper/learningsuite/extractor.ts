@@ -599,6 +599,10 @@ export async function extractLearningSuitePostContent(
 
   // If video player exists, use the shared active seeker to capture all segments.
   if (hasVideoPlayer) {
+    // Hand request capture over to the shared seeker after navigation so each
+    // phase has exactly one listener while early segments remain preserved.
+    page.off("request", requestHandler);
+
     const captured = await captureEncryptedHLSSegments(page, {
       cdnPattern: /b-cdn\.net.*\.ts/i,
       seekInterval: 3,
