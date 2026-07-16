@@ -6,7 +6,10 @@ import {
   PostsResponseSchema,
   safeParse,
 } from "./schemas.js";
-import { getFirebaseAccessTokenFromPage } from "../../shared/firebase.js";
+import {
+  getFirebaseAccessTokenFromPage,
+  waitForFirebaseAccessTokenFromPage,
+} from "../../shared/firebase.js";
 
 export interface HighLevelCourse {
   id: string;
@@ -403,24 +406,29 @@ export async function buildHighLevelCourseStructure(
 
   // Set up response interception to capture product data BEFORE navigation
   let capturedCourseTitle: string | null = null;
+  const pendingCourseTitleCaptures = new Set<Promise<void>>();
 
-  const responseHandler = async (response: import("playwright").Response) => {
+  const responseHandler = (response: import("playwright").Response) => {
     const url = response.url();
     if (
       productId &&
       url.includes(`/products/${productId}`) &&
       url.includes("leadconnectorhq.com")
     ) {
-      try {
-        const data: unknown = await response.json();
-        const parsed = safeParse(ProductResponseSchema, data, "responseHandler");
-        const title = parsed?.product?.title ?? parsed?.title;
-        if (title) {
-          capturedCourseTitle = title;
+      const capture = (async () => {
+        try {
+          const data: unknown = await response.json();
+          const parsed = safeParse(ProductResponseSchema, data, "responseHandler");
+          const title = parsed?.product?.title ?? parsed?.title;
+          if (title) {
+            capturedCourseTitle = title;
+          }
+        } catch {
+          // Ignore JSON parse errors
         }
-      } catch {
-        // Ignore JSON parse errors
-      }
+      })();
+      pendingCourseTitleCaptures.add(capture);
+      void capture.finally(() => pendingCourseTitleCaptures.delete(capture));
     }
   };
 
@@ -432,7 +440,8 @@ export async function buildHighLevelCourseStructure(
     timeout: 30000,
     waitUntil: "networkidle",
   });
-  await page.waitForTimeout(1000);
+  await Promise.allSettled([...pendingCourseTitleCaptures]);
+  await waitForFirebaseAccessTokenFromPage(page);
 
   // Remove the handler
   page.off("response", responseHandler);
