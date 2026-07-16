@@ -7,8 +7,7 @@ Offcourse is a modular CLI tool for downloading online courses. The architecture
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                         CLI Layer                           │
-│  (commands: login, sync, sync-skool, sync-highlevel,       │
-│   sync-learningsuite, etc.)                                 │
+│  (commands: login, sync, logout, complete, status, etc.)   │
 └─────────────────────────────────────────────────────────────┘
                               │
           ┌───────────────────┼───────────────────┐
@@ -40,6 +39,7 @@ src/
 │       ├── status.ts            # Skool sync-state reporting
 │       ├── sync.ts              # Skool download orchestration
 │       ├── syncHighLevel.ts     # HighLevel download orchestration
+│       ├── syncJoshComeau.ts    # Josh Comeau download orchestration
 │       ├── syncLearningSuite.ts # LearningSuite download orchestration
 │       └── syncPiccalilli.ts    # Piccalilli download orchestration
 │
@@ -58,6 +58,11 @@ src/
 │   │   ├── extractor.ts
 │   │   ├── navigator.ts
 │   │   ├── schemas.ts
+│   │   └── index.ts
+│   ├── joshcomeau/
+│   │   ├── auth.ts
+│   │   ├── extractor.ts
+│   │   ├── navigator.ts
 │   │   └── index.ts
 │   ├── learningsuite/
 │   │   ├── auth.ts
@@ -112,10 +117,7 @@ Handles user interaction via Commander.js. Each command is a separate module.
 
 - **login**: Opens browser for interactive authentication, saves session
 - **sync**: Auto-detects platform and delegates to appropriate handler
-- **sync-skool**: Skool-specific sync (uses `sync.ts`)
-- **sync-highlevel**: HighLevel-specific sync (uses `syncHighLevel.ts`)
-- **sync-learningsuite**: LearningSuite-specific sync (uses `syncLearningSuite.ts`)
-- **sync-piccalilli**: Piccalilli-specific sync (uses `syncPiccalilli.ts`)
+- **sync handlers**: Platform-specific orchestration selected internally by URL
 - **inspect**: Debug tool for analyzing page structure
 - **config**: Read/write configuration values
 
@@ -142,6 +144,12 @@ Platform-specific logic for extracting course content.
 - **navigator.ts**: Course structure extraction via GraphQL API
 - **extractor.ts**: Video/content extraction (HLS, Vimeo, Loom, native)
 - **schemas.ts**: Zod schemas for GraphQL responses
+
+#### Josh Comeau Scraper (`src/scraper/joshcomeau/`)
+
+- **auth.ts**: Magic Link authentication and course-access verification
+- **navigator.ts**: Course curriculum and lesson discovery
+- **extractor.ts**: Lesson Markdown, resources, and Vimeo HLS extraction
 
 #### Piccalilli Scraper (`src/scraper/piccalilli/`)
 
@@ -190,7 +198,7 @@ Centralized configuration with Zod validation.
 1. User runs: offcourse sync <url>
                     │
 2. Auto-detect      │
-   platform ────────────► Skool? LearningSuite? Piccalilli? HighLevel? Unsupported?
+   platform ────────────► Skool? Josh Comeau? LearningSuite? Piccalilli? HighLevel?
                     │
 3. Load config      │
                     ▼
@@ -242,6 +250,13 @@ Used by course scanning and content extraction. Video downloads use the separate
 - **URL Pattern**: `{subdomain}.learningsuite.io/student/course/{courseId}`
 - **Tenant ID**: Extracted from subdomain or API responses
 
+### Josh Comeau Courses
+
+- **Auth**: Email Magic Link with persisted Playwright storage state
+- **Structure**: DOM-based curriculum and lesson discovery
+- **Content**: Markdown, linked resources, and Vimeo HLS videos
+- **URL Pattern**: `courses.joshwcomeau.com/<course>`
+
 ### Piccalilli
 
 - **Auth**: Email/OTP login with persisted Playwright storage state
@@ -257,8 +272,8 @@ Used by course scanning and content extraction. Video downloads use the separate
    - `navigator.ts` - Course structure extraction
    - `extractor.ts` - Content/video extraction
    - `index.ts` - Exports
-3. **Create CLI command**: `src/cli/commands/sync<Platform>.ts`
-4. **Register in CLI**: Add to `src/cli/index.ts`
+3. **Create sync handler**: `src/cli/commands/sync<Platform>.ts`
+4. **Register in CLI**: Add delegation to `src/cli/index.ts`
 5. **Add auto-detection**: Update `sync` command's platform detection
 
 ## Adding a New Video Host

@@ -14,6 +14,7 @@ import {
   completeLearningSuiteCommand,
   type SyncLearningSuiteOptions,
 } from "./commands/syncLearningSuite.js";
+import { syncJoshComeauCommand, type SyncJoshComeauOptions } from "./commands/syncJoshComeau.js";
 import { isLearningSuitePortal } from "../scraper/learningsuite/index.js";
 import { syncPiccalilliCommand, type SyncPiccalilliOptions } from "./commands/syncPiccalilli.js";
 import { detectSyncPlatform } from "./syncPlatform.js";
@@ -81,21 +82,24 @@ program
   .option("--skip-content", "Skip text content (only download videos)")
   .option("--dry-run", "Scan course structure without downloading")
   .option("--limit <n>", "Limit to first N lessons (for testing)", parseInt)
+  .option("-f, --force", "Re-extract cached course data")
+  .option("--retry-failed", "Retry failed Skool lessons with detailed diagnostics")
   .option("--visible", "Show browser window (default: headless)")
+  .option("-q, --quality <quality>", "Preferred video quality (e.g., 720p, 1080p)")
+  .option("--course-name <name>", "Override detected course name")
   .action(
     wrapAction(
       async (
         url: string,
         options: SyncOptions &
           SyncHighLevelOptions &
+          SyncJoshComeauOptions &
           SyncLearningSuiteOptions &
           SyncPiccalilliOptions
       ) => {
         const platform = detectSyncPlatform(url);
         if (platform === null) {
-          throw new Error(
-            "Unsupported course URL. Use sync-skool, sync-learningsuite, sync-piccalilli, or sync-highlevel for an explicit platform."
-          );
+          throw new Error("Unsupported course URL.");
         }
 
         switch (platform) {
@@ -108,6 +112,9 @@ program
           case "piccalilli":
             await syncPiccalilliCommand(url, options);
             break;
+          case "joshcomeau":
+            await syncJoshComeauCommand(url, options);
+            break;
           case "highlevel":
             await syncHighLevelCommand(url, options);
             break;
@@ -119,60 +126,6 @@ program
       }
     )
   );
-
-// Explicit Piccalilli sync command
-program
-  .command("sync-piccalilli <url>")
-  .description("Download a Piccalilli course for offline access")
-  .option("--skip-videos", "Skip video downloads (only save text content)")
-  .option("--skip-content", "Skip text content and resources (only download videos)")
-  .option("--dry-run", "Scan course structure without downloading or logging in")
-  .option("--limit <n>", "Limit to first N lessons (for testing)", parseInt)
-  .option("-f, --force", "Re-extract cached lesson content, resources, and videos")
-  .option("--visible", "Show browser window (default: headless)")
-  .option("-q, --quality <quality>", "Preferred video quality (e.g., 720p, 1080p)")
-  .option("--course-name <name>", "Override detected course name")
-  .action(wrapAction(syncPiccalilliCommand));
-
-// Explicit Skool sync command
-program
-  .command("sync-skool <url>")
-  .description("Download a Skool course for offline access")
-  .option("--skip-videos", "Skip video downloads (only save text content)")
-  .option("--skip-content", "Skip text content (only download videos)")
-  .option("--dry-run", "Scan course structure without downloading")
-  .option("--limit <n>", "Limit to first N lessons (for testing)", parseInt)
-  .option("-f, --force", "Reset saved scan state and rescan all lessons")
-  .option("--retry-failed", "Retry failed lessons with detailed diagnostics")
-  .option("--visible", "Show browser window (default: headless)")
-  .action(wrapAction(syncCommand));
-
-// Explicit HighLevel sync command
-program
-  .command("sync-highlevel <url>")
-  .description("Download a HighLevel (GoHighLevel) course for offline access")
-  .option("--skip-videos", "Skip video downloads (only save text content)")
-  .option("--skip-content", "Skip text content (only download videos)")
-  .option("--dry-run", "Scan course structure without downloading")
-  .option("--limit <n>", "Limit to first N lessons (for testing)", parseInt)
-  .option("--visible", "Show browser window (default: headless)")
-  .option("-q, --quality <quality>", "Preferred video quality (e.g., 720p, 1080p)")
-  .option("--course-name <name>", "Override detected course name")
-  .action(wrapAction(syncHighLevelCommand));
-
-// Explicit LearningSuite sync command
-program
-  .command("sync-learningsuite <url>")
-  .description("Download a LearningSuite course for offline access")
-  .option("--skip-videos", "Skip video downloads (only save text content)")
-  .option("--skip-content", "Skip text content (only download videos)")
-  .option("--dry-run", "Scan course structure without downloading")
-  .option("--limit <n>", "Limit to first N lessons (for testing)", parseInt)
-  .option("-f, --force", "Re-extract cached lesson content and videos")
-  .option("--visible", "Show browser window (default: headless)")
-  .option("-q, --quality <quality>", "Preferred video quality (e.g., 720p, 1080p)")
-  .option("--course-name <name>", "Override detected course name")
-  .action(wrapAction(syncLearningSuiteCommand));
 
 // Complete command - mark lessons as complete to unlock content
 program
