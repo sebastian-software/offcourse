@@ -3,6 +3,7 @@ import {
   detectVideoType,
   getCompleteLearningSuiteSegments,
   getLearningSuiteSegmentIndex,
+  parseLearningSuiteBunnyPayload,
 } from "./extractor.js";
 
 describe("LearningSuite Extractor", () => {
@@ -109,6 +110,59 @@ describe("LearningSuite Extractor", () => {
         relative(0),
         relative(1),
       ]);
+    });
+  });
+
+  describe("Bunny response parsing", () => {
+    it("extracts and deduplicates absolute playlist segments", () => {
+      expect(
+        parseLearningSuiteBunnyPayload(`#EXTM3U
+#EXTINF:4,
+https://vz-example.b-cdn.net/video-id/720p/video0.ts?token=zero
+#EXTINF:4,
+https://vz-example.b-cdn.net/video-id/720p/video1.ts?token=one
+https://vz-example.b-cdn.net/video-id/720p/video1.ts?token=one`)
+      ).toEqual({
+        segmentUrls: [
+          "https://vz-example.b-cdn.net/video-id/720p/video0.ts?token=zero",
+          "https://vz-example.b-cdn.net/video-id/720p/video1.ts?token=one",
+        ],
+        hlsUrls: ["https://vz-example.b-cdn.net/video-id/720p/playlist.m3u8"],
+      });
+    });
+
+    it("resolves tokenized relative segments against a nested CDN directory", () => {
+      expect(
+        parseLearningSuiteBunnyPayload(`#EXTM3U
+https://vz-example.b-cdn.net/video-id/1080p/playlist.m3u8?token=playlist
+video0.ts?token=zero&amp;expires=1
+video1.ts
+#EXT-X-ENDLIST`)
+      ).toEqual({
+        segmentUrls: ["https://vz-example.b-cdn.net/video-id/1080p/video0.ts?token=zero&expires=1"],
+        hlsUrls: [
+          "https://vz-example.b-cdn.net/video-id/1080p/playlist.m3u8",
+          "https://vz-example.b-cdn.net/video-id/1080p/playlist.m3u8?token=playlist",
+        ],
+      });
+    });
+
+    it("normalizes escaped JSON URLs and ignores non-video CDN assets", () => {
+      expect(
+        parseLearningSuiteBunnyPayload(
+          String.raw`{"playlist":"https:\/\/vz-example.b-cdn.net\/video-id\/playlist.m3u8?token=abc&amp;expires=1","segment":"https:\/\/vz-example.b-cdn.net\/video-id\/video0.ts?token=def","thumbnail":"https:\/\/vz-example.b-cdn.net\/video-id\/thumbnail.jpg"}`
+        )
+      ).toEqual({
+        segmentUrls: ["https://vz-example.b-cdn.net/video-id/video0.ts?token=def"],
+        hlsUrls: ["https://vz-example.b-cdn.net/video-id/playlist.m3u8?token=abc&expires=1"],
+      });
+    });
+
+    it("returns empty results for unrelated response bodies", () => {
+      expect(parseLearningSuiteBunnyPayload('{"status":"ok"}')).toEqual({
+        segmentUrls: [],
+        hlsUrls: [],
+      });
     });
   });
 });
