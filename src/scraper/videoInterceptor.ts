@@ -534,12 +534,14 @@ export interface CaptureEncryptedHLSResult {
  * ## Usage
  *
  * ```typescript
+ * import { createSegmentsUrl } from "../downloader/shared/index.js";
+ *
  * const result = await captureEncryptedHLSSegments(page, {
  *   cdnPattern: /b-cdn\.net.*\.ts.*token=/,
  * });
  *
  * if (result.segmentUrls.length > 0) {
- *   const segmentsUrl = `segments:${Buffer.from(JSON.stringify(result.segmentUrls)).toString("base64")}`;
+ *   const segmentsUrl = createSegmentsUrl(result.segmentUrls);
  *   // Pass to downloadHLSVideo or downloadHLSSegments
  * }
  * ```
