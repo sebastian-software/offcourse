@@ -146,6 +146,7 @@ export function parseLearningSuiteBunnyPayload(text: string): LearningSuiteBunny
   const normalized = text.replaceAll("\\/", "/").replaceAll("&amp;", "&");
   const segmentUrls = new Set<string>();
   const hlsUrls = new Set<string>();
+  let derivedHlsUrl: string | null = null;
 
   if (normalized.trimStart().startsWith("#EXTM3U")) {
     const lines = normalized.split("\n").map((line) => line.trim());
@@ -167,10 +168,6 @@ export function parseLearningSuiteBunnyPayload(text: string): LearningSuiteBunny
       if (/^https?:\/\//i.test(line)) {
         segmentUrls.add(line);
       } else if (baseUrl) {
-        // LearningSuite requires a short-lived token on every relative segment;
-        // unauthenticated paths are deliberately unusable outside the browser.
-        if (!line.includes("token=")) continue;
-
         try {
           segmentUrls.add(new URL(line, baseUrl).toString());
         } catch {
@@ -182,7 +179,7 @@ export function parseLearningSuiteBunnyPayload(text: string): LearningSuiteBunny
     const firstBunnySegment = [...segmentUrls].find((url) => /\/video\d+\.ts(?:[?#]|$)/i.test(url));
     if (firstBunnySegment) {
       try {
-        hlsUrls.add(new URL("playlist.m3u8", firstBunnySegment).toString());
+        derivedHlsUrl = new URL("playlist.m3u8", firstBunnySegment).toString();
       } catch {
         // The generic URL scan below may still find a playlist URL.
       }
@@ -195,6 +192,10 @@ export function parseLearningSuiteBunnyPayload(text: string): LearningSuiteBunny
     if (/\.m3u8(?:[?#]|$)/i.test(url)) hlsUrls.add(url);
     if (/\.ts(?:[?#]|$)/i.test(url)) segmentUrls.add(url);
   }
+
+  // Prefer an explicit (potentially signed) playlist. Derive a tokenless URL
+  // from a segment only when the payload did not expose a playlist itself.
+  if (hlsUrls.size === 0 && derivedHlsUrl) hlsUrls.add(derivedHlsUrl);
 
   return { segmentUrls: [...segmentUrls], hlsUrls: [...hlsUrls] };
 }
