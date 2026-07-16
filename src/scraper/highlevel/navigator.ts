@@ -1,13 +1,12 @@
 import type { Page } from "playwright";
 import {
-  FirebaseAuthTokenSchema,
   PortalSettingsResponseSchema,
   ProductResponseSchema,
   CategoriesResponseSchema,
   PostsResponseSchema,
   safeParse,
-  type FirebaseAuthRaw,
 } from "./schemas.js";
+import { getFirebaseAccessTokenFromPage } from "../../shared/firebase.js";
 
 export interface HighLevelCourse {
   id: string;
@@ -162,21 +161,7 @@ export async function extractCourseDetails(
     try {
       const apiUrl = `https://services.leadconnectorhq.com/membership/locations/${locationId}/products/${productId}`;
 
-      // Get auth token from the page context
-      const rawTokenData = await page.evaluate((): FirebaseAuthRaw | null => {
-        const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
-        if (!tokenKey) return null;
-        try {
-          return JSON.parse(localStorage.getItem(tokenKey) ?? "{}") as FirebaseAuthRaw;
-        } catch {
-          return null;
-        }
-      });
-
-      const tokenParsed = rawTokenData
-        ? safeParse(FirebaseAuthTokenSchema, rawTokenData, "extractCourseDetails.token")
-        : null;
-      const authToken = tokenParsed?.stsTokenManager.accessToken;
+      const authToken = await getFirebaseAccessTokenFromPage(page);
 
       if (authToken) {
         // Use page.request to make the API call (bypasses CORS)
@@ -291,21 +276,7 @@ export async function extractCategories(
   locationId: string
 ): Promise<HighLevelCategory[]> {
   try {
-    // Get auth token from the page context
-    const rawTokenData = await page.evaluate((): FirebaseAuthRaw | null => {
-      const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
-      if (!tokenKey) return null;
-      try {
-        return JSON.parse(localStorage.getItem(tokenKey) ?? "{}") as FirebaseAuthRaw;
-      } catch {
-        return null;
-      }
-    });
-
-    const tokenParsed = rawTokenData
-      ? safeParse(FirebaseAuthTokenSchema, rawTokenData, "extractCategories.token")
-      : null;
-    const authToken = tokenParsed?.stsTokenManager.accessToken;
+    const authToken = await getFirebaseAccessTokenFromPage(page);
 
     if (!authToken) {
       console.warn("No auth token found");
@@ -357,21 +328,7 @@ export async function extractPosts(
   locationId: string
 ): Promise<HighLevelPost[]> {
   try {
-    // Get auth token from the page context
-    const rawTokenData = await page.evaluate((): FirebaseAuthRaw | null => {
-      const tokenKey = Object.keys(localStorage).find((k) => k.includes("firebase:authUser"));
-      if (!tokenKey) return null;
-      try {
-        return JSON.parse(localStorage.getItem(tokenKey) ?? "{}") as FirebaseAuthRaw;
-      } catch {
-        return null;
-      }
-    });
-
-    const tokenParsed = rawTokenData
-      ? safeParse(FirebaseAuthTokenSchema, rawTokenData, "extractPosts.token")
-      : null;
-    const authToken = tokenParsed?.stsTokenManager.accessToken;
+    const authToken = await getFirebaseAccessTokenFromPage(page);
 
     if (!authToken) {
       return [];
