@@ -1,9 +1,15 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   hasLessonsPendingValidation,
+  persistCourseStructure,
   redactDownloadUrl,
   redactDownloadUrlsInText,
 } from "./sync.js";
+import { CourseDatabase } from "../../state/database.js";
+import type { CourseStructure } from "../../scraper/navigator.js";
 
 describe("hasLessonsPendingValidation", () => {
   it("starts validation for newly inserted pending lessons", () => {
@@ -40,5 +46,88 @@ describe("redactDownloadUrl", () => {
         "Playlist failed (https://cdn.example.com/video.m3u8?token=secret); fallback segments:c2VjcmV0."
       )
     ).toBe("Playlist failed (https://cdn.example.com/video.m3u8); fallback segments:[redacted].");
+  });
+});
+
+describe("persistCourseStructure", () => {
+  const structure: CourseStructure = {
+    name: "Test course",
+    url: "https://www.skool.com/test-course/classroom",
+    modules: [
+      {
+        name: "Module 1",
+        slug: "module-1",
+        url: "https://www.skool.com/test-course/classroom/module-1",
+        isLocked: false,
+        lessons: [
+          {
+            name: "Lesson 1",
+            slug: "lesson-1",
+            url: "https://www.skool.com/test-course/classroom/lesson-1",
+            index: 0,
+            isLocked: false,
+          },
+          {
+            name: "Lesson 2",
+            slug: "lesson-2",
+            url: "https://www.skool.com/test-course/classroom/lesson-2",
+            index: 1,
+            isLocked: true,
+          },
+        ],
+      },
+    ],
+  };
+
+  function withDatabase(run: (database: CourseDatabase) => void): void {
+    const directory = mkdtempSync(join(tmpdir(), "offcourse-sync-state-"));
+    const database = new CourseDatabase("test-course", join(directory, "course.db"));
+    try {
+      run(database);
+    } finally {
+      database.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+
+  it("atomically persists metadata, modules, and new lessons", () => {
+    withDatabase((database) => {
+      expect(persistCourseStructure(database, structure)).toBe(2);
+      expect(persistCourseStructure(database, structure)).toBe(0);
+      expect(database.getCourseMetadata()).toMatchObject({
+        name: "Test course",
+        totalModules: 1,
+        totalLessons: 2,
+      });
+      expect(database.getLessons()[1]).toMatchObject({ isLocked: true, position: 1 });
+    });
+  });
+
+  it("honors the lesson limit inside the transaction", () => {
+    withDatabase((database) => {
+      expect(persistCourseStructure(database, structure, 1)).toBe(1);
+      expect(database.getLessonCount()).toBe(1);
+    });
+  });
+
+  it("rolls back the whole structure when a lesson write fails", () => {
+    withDatabase((database) => {
+      const upsertLesson = database.upsertLesson.bind(database);
+      let writes = 0;
+      vi.spyOn(database, "upsertLesson").mockImplementation(
+        (...args: Parameters<CourseDatabase["upsertLesson"]>) => {
+          writes++;
+          if (writes === 2) throw new Error("lesson write failed");
+          return upsertLesson(...args);
+        }
+      );
+
+      expect(() => persistCourseStructure(database, structure)).toThrow("lesson write failed");
+      expect(database.getCourseMetadata()).toMatchObject({
+        name: "Unknown Course",
+        totalModules: 0,
+        totalLessons: 0,
+      });
+    });
   });
 });
