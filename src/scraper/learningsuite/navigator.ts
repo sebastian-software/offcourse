@@ -1,7 +1,7 @@
 import type { BrowserContext, Page } from "playwright";
 import { parallelProcess } from "../../shared/parallelWorker.js";
 
-async function waitForLearningSuiteModules(page: Page): Promise<void> {
+export async function waitForLearningSuiteModules(page: Page): Promise<void> {
   await page
     .waitForFunction(
       () =>
@@ -14,7 +14,7 @@ async function waitForLearningSuiteModules(page: Page): Promise<void> {
     .catch(() => {});
 }
 
-async function waitForLearningSuiteLessons(page: Page, courseId: string): Promise<void> {
+export async function waitForLearningSuiteLessons(page: Page, courseId: string): Promise<void> {
   await page
     .waitForFunction(
       (id) =>

@@ -21,4 +21,11 @@ describe("scraper content waits", () => {
     expect(locator).toHaveBeenCalledWith("main, article");
     expect(waitFor).toHaveBeenCalledWith({ state: "attached", timeout: 1234 });
   });
+
+  it("preserves best-effort behavior when the content wait times out", async () => {
+    const waitFor = vi.fn().mockRejectedValue(new Error("timed out"));
+    const { page } = createPage(waitFor);
+
+    await expect(waitForAttachedContent(page, "main")).resolves.toBeUndefined();
+  });
 });

@@ -1,4 +1,4 @@
-import type { Page } from "playwright";
+import type { Page, Response } from "playwright";
 import {
   PortalSettingsResponseSchema,
   ProductResponseSchema,
@@ -38,6 +38,51 @@ export interface HighLevelPost {
   categoryId: string;
   isLocked: boolean;
   isCompleted: boolean;
+}
+
+export interface HighLevelCourseTitleCapture {
+  responseHandler: (response: Response) => void;
+  stop: (page: Page) => Promise<string | null>;
+}
+
+/** Captures the product title while navigation responses are still arriving. */
+export function createHighLevelCourseTitleCapture(
+  productId: string | undefined
+): HighLevelCourseTitleCapture {
+  let courseTitle: string | null = null;
+  const pending = new Set<Promise<void>>();
+
+  const responseHandler = (response: Response): void => {
+    const url = response.url();
+    if (
+      !productId ||
+      !url.includes(`/products/${productId}`) ||
+      !url.includes("leadconnectorhq.com")
+    ) {
+      return;
+    }
+
+    const capture = (async () => {
+      try {
+        const data: unknown = await response.json();
+        const parsed = safeParse(ProductResponseSchema, data, "responseHandler");
+        courseTitle = parsed?.product?.title ?? parsed?.title ?? courseTitle;
+      } catch {
+        // The product response is optional; the DOM/API fallbacks still apply.
+      }
+    })();
+    pending.add(capture);
+    void capture.finally(() => pending.delete(capture));
+  };
+
+  return {
+    responseHandler,
+    async stop(page: Page): Promise<string | null> {
+      page.off("response", responseHandler);
+      await Promise.allSettled([...pending]);
+      return courseTitle;
+    },
+  };
 }
 
 export interface HighLevelCourseStructure {
@@ -404,35 +449,9 @@ export async function buildHighLevelCourseStructure(
     return null;
   }
 
-  // Set up response interception to capture product data BEFORE navigation
-  let capturedCourseTitle: string | null = null;
-  const pendingCourseTitleCaptures = new Set<Promise<void>>();
-
-  const responseHandler = (response: import("playwright").Response) => {
-    const url = response.url();
-    if (
-      productId &&
-      url.includes(`/products/${productId}`) &&
-      url.includes("leadconnectorhq.com")
-    ) {
-      const capture = (async () => {
-        try {
-          const data: unknown = await response.json();
-          const parsed = safeParse(ProductResponseSchema, data, "responseHandler");
-          const title = parsed?.product?.title ?? parsed?.title;
-          if (title) {
-            capturedCourseTitle = title;
-          }
-        } catch {
-          // Ignore JSON parse errors
-        }
-      })();
-      pendingCourseTitleCaptures.add(capture);
-      void capture.finally(() => pendingCourseTitleCaptures.delete(capture));
-    }
-  };
-
-  page.on("response", responseHandler);
+  // Set up response interception to capture product data BEFORE navigation.
+  const titleCapture = createHighLevelCourseTitleCapture(productId);
+  page.on("response", titleCapture.responseHandler);
 
   // Navigate to course page (force reload to ensure we capture API responses)
   // Using waitUntil: "networkidle" to ensure all API calls complete
@@ -444,8 +463,7 @@ export async function buildHighLevelCourseStructure(
   // Stop accepting new captures before awaiting the snapshot. Otherwise a
   // response arriving during the Firebase readiness wait can add work that is
   // never awaited and race with the captured-title fallback below.
-  page.off("response", responseHandler);
-  await Promise.allSettled([...pendingCourseTitleCaptures]);
+  const capturedCourseTitle = await titleCapture.stop(page);
   await waitForFirebaseAccessTokenFromPage(page);
 
   // Extract course details

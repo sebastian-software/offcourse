@@ -1,5 +1,71 @@
-import { describe, expect, it } from "vitest";
-import { createFolderName, slugify, isModuleUrl, getClassroomBaseUrl } from "./navigator.js";
+import type { Page } from "playwright";
+import { describe, expect, it, vi } from "vitest";
+import {
+  createFolderName,
+  extractLessons,
+  extractModulesFromPage,
+  getClassroomBaseUrl,
+  isModuleUrl,
+  slugify,
+} from "./navigator.js";
+
+function attachedContentWait(): {
+  locator: ReturnType<typeof vi.fn>;
+  waitFor: ReturnType<typeof vi.fn>;
+} {
+  const waitFor = vi.fn().mockResolvedValue(undefined);
+  const locator = vi.fn().mockReturnValue({
+    first: vi.fn().mockReturnValue({ waitFor }),
+  });
+  return { locator, waitFor };
+}
+
+describe("Skool navigation readiness", () => {
+  it("waits for lesson content after navigating to a module", async () => {
+    const { locator, waitFor } = attachedContentWait();
+    const page = {
+      url: vi.fn().mockReturnValue("https://www.skool.com/community/classroom"),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoadState: vi.fn().mockResolvedValue(undefined),
+      locator,
+      evaluate: vi
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce([
+          {
+            name: "Ready lesson",
+            slug: "lesson-1",
+            href: "https://www.skool.com/community/classroom/a1b2c3d4?md=lesson-1",
+          },
+        ]),
+    } as unknown as Page;
+
+    await expect(
+      extractLessons(page, "https://www.skool.com/community/classroom/a1b2c3d4")
+    ).resolves.toHaveLength(1);
+
+    expect(waitFor).toHaveBeenCalledWith({ state: "attached", timeout: 5000 });
+  });
+
+  it("waits for module content before reading the overview", async () => {
+    const { locator, waitFor } = attachedContentWait();
+    const page = {
+      locator,
+      evaluate: vi.fn().mockResolvedValue([
+        {
+          name: "Module 1",
+          slug: "a1b2c3d4",
+          url: "https://www.skool.com/community/classroom/a1b2c3d4",
+          isLocked: false,
+        },
+      ]),
+    } as unknown as Page;
+
+    await expect(extractModulesFromPage(page)).resolves.toHaveLength(1);
+
+    expect(waitFor).toHaveBeenCalledWith({ state: "attached", timeout: 5000 });
+  });
+});
 
 describe("slugify", () => {
   it("converts to lowercase", () => {

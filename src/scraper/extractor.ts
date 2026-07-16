@@ -88,7 +88,7 @@ export function convertHtmlToMarkdown(html: string): string {
 /**
  * Checks if there's a video preview/thumbnail that needs to be clicked to load the video.
  */
-async function tryClickVideoPreview(page: Page): Promise<boolean> {
+export async function tryClickVideoPreview(page: Page): Promise<boolean> {
   // First, try Skool's specific styled-components pattern for video players
   // These have classes like "styled__VideoPlayerWrapper-sc-xxx" and "styled__PlaybackButton-sc-xxx"
 

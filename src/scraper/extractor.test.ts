@@ -1,11 +1,62 @@
-import { describe, expect, it } from "vitest";
+import type { Page } from "playwright";
+import { describe, expect, it, vi } from "vitest";
 import {
   cleanLessonTitle,
   extractLoomVideoId,
   formatMarkdown,
   getFileType,
   convertHtmlToMarkdown,
+  tryClickVideoPreview,
 } from "./extractor.js";
+
+function previewPage(
+  evaluationResults: unknown[],
+  element?: object
+): { page: Page; locator: ReturnType<typeof vi.fn> } {
+  const evaluate = vi.fn();
+  for (const result of evaluationResults) evaluate.mockResolvedValueOnce(result);
+  const waitFor = vi.fn().mockResolvedValue(undefined);
+  const locator = vi.fn().mockReturnValue({
+    first: vi.fn().mockReturnValue({ waitFor }),
+  });
+  const page = {
+    evaluate,
+    locator,
+    $: vi.fn().mockResolvedValue(element ?? null),
+  } as unknown as Page;
+  return { page, locator };
+}
+
+describe("tryClickVideoPreview", () => {
+  it.each([
+    ["Skool preview", [{ clicked: true }]],
+    ["Loom link", [{ clicked: false }, true]],
+    ["play overlay", [{ clicked: false }, false, true]],
+    ["thumbnail", [{ clicked: false }, false, false, true]],
+  ])("waits for the player after clicking a %s", async (_label, evaluations) => {
+    const { page, locator } = previewPage(evaluations);
+
+    await expect(tryClickVideoPreview(page)).resolves.toBe(true);
+
+    expect(locator).toHaveBeenCalledWith(
+      'iframe[src*="loom.com"], iframe[src*="vimeo"], iframe[src*="youtube"], video'
+    );
+  });
+
+  it("waits for the player after clicking a matching preview element", async () => {
+    const element = {
+      isVisible: vi.fn().mockResolvedValue(true),
+      boundingBox: vi.fn().mockResolvedValue({ width: 640, height: 360 }),
+      click: vi.fn().mockResolvedValue(undefined),
+    };
+    const { page, locator } = previewPage([{ clicked: false }, false, false, false], element);
+
+    await expect(tryClickVideoPreview(page)).resolves.toBe(true);
+
+    expect(element.click).toHaveBeenCalledOnce();
+    expect(locator).toHaveBeenCalledOnce();
+  });
+});
 
 describe("cleanLessonTitle", () => {
   it("removes the known module and course suffix", () => {

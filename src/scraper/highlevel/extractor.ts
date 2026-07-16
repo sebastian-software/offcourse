@@ -47,6 +47,13 @@ export interface HighLevelPostContent {
   productId: string;
 }
 
+/** Navigates to a post and waits for the auth state needed by its API requests. */
+export async function navigateToHighLevelPost(page: Page, postUrl: string): Promise<void> {
+  await page.goto(postUrl, { timeout: 30000 });
+  await page.waitForLoadState("domcontentloaded");
+  await waitForFirebaseAccessTokenFromPage(page);
+}
+
 // Browser/API automation - requires Playwright
 
 /**
@@ -259,10 +266,7 @@ export async function extractHighLevelPostContent(
   postId: string,
   categoryId: string
 ): Promise<HighLevelPostContent | null> {
-  // Navigate to post page
-  await page.goto(postUrl, { timeout: 30000 });
-  await page.waitForLoadState("domcontentloaded");
-  await waitForFirebaseAccessTokenFromPage(page);
+  await navigateToHighLevelPost(page, postUrl);
 
   // Fetch post details from API
   const postDetails = await fetchPostDetails(page, locationId, postId);

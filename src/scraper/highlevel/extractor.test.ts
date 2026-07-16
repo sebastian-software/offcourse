@@ -1,11 +1,36 @@
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
-import { parseHLSMasterPlaylist } from "./extractor.js";
+import type { Page } from "playwright";
+import { describe, expect, it, vi } from "vitest";
+import { navigateToHighLevelPost, parseHLSMasterPlaylist } from "./extractor.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(__dirname, "../../__fixtures__");
+
+describe("navigateToHighLevelPost", () => {
+  it("waits for navigation and Firebase readiness", async () => {
+    const goto = vi.fn().mockResolvedValue(undefined);
+    const waitForLoadState = vi.fn().mockResolvedValue(undefined);
+    const waitForFunction = vi.fn().mockResolvedValue(undefined);
+    const page = {
+      goto,
+      waitForLoadState,
+      waitForFunction,
+      evaluate: vi.fn().mockResolvedValue({
+        stsTokenManager: { accessToken: "access-token" },
+      }),
+    } as unknown as Page;
+
+    await navigateToHighLevelPost(page, "https://member.example.com/courses/posts/post-1");
+
+    expect(goto).toHaveBeenCalledWith("https://member.example.com/courses/posts/post-1", {
+      timeout: 30000,
+    });
+    expect(waitForLoadState).toHaveBeenCalledWith("domcontentloaded");
+    expect(waitForFunction).toHaveBeenCalledOnce();
+  });
+});
 
 describe("parseHLSMasterPlaylist", () => {
   const baseUrl = "https://cdn.example.com/video/";
