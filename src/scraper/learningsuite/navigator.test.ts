@@ -2,13 +2,64 @@
  * Tests for LearningSuite navigator utility functions.
  */
 
-import { describe, expect, it } from "vitest";
+import type { Page } from "playwright";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getLearningSuiteCourseUrl,
   getLearningSuiteLessonUrl,
   parseLearningSuiteLessonText,
   parseLearningSuiteModulesText,
+  waitForLearningSuiteLessons,
+  waitForLearningSuiteModules,
 } from "./navigator.js";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("LearningSuite readiness waits", () => {
+  it("waits for localized module statistics", async () => {
+    vi.stubGlobal("document", { body: { innerText: "Introduction 3 LESSONS | 12 MINUTES" } });
+    const waitForFunction = vi.fn(async (predicate: () => boolean) => {
+      expect(predicate()).toBe(true);
+    });
+    const page = { waitForFunction } as unknown as Page;
+
+    await waitForLearningSuiteModules(page);
+
+    expect(waitForFunction).toHaveBeenCalledWith(expect.any(Function), undefined, {
+      timeout: 5000,
+    });
+  });
+
+  it("waits for lesson links belonging to the current course", async () => {
+    vi.stubGlobal("document", {
+      querySelectorAll: () => [
+        { href: "https://academy.learningsuite.io/student/course/example/course-1/lesson-1" },
+        { href: "https://academy.learningsuite.io/student/course/example/course-1/t/module-1" },
+      ],
+    });
+    const waitForFunction = vi.fn(async (predicate: (id: string) => boolean, id: string) => {
+      expect(predicate(id)).toBe(true);
+    });
+    const page = { waitForFunction } as unknown as Page;
+
+    await waitForLearningSuiteLessons(page, "course-1");
+
+    expect(waitForFunction).toHaveBeenCalledWith(expect.any(Function), "course-1", {
+      timeout: 5000,
+    });
+  });
+
+  it("preserves best-effort behavior when readiness times out", async () => {
+    const page = {
+      waitForFunction: vi.fn().mockRejectedValue(new Error("timed out")),
+    } as unknown as Page;
+
+    await expect(waitForLearningSuiteModules(page)).resolves.toBeUndefined();
+    await expect(waitForLearningSuiteLessons(page, "course-1")).resolves.toBeUndefined();
+  });
+});
 
 describe("parseLearningSuiteModulesText", () => {
   it("parses German and English module statistics", () => {

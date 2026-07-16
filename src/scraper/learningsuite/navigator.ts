@@ -1,6 +1,32 @@
 import type { BrowserContext, Page } from "playwright";
 import { parallelProcess } from "../../shared/parallelWorker.js";
 
+export async function waitForLearningSuiteModules(page: Page): Promise<void> {
+  await page
+    .waitForFunction(
+      () =>
+        /(\d+)\s*(?:LEKTION(?:EN)?|LESSONS?)\s*\|\s*(\d+)\s*(?:MIN(?:\.|S)?|MINUTEN?|MINUTES?)|ERSCHEINT\s*BALD|COMING\s*SOON/i.test(
+          document.body.innerText
+        ),
+      undefined,
+      { timeout: 5000 }
+    )
+    .catch(() => {});
+}
+
+export async function waitForLearningSuiteLessons(page: Page, courseId: string): Promise<void> {
+  await page
+    .waitForFunction(
+      (id) =>
+        Array.from(document.querySelectorAll("a")).some(
+          (link) => link.href.includes(`/${id}/`) && !link.href.includes("/t/")
+        ),
+      courseId,
+      { timeout: 5000 }
+    )
+    .catch(() => {});
+}
+
 export interface LearningSuiteCourse {
   id: string;
   title: string;
@@ -151,7 +177,7 @@ async function dismissMuiDialogs(page: Page): Promise<void> {
 
       // 1. Press Escape key (most reliable)
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(300);
+      await dialog.waitFor({ state: "hidden", timeout: 500 }).catch(() => {});
 
       // Check if still visible
       if (await dialog.isVisible({ timeout: 200 }).catch(() => false)) {
@@ -160,7 +186,7 @@ async function dismissMuiDialogs(page: Page): Promise<void> {
         if (await backdrop.isVisible({ timeout: 200 }).catch(() => false)) {
           // Click outside the dialog content
           await page.mouse.click(10, 10);
-          await page.waitForTimeout(300);
+          await dialog.waitFor({ state: "hidden", timeout: 500 }).catch(() => {});
         }
       }
 
@@ -180,7 +206,7 @@ async function dismissMuiDialogs(page: Page): Promise<void> {
             .first()
             .click({ timeout: 1000 })
             .catch(() => {});
-          await page.waitForTimeout(300);
+          await dialog.waitFor({ state: "hidden", timeout: 500 }).catch(() => {});
         }
       }
     }
@@ -311,13 +337,14 @@ async function scanModuleLessons(
   // Navigate to course page first (each worker starts fresh)
   await page.goto(courseUrl, { timeout: 30000 });
   await page.waitForLoadState("domcontentloaded").catch(() => {});
-  await page.waitForTimeout(2000);
+  await waitForLearningSuiteModules(page);
 
   // Dismiss any modal dialogs
   await dismissMuiDialogs(page);
 
   // Navigate to the module by clicking on its title text
   const moduleTitle = page.getByText(module.title, { exact: true }).nth(titleOccurrence);
+  await moduleTitle.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
 
   if (!(await moduleTitle.isVisible().catch(() => false))) {
     console.warn(`Skipping LearningSuite module "${module.title}": title is not visible`);
@@ -327,8 +354,8 @@ async function scanModuleLessons(
   // Dismiss any modal dialogs that might block the click
   await dismissMuiDialogs(page);
   await moduleTitle.click();
-  await page.waitForLoadState("domcontentloaded").catch(() => {});
-  await page.waitForTimeout(2000);
+  await page.waitForURL(/\/t\/[^/]+/, { timeout: 5000 }).catch(() => {});
+  await waitForLearningSuiteLessons(page, courseId);
 
   // Extract module ID from URL (format: /t/{moduleId})
   const currentUrl = page.url();
@@ -415,7 +442,7 @@ export async function buildLearningSuiteCourseStructure(
   onProgress?.({ phase: "navigating", status: "Loading course page..." });
   await page.goto(courseUrl, { timeout: 30000 });
   await page.waitForLoadState("networkidle").catch(() => {});
-  await page.waitForTimeout(3000);
+  await waitForLearningSuiteModules(page);
 
   // Dismiss any modal dialogs (e.g., welcome/notification modals)
   await dismissMuiDialogs(page);
@@ -666,9 +693,6 @@ async function extractModulesFromCoursePage(
   _courseSlug: string,
   _courseId: string
 ): Promise<LearningSuiteCourseStructure["modules"]> {
-  // Wait for content to load
-  await page.waitForTimeout(2000);
-
   // Extract modules by analyzing localized text content.
   const pageText = await page.evaluate(() => document.body.innerText);
   const modulesData = parseLearningSuiteModulesText(pageText);

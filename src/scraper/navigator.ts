@@ -6,6 +6,10 @@ import {
   extractLessonsFromNextData,
 } from "./schemas.js";
 import { parallelProcess } from "../shared/parallelWorker.js";
+import { waitForAttachedContent } from "./waits.js";
+
+const SKOOL_MODULE_CONTENT = '#__NEXT_DATA__, a[href*="/classroom/"]';
+const SKOOL_LESSON_CONTENT = '#__NEXT_DATA__, a[href*="/classroom"][href*="md="]';
 
 export interface CourseModule {
   name: string;
@@ -126,7 +130,7 @@ export async function extractLessons(page: Page, moduleUrl: string): Promise<Les
   if (!currentUrl.includes(moduleBasePath)) {
     await page.goto(moduleUrl, { timeout: 30000 });
     await page.waitForLoadState("domcontentloaded");
-    await page.waitForTimeout(2000);
+    await waitForAttachedContent(page, SKOOL_LESSON_CONTENT);
   }
 
   // Get __NEXT_DATA__ and parse it in Node context
@@ -202,7 +206,7 @@ export async function extractLessons(page: Page, moduleUrl: string): Promise<Les
  * Alternative: Extract modules from the classroom overview page links.
  */
 export async function extractModulesFromPage(page: Page): Promise<CourseModule[]> {
-  await page.waitForTimeout(1000);
+  await waitForAttachedContent(page, SKOOL_MODULE_CONTENT);
 
   const modules = await page.evaluate(() => {
     // Look for module cards - they're usually divs/links with course images
@@ -318,7 +322,7 @@ export async function buildCourseStructure(
   onProgress?.({ phase: "navigating", status: "Loading classroom..." });
   await page.goto(baseClassroomUrl, { timeout: 30000 });
   await page.waitForLoadState("domcontentloaded");
-  await page.waitForTimeout(2000);
+  await waitForAttachedContent(page, SKOOL_MODULE_CONTENT);
 
   onProgress?.({ phase: "extracting", status: "Reading course info..." });
   const courseName = await extractCourseName(page);

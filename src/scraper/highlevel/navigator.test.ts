@@ -1,10 +1,24 @@
-import { describe, expect, it } from "vitest";
+import type { Page, Response } from "playwright";
+import { describe, expect, it, vi } from "vitest";
 import {
+  createHighLevelCourseTitleCapture,
   slugify,
   createFolderName,
   getHighLevelCourseUrl,
   getHighLevelPostUrl,
 } from "./navigator.js";
+
+function productResponse(
+  url: string,
+  value: unknown
+): { response: Response; json: ReturnType<typeof vi.fn> } {
+  const json = vi.fn().mockResolvedValue(value);
+  const response = {
+    url: vi.fn().mockReturnValue(url),
+    json,
+  } as unknown as Response;
+  return { response, json };
+}
 
 describe("slugify", () => {
   it("converts to lowercase", () => {
@@ -106,5 +120,44 @@ describe("getHighLevelPostUrl", () => {
     expect(url).toContain("products/e5f64bf3-9d88-4d02-b10e-516f47866094");
     expect(url).toContain("categories/cat-abc-123");
     expect(url).toContain("posts/post-xyz-789");
+  });
+});
+
+describe("createHighLevelCourseTitleCapture", () => {
+  it("stops listening before awaiting an in-flight product response", async () => {
+    let resolveJson: ((value: unknown) => void) | undefined;
+    const response = {
+      url: () => "https://services.leadconnectorhq.com/products/product-1",
+      json: () => new Promise<unknown>((resolve) => (resolveJson = resolve)),
+    } as unknown as Response;
+    const off = vi.fn();
+    const page = { off } as unknown as Page;
+    const capture = createHighLevelCourseTitleCapture("product-1");
+
+    capture.responseHandler(response);
+    const result = capture.stop(page);
+
+    expect(off).toHaveBeenCalledWith("response", capture.responseHandler);
+    resolveJson?.({ product: { title: "Condition-Based Waiting" } });
+    await expect(result).resolves.toBe("Condition-Based Waiting");
+  });
+
+  it("ignores unrelated and malformed responses", async () => {
+    const unrelated = productResponse(
+      "https://services.leadconnectorhq.com/products/another-product",
+      { product: { title: "Wrong course" } }
+    );
+    const malformed = productResponse(
+      "https://services.leadconnectorhq.com/products/product-1",
+      Promise.reject(new Error("invalid JSON"))
+    );
+    const page = { off: vi.fn() } as unknown as Page;
+    const capture = createHighLevelCourseTitleCapture("product-1");
+
+    capture.responseHandler(unrelated.response);
+    capture.responseHandler(malformed.response);
+
+    await expect(capture.stop(page)).resolves.toBeNull();
+    expect(unrelated.json).not.toHaveBeenCalled();
   });
 });

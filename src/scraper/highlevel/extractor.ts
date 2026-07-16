@@ -7,7 +7,10 @@ import {
   detectHlsVideo,
 } from "../../shared/videoDetection.js";
 import { PostDetailsResponseSchema, VideoLicenseResponseSchema, safeParse } from "./schemas.js";
-import { getFirebaseAccessTokenFromPage } from "../../shared/firebase.js";
+import {
+  getFirebaseAccessTokenFromPage,
+  waitForFirebaseAccessTokenFromPage,
+} from "../../shared/firebase.js";
 
 // Alias for backwards compatibility and internal use
 const parseHLSMasterPlaylist = parseHLSPlaylist;
@@ -42,6 +45,13 @@ export interface HighLevelPostContent {
   }[];
   categoryId: string;
   productId: string;
+}
+
+/** Navigates to a post and waits for the auth state needed by its API requests. */
+export async function navigateToHighLevelPost(page: Page, postUrl: string): Promise<void> {
+  await page.goto(postUrl, { timeout: 30000 });
+  await page.waitForLoadState("domcontentloaded");
+  await waitForFirebaseAccessTokenFromPage(page);
 }
 
 // Browser/API automation - requires Playwright
@@ -256,10 +266,7 @@ export async function extractHighLevelPostContent(
   postId: string,
   categoryId: string
 ): Promise<HighLevelPostContent | null> {
-  // Navigate to post page
-  await page.goto(postUrl, { timeout: 30000 });
-  await page.waitForLoadState("domcontentloaded");
-  await page.waitForTimeout(3000);
+  await navigateToHighLevelPost(page, postUrl);
 
   // Fetch post details from API
   const postDetails = await fetchPostDetails(page, locationId, postId);
