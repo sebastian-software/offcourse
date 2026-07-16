@@ -229,6 +229,8 @@ export class CourseDatabase {
       },
     ];
 
+    // Keep each schema change and its version stamp atomic so a failed migration
+    // rolls back cleanly and is retried the next time the database opens.
     const migrate = this.db.transaction(() => {
       for (const migration of migrations) {
         if (migration.version <= currentVersion) continue;
@@ -239,13 +241,12 @@ export class CourseDatabase {
     migrate();
   }
 
-  /** Ensure indexes exist even if an older database was only partially migrated. */
+  /** Ensure legacy indexes that predate schema versioning still exist. */
   private ensureIndexes(): void {
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_lessons_status ON lessons(status);
       CREATE INDEX IF NOT EXISTS idx_lessons_module ON lessons(module_id);
       CREATE INDEX IF NOT EXISTS idx_lessons_locked ON lessons(is_locked);
-      CREATE INDEX IF NOT EXISTS idx_lessons_url ON lessons(url);
     `);
   }
 
