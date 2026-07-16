@@ -152,3 +152,29 @@ export async function getFirebaseAccessTokenFromPage(page: Page): Promise<string
   const parsed = FirebaseAuthTokenSchema.safeParse(rawToken);
   return parsed.success ? parsed.data.stsTokenManager.accessToken : null;
 }
+
+/** Waits for Firebase auth initialization and returns the validated access token when available. */
+export async function waitForFirebaseAccessTokenFromPage(
+  page: Page,
+  timeout = 5000
+): Promise<string | null> {
+  await page
+    .waitForFunction(
+      ({ keyPattern }) => {
+        const tokenKey = Object.keys(localStorage).find((key) => key.includes(keyPattern));
+        if (!tokenKey) return false;
+
+        try {
+          const value = JSON.parse(localStorage.getItem(tokenKey) ?? "{}") as FirebaseAuthRaw;
+          return typeof value.stsTokenManager?.accessToken === "string";
+        } catch {
+          return false;
+        }
+      },
+      { keyPattern: FIREBASE_AUTH_KEY_PATTERN },
+      { timeout }
+    )
+    .catch(() => {});
+
+  return getFirebaseAccessTokenFromPage(page);
+}
