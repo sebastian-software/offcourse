@@ -31,6 +31,9 @@ export const VideoType = {
 
 export type VideoTypeValue = (typeof VideoType)[keyof typeof VideoType];
 
+/** Current SQLite schema version stored in PRAGMA user_version. */
+export const DATABASE_SCHEMA_VERSION = 2;
+
 /**
  * Module record from database.
  */
@@ -135,9 +138,7 @@ export function extractCommunitySlug(value: string): string {
 export class CourseDatabase {
   private db: Database.Database;
 
-  constructor(communitySlug: string) {
-    const dbPath = getDbPath(communitySlug);
-
+  constructor(communitySlug: string, dbPath = getDbPath(communitySlug)) {
     // Ensure directory exists
     const dir = dirname(dbPath);
     if (!existsSync(dir)) {
@@ -183,6 +184,7 @@ export class CourseDatabase {
         hls_url TEXT,
         error_message TEXT,
         error_code TEXT,
+        retry_count INTEGER DEFAULT 0,
         last_scanned_at TEXT,
         last_downloaded_at TEXT,
         video_file_size INTEGER,
@@ -192,34 +194,60 @@ export class CourseDatabase {
         UNIQUE(module_id, slug)
       );
 
-      CREATE INDEX IF NOT EXISTS idx_lessons_status ON lessons(status);
-      CREATE INDEX IF NOT EXISTS idx_lessons_module ON lessons(module_id);
-      CREATE INDEX IF NOT EXISTS idx_lessons_locked ON lessons(is_locked);
     `);
 
     // Run migrations for existing databases
     this.runMigrations();
+    this.ensureIndexes();
   }
 
   /**
    * Run database migrations for schema updates.
    */
   private runMigrations(): void {
-    const tableInfo = this.db.prepare("PRAGMA table_info(lessons)").all() as {
-      name: string;
-    }[];
+    const currentVersion = this.db.pragma("user_version", { simple: true }) as number;
+    const migrations = [
+      {
+        version: 1,
+        up: () => {
+          const columns = this.db.prepare("PRAGMA table_info(lessons)").all() as {
+            name: string;
+          }[];
+          if (!columns.some((column) => column.name === "is_locked")) {
+            this.db.exec("ALTER TABLE lessons ADD COLUMN is_locked INTEGER DEFAULT 0");
+          }
+          if (!columns.some((column) => column.name === "retry_count")) {
+            this.db.exec("ALTER TABLE lessons ADD COLUMN retry_count INTEGER DEFAULT 0");
+          }
+        },
+      },
+      {
+        version: 2,
+        up: () => {
+          this.db.exec("CREATE INDEX IF NOT EXISTS idx_lessons_url ON lessons(url)");
+        },
+      },
+    ];
 
-    // Migration: Add is_locked column if it doesn't exist
-    const hasIsLocked = tableInfo.some((col) => col.name === "is_locked");
-    if (!hasIsLocked) {
-      this.db.exec("ALTER TABLE lessons ADD COLUMN is_locked INTEGER DEFAULT 0");
-    }
+    // Keep each schema change and its version stamp atomic so a failed migration
+    // rolls back cleanly and is retried the next time the database opens.
+    const migrate = this.db.transaction(() => {
+      for (const migration of migrations) {
+        if (migration.version <= currentVersion) continue;
+        migration.up();
+        this.db.pragma(`user_version = ${migration.version}`);
+      }
+    });
+    migrate();
+  }
 
-    // Migration: Add retry_count column if it doesn't exist
-    const hasRetryCount = tableInfo.some((col) => col.name === "retry_count");
-    if (!hasRetryCount) {
-      this.db.exec("ALTER TABLE lessons ADD COLUMN retry_count INTEGER DEFAULT 0");
-    }
+  /** Ensure legacy indexes that predate schema versioning still exist. */
+  private ensureIndexes(): void {
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_lessons_status ON lessons(status);
+      CREATE INDEX IF NOT EXISTS idx_lessons_module ON lessons(module_id);
+      CREATE INDEX IF NOT EXISTS idx_lessons_locked ON lessons(is_locked);
+    `);
   }
 
   /**
@@ -227,6 +255,11 @@ export class CourseDatabase {
    */
   close(): void {
     this.db.close();
+  }
+
+  /** Run related state changes atomically. */
+  withTransaction<T>(operation: () => T): T {
+    return this.db.transaction(operation)();
   }
 
   // ============================================
