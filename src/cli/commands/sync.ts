@@ -9,7 +9,7 @@ import { getFileSize, outputFile } from "../../shared/fs.js";
 import { createWorkerPool, closeWorkerPool } from "../../shared/parallelWorker.js";
 import { createShutdownManager } from "../../shared/shutdown.js";
 import { extractLessonContent, formatMarkdown, extractVideoUrl } from "../../scraper/extractor.js";
-import { buildCourseStructure } from "../../scraper/navigator.js";
+import { buildCourseStructure, type CourseStructure } from "../../scraper/navigator.js";
 import {
   createCourseDirectory,
   createModuleDirectory,
@@ -85,6 +85,48 @@ export function redactDownloadUrlsInText(text: string): string {
     /\b((?:https?:\/\/|segments:)[^\s"'<>]*?)([),.;:!?]*)(?=\s|$)/gi,
     (_match, url: string, punctuation: string) => `${redactDownloadUrl(url)}${punctuation}`
   );
+}
+
+/** Persist one discovered course structure as a single atomic state update. */
+export function persistCourseStructure(
+  db: CourseDatabase,
+  courseStructure: CourseStructure,
+  limit?: number
+): number {
+  let newLessons = 0;
+
+  db.withTransaction(() => {
+    db.updateCourseMetadata(courseStructure.name, courseStructure.url);
+
+    for (let moduleIndex = 0; moduleIndex < courseStructure.modules.length; moduleIndex++) {
+      const module = courseStructure.modules[moduleIndex];
+      if (!module) continue;
+
+      const moduleRecord = db.upsertModule(module.slug, module.name, moduleIndex, module.isLocked);
+
+      for (let lessonIndex = 0; lessonIndex < module.lessons.length; lessonIndex++) {
+        const lesson = module.lessons[lessonIndex];
+        if (!lesson) continue;
+
+        const existingLesson = db.getLessonByUrl(lesson.url);
+        db.upsertLesson(
+          moduleRecord.id,
+          lesson.slug,
+          lesson.name,
+          lesson.url,
+          lessonIndex,
+          lesson.isLocked
+        );
+
+        if (!existingLesson) newLessons++;
+        if (limit && db.getLessonCount() >= limit) break;
+      }
+
+      if (limit && db.getLessonCount() >= limit) break;
+    }
+  });
+
+  return newLessons;
 }
 
 /**
@@ -400,51 +442,7 @@ async function scanCourseStructure(
       );
     }
 
-    // Track new lessons found
-    let newLessons = 0;
-
-    db.withTransaction(() => {
-      db.updateCourseMetadata(courseStructure.name, courseStructure.url);
-
-      for (let moduleIndex = 0; moduleIndex < courseStructure.modules.length; moduleIndex++) {
-        const module = courseStructure.modules[moduleIndex];
-        if (!module) continue;
-
-        const moduleRecord = db.upsertModule(
-          module.slug,
-          module.name,
-          moduleIndex,
-          module.isLocked
-        );
-
-        for (let lessonIndex = 0; lessonIndex < module.lessons.length; lessonIndex++) {
-          const lesson = module.lessons[lessonIndex];
-          if (!lesson) continue;
-
-          const existingLesson = db.getLessonByUrl(lesson.url);
-          db.upsertLesson(
-            moduleRecord.id,
-            lesson.slug,
-            lesson.name,
-            lesson.url,
-            lessonIndex,
-            lesson.isLocked
-          );
-
-          if (!existingLesson) {
-            newLessons++;
-          }
-
-          if (options.limit && db.getLessonCount() >= options.limit) {
-            break;
-          }
-        }
-
-        if (options.limit && db.getLessonCount() >= options.limit) {
-          break;
-        }
-      }
-    });
+    const newLessons = persistCourseStructure(db, courseStructure, options.limit);
 
     const meta = db.getCourseMetadata();
     console.log();
