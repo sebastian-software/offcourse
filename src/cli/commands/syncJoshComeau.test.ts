@@ -297,6 +297,27 @@ describe("syncJoshComeauCommand", () => {
     expect(mocks.browserClose).toHaveBeenCalledOnce();
   });
 
+  it("re-downloads existing video files when retrying a failed lesson", async () => {
+    const stateLesson = { id: 1, status: "pending", retryCount: 1 };
+    mocks.initializeCourseState.mockReturnValue({
+      key: "joshcomeau-css-for-js",
+      database: {
+        close: vi.fn(),
+        getLessonByUrl: vi.fn(() => stateLesson),
+        markLessonDownloaded: vi.fn(),
+        markLessonSkipped: vi.fn(),
+      },
+      lessonsByUrl: new Map([[`${courseUrl}/rendering-logic/flow-layout`, stateLesson]]),
+      retryLessonIds: new Set([1]),
+    });
+    mocks.isLessonSynced.mockResolvedValue({ content: true, video: true });
+    mocks.pathExists.mockResolvedValue(true);
+
+    await syncJoshComeauCommand(courseUrl, { retryFailed: true });
+
+    expect(mocks.downloadVideo).toHaveBeenCalledTimes(2);
+  });
+
   it("reports lesson failures and still closes the browser", async () => {
     mocks.downloadResource.mockResolvedValue({ success: false, error: "HTTP 403" });
 

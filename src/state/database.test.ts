@@ -159,7 +159,7 @@ describe("CourseDatabase", () => {
     );
   }
 
-  it("creates the complete current schema and URL index", () => {
+  it("creates the complete current schema and unique URL index", () => {
     createDatabase();
     const raw = new Database(join(directory, "course.db"), { readonly: true });
 
@@ -169,11 +169,16 @@ describe("CourseDatabase", () => {
         (column) => column.name
       )
     ).toContain("retry_count");
-    expect(
-      (raw.prepare("PRAGMA index_list(lessons)").all() as { name: string }[]).map(
-        (index) => index.name
-      )
-    ).toContain("idx_lessons_url");
+    const indexes = raw.prepare("PRAGMA index_list(lessons)").all() as {
+      name: string;
+      unique: number;
+    }[];
+    expect(indexes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "idx_lessons_url", unique: 0 }),
+        expect.objectContaining({ name: "idx_lessons_url_unique", unique: 1 }),
+      ])
+    );
 
     raw.close();
   });
@@ -221,7 +226,7 @@ describe("CourseDatabase", () => {
     );
 
     expect(columns).toEqual(expect.arrayContaining(["is_locked", "retry_count"]));
-    expect(indexes).toContain("idx_lessons_url");
+    expect(indexes).toEqual(expect.arrayContaining(["idx_lessons_url", "idx_lessons_url_unique"]));
     expect(raw.pragma("user_version", { simple: true })).toBe(DATABASE_SCHEMA_VERSION);
 
     raw.close();
@@ -229,6 +234,67 @@ describe("CourseDatabase", () => {
     const reopened = new CourseDatabase("legacy", path);
     databases.push(reopened);
     expect(reopened.getLessonCount()).toBe(0);
+  });
+
+  it("deduplicates legacy lesson URLs before enforcing uniqueness", () => {
+    const path = join(directory, "duplicate-urls.db");
+    const legacy = new Database(path);
+    legacy.exec(`
+      CREATE TABLE modules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        slug TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        is_locked INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE TABLE lessons (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        module_id INTEGER NOT NULL,
+        slug TEXT NOT NULL,
+        name TEXT NOT NULL,
+        url TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        is_locked INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'pending',
+        video_type TEXT,
+        video_url TEXT,
+        hls_url TEXT,
+        error_message TEXT,
+        error_code TEXT,
+        retry_count INTEGER DEFAULT 0,
+        last_scanned_at TEXT,
+        last_downloaded_at TEXT,
+        video_file_size INTEGER,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(module_id, slug)
+      );
+      INSERT INTO modules (slug, name, position) VALUES ('one', 'One', 0), ('two', 'Two', 1);
+      INSERT INTO lessons (module_id, slug, name, url, position, status)
+        VALUES
+          (1, 'pending', 'Pending', 'https://example.com/stable', 0, 'pending'),
+          (2, 'done', 'Done', 'https://example.com/stable', 0, 'downloaded');
+      PRAGMA user_version = 2;
+    `);
+    legacy.close();
+
+    const database = new CourseDatabase("legacy", path);
+    databases.push(database);
+    expect(database.getLessons()).toEqual([
+      expect.objectContaining({ name: "Done", status: LessonStatus.DOWNLOADED }),
+    ]);
+
+    const raw = new Database(path);
+    expect(() =>
+      raw
+        .prepare(
+          "INSERT INTO lessons (module_id, slug, name, url, position) VALUES (?, ?, ?, ?, ?)"
+        )
+        .run(1, "duplicate", "Duplicate", "https://example.com/stable", 1)
+    ).toThrow(/UNIQUE constraint failed/);
+    raw.close();
   });
 
   it("stores metadata and derives course totals", () => {

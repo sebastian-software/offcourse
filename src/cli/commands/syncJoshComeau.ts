@@ -162,16 +162,13 @@ async function processLessons(
       const syncStatus = await isLessonSynced(moduleDir, lesson.index, lesson.name);
       const stateLesson = database.getLessonByUrl(lesson.url);
       const retryFailed = retryLessonIds.has(stateId);
-      if (syncStatus.video && stateLesson?.status !== LessonStatus.DOWNLOADED) {
-        database.markLessonDownloaded(stateId);
-      }
       const needsContent =
         !options.skipContent && ((options.force ?? false) || retryFailed || !syncStatus.content);
       const needsVideo =
         !options.skipVideos &&
         ((options.force ?? false) ||
           retryFailed ||
-          (stateLesson?.status !== LessonStatus.DOWNLOADED && !syncStatus.video));
+          stateLesson?.status !== LessonStatus.DOWNLOADED);
 
       if (!needsContent && !needsVideo) {
         return {
@@ -236,7 +233,9 @@ async function processLessons(
       if (needsVideo) {
         for (const [index, video] of content.videos.entries()) {
           const outputPath = videoPaths[index];
-          if (!outputPath || (!options.force && (await pathExists(outputPath)))) continue;
+          if (!outputPath || (!options.force && !retryFailed && (await pathExists(outputPath)))) {
+            continue;
+          }
           if (!video.hlsUrl) {
             throw new Error(`Could not resolve Vimeo stream ${index + 1} for ${lesson.name}`);
           }

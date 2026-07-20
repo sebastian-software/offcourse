@@ -150,9 +150,11 @@ export async function isLessonSynced(
   }
 
   const lessonSlug = slugify(lessonName);
+  if (!lessonSlug) return { video: exactVideo, content: exactContent };
+
   const hasUniquePositionIndependentMatch = (extension: "mp4" | "md"): boolean => {
-    const suffix = `-${lessonSlug}.${extension}`;
-    return files.filter((file) => /^\d+-/.test(file) && file.endsWith(suffix)).length === 1;
+    const expected = `${lessonSlug}.${extension}`;
+    return files.filter((file) => file.replace(/^\d+-/, "") === expected).length === 1;
   };
 
   return {

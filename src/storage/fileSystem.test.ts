@@ -108,5 +108,26 @@ describe("fileSystem", () => {
         video: false,
       });
     });
+
+    it("does not confuse a lesson name with the suffix of another lesson", async () => {
+      const directory = await mkdtemp(join(tmpdir(), "offcourse-files-"));
+      tempDirectories.push(directory);
+      await writeFile(join(directory, "01-flow-layout.mp4"), "video");
+
+      await expect(isLessonSynced(directory, 1, "Layout")).resolves.toMatchObject({
+        video: false,
+      });
+    });
+
+    it("does not use the fallback when a lesson name has an empty slug", async () => {
+      const directory = await mkdtemp(join(tmpdir(), "offcourse-files-"));
+      tempDirectories.push(directory);
+      await writeFile(join(directory, "01-.mp4"), "video");
+
+      await expect(isLessonSynced(directory, 1, "---")).resolves.toEqual({
+        video: false,
+        content: false,
+      });
+    });
   });
 });

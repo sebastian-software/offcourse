@@ -32,7 +32,7 @@ export const VideoType = {
 export type VideoTypeValue = (typeof VideoType)[keyof typeof VideoType];
 
 /** Current SQLite schema version stored in PRAGMA user_version. */
-export const DATABASE_SCHEMA_VERSION = 2;
+export const DATABASE_SCHEMA_VERSION = 3;
 
 /**
  * Module record from database.
@@ -227,6 +227,46 @@ export class CourseDatabase {
           this.db.exec("CREATE INDEX IF NOT EXISTS idx_lessons_url ON lessons(url)");
         },
       },
+      {
+        version: 3,
+        up: () => {
+          // Older databases could contain duplicate URL records because URL was
+          // only indexed, not unique. Keep the most useful state before enforcing
+          // the stable identity invariant for future writes.
+          this.db.exec(`
+            DELETE FROM lessons
+            WHERE id IN (
+              SELECT id
+              FROM (
+                SELECT
+                  id,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY url
+                    ORDER BY
+                      CASE status
+                        WHEN 'downloaded' THEN 6
+                        WHEN 'validated' THEN 5
+                        WHEN 'scanned' THEN 4
+                        WHEN 'error' THEN 3
+                        WHEN 'skipped' THEN 2
+                        ELSE 1
+                      END DESC,
+                      retry_count DESC,
+                      updated_at DESC,
+                      id ASC
+                  ) AS duplicate_rank
+                FROM lessons
+                WHERE url <> ''
+              )
+              WHERE duplicate_rank > 1
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_lessons_url_unique
+              ON lessons(url)
+              WHERE url <> '';
+          `);
+        },
+      },
     ];
 
     // Keep each schema change and its version stamp atomic so a failed migration
@@ -419,8 +459,10 @@ export class CourseDatabase {
     position: number,
     isLocked = false
   ): LessonRecord {
-    const existing = this.db.prepare("SELECT id FROM lessons WHERE url = ?").get(url) as
-      { id: number } | undefined;
+    const existing = url
+      ? (this.db.prepare("SELECT id FROM lessons WHERE url = ?").get(url) as
+          { id: number } | undefined)
+      : undefined;
 
     if (existing) {
       const update = this.db.prepare(`
