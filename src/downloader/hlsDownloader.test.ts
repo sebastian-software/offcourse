@@ -246,6 +246,21 @@ https://vod.example.com/exp=123/~hmac=abc/480p/prog_index.m3u8`;
     expect(result[1]!.height).toBe(360);
     expect(result[2]!.height).toBe(240);
   });
+
+  it("accepts Vimeo playlists with duplicate subtitle rendition names", () => {
+    const content = `#EXTM3U
+#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",LANGUAGE="en",URI="captions/en.vtt"
+#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",LANGUAGE="en-US",URI="captions/en-us.vtt"
+#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720,SUBTITLES="subs"
+720p.m3u8`;
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const result = parseHLSPlaylist(content, baseUrl);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.height).toBe(720);
+    expect(consoleError).not.toHaveBeenCalled();
+  });
 });
 
 describe("parseHighLevelVideoUrl", () => {
