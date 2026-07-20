@@ -13,6 +13,8 @@ export interface ParallelWorkerOptions {
   shouldContinue?: () => boolean;
   /** Optional: Called when a worker encounters an error */
   onError?: (error: unknown, taskIndex: number) => void;
+  /** Optional: Called when the requested worker pool cannot be created completely */
+  onWorkerPoolFallback?: (activeWorkers: number) => void;
 }
 
 /**
@@ -120,7 +122,7 @@ export async function parallelProcess<TTask, TResult>(
   processor: (page: Page, task: TTask, index: number) => Promise<TResult>,
   options: ParallelWorkerOptions
 ): Promise<ParallelWorkerResult<TResult>> {
-  const { concurrency, shouldContinue = () => true, onError } = options;
+  const { concurrency, shouldContinue = () => true, onError, onWorkerPoolFallback } = options;
 
   // Create worker pages
   const workerPages: Page[] = [];
@@ -130,10 +132,11 @@ export async function parallelProcess<TTask, TResult>(
       workerPages.push(page);
     }
   } catch {
-    // Fallback: use the main page only if tab creation fails
+    // Fallback: use the main page only if no worker tab could be created.
     if (workerPages.length === 0) {
       workerPages.push(mainPage);
     }
+    onWorkerPoolFallback?.(workerPages.length);
   }
 
   // Execute worker loop

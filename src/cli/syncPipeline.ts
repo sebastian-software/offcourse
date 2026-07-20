@@ -77,6 +77,13 @@ export async function runParallelSyncStage<TTask, TResult>(
         concurrency: Math.min(Math.max(options.concurrency, 1), tasks.length),
         shouldContinue,
         onError: onError ?? (() => undefined),
+        onWorkerPoolFallback: (activeWorkers) => {
+          const message =
+            activeWorkers === 1
+              ? "Could not create parallel tabs, falling back to sequential"
+              : `Could not create all parallel tabs, continuing with ${activeWorkers} workers`;
+          console.error(chalk.yellow(`\n   ${message}`));
+        },
       }
     );
   } finally {
@@ -135,7 +142,7 @@ export async function downloadVideoTasks(
   );
   const overallBar = multibar.create(tasks.length, 0, {
     typeTag: "[TOTAL]".padEnd(8),
-    lessonName: `0/${tasks.length} completed`,
+    lessonName: `0/${tasks.length} processed`,
   });
 
   const queue = tasks.map((task, index) => ({ task, index }));
@@ -181,7 +188,7 @@ export async function downloadVideoTasks(
         processed++;
         multibar.remove(bar);
         overallBar.update(processed, {
-          lessonName: `${processed}/${tasks.length} completed (${failed} failed)`,
+          lessonName: `${processed}/${tasks.length} processed (${completed} succeeded, ${failed} failed)`,
         });
       }
     }

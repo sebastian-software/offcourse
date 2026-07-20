@@ -79,6 +79,28 @@ describe("runParallelSyncStage", () => {
     expect(result.errors).toHaveLength(1);
     expect(onError).toHaveBeenCalledWith(expect.any(Error), 1);
   });
+
+  it("warns when browser workers fall back to the main page", async () => {
+    const context = {
+      newPage: vi.fn().mockRejectedValue(new Error("Cannot create page")),
+    } as unknown as BrowserContext;
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const result = await runParallelSyncStage({
+      context,
+      mainPage: createPage(),
+      tasks: ["one"],
+      concurrency: 2,
+      getTaskLabel: (task) => task,
+      processTask: async (_page, task) => task,
+    });
+
+    expect(result.results).toEqual(["one"]);
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("falling back to sequential")
+    );
+    consoleError.mockRestore();
+  });
 });
 
 describe("downloadVideoTasks", () => {

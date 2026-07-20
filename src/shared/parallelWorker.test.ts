@@ -229,6 +229,28 @@ describe("parallelWorker", () => {
       expect(newPageFn).toHaveBeenCalledTimes(2);
     });
 
+    it("reports when the requested worker pool falls back", async () => {
+      const context = {
+        newPage: vi.fn().mockRejectedValue(new Error("Cannot create page")),
+      } as unknown as BrowserContext;
+      const { page: mainPage } = createMockPage("main");
+      const onWorkerPoolFallback = vi.fn();
+
+      const result = await parallelProcess(
+        context,
+        mainPage,
+        ["task"],
+        async (_page, task) => task,
+        {
+          concurrency: 2,
+          onWorkerPoolFallback,
+        }
+      );
+
+      expect(result.results).toEqual(["task"]);
+      expect(onWorkerPoolFallback).toHaveBeenCalledWith(1);
+    });
+
     it("closes worker pages after processing", async () => {
       const mock1 = createMockPage("1");
       const workerPages = [mock1.page];
