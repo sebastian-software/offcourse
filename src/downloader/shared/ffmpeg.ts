@@ -92,6 +92,10 @@ function removeTemporaryOutput(tempPath: string): void {
   }
 }
 
+function quoteConcatPath(filePath: string): string {
+  return `'${filePath.replaceAll("'", "'\\''")}'`;
+}
+
 /**
  * Merges video and audio files using ffmpeg.
  * @returns true if merge was successful, false otherwise.
@@ -152,7 +156,7 @@ export async function concatSegments(
   const concatPath = path.join(tempDir, "concat.txt");
   // segment paths must be relative to concat.txt file
   const concatContent = segmentPaths
-    .map((p) => `file '${path.relative(tempDir, path.resolve(p))}'`)
+    .map((p) => `file ${quoteConcatPath(path.relative(tempDir, path.resolve(p)))}`)
     .join("\n");
   fs.writeFileSync(concatPath, concatContent);
   let tempPath: string | undefined;

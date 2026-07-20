@@ -81,7 +81,7 @@ describe("ffmpeg output publishing", () => {
     const root = await mkdtemp(join(tmpdir(), "offcourse ffmpeg O'Brien-"));
     createdPaths.push(root);
     const outputPath = join(root, "video.mp4");
-    const segmentPath = join(root, "segment.ts");
+    const segmentPath = join(root, "O'Brien.ts");
     writeFileSync(segmentPath, "segment");
     mockSubprocess("success");
 
@@ -89,7 +89,7 @@ describe("ffmpeg output publishing", () => {
 
     expect(result).toBe(true);
     expect(await readFile(outputPath, "utf8")).toBe("ffmpeg-output");
-    expect(await readFile(join(root, "concat.txt"), "utf8")).toBe("file 'segment.ts'");
+    expect(await readFile(join(root, "concat.txt"), "utf8")).toBe("file 'O'\\''Brien.ts'");
     expect(existsSync(`${outputPath}.tmp`)).toBe(false);
   });
 
