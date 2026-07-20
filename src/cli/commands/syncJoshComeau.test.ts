@@ -228,6 +228,13 @@ describe("syncJoshComeauCommand", () => {
   it("prints the authenticated course structure in dry-run mode", async () => {
     await syncJoshComeauCommand(courseUrl, { dryRun: true, courseName: "CSS Course" });
 
+    expect(mocks.getAuthenticatedSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        domain: "courses.joshwcomeau.com",
+        verifySession: expect.any(Function),
+      }),
+      { headless: true, useStandardBrowserUserAgent: true }
+    );
     expect(mocks.buildCourseStructure).toHaveBeenCalledWith(page, courseUrl);
     expect(mocks.createCourseDirectory).not.toHaveBeenCalled();
     expect(mocks.browserClose).toHaveBeenCalledOnce();

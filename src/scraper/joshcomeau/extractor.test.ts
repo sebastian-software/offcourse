@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import type { Page } from "playwright";
+import { describe, expect, it, vi } from "vitest";
 import {
   chooseVimeoHlsUrl,
+  extractJoshComeauLesson,
   extractVimeoHlsUrlFromPlayerScript,
   formatJoshComeauMarkdown,
   getJoshComeauResourceFilename,
@@ -46,6 +48,73 @@ describe("Josh Comeau extractor", () => {
     );
     expect(extractVimeoHlsUrlFromPlayerScript("console.log('no config')")).toBeNull();
     expect(extractVimeoHlsUrlFromPlayerScript("window.playerConfig = {invalid}")).toBeNull();
+  });
+
+  it("extracts interactive lessons without an unlocked-content wrapper", async () => {
+    const lessonUrl =
+      "https://courses.joshwcomeau.com/joy-of-react/01-fundamentals/fix-the-converter";
+    const waitForSelector = vi.fn().mockResolvedValue(undefined);
+    const evaluate = vi.fn().mockResolvedValue({
+      title: "Fix The Converter",
+      htmlContent: "<p>Interactive lesson</p>",
+      embedUrls: [],
+      resourceUrls: [],
+    });
+    const page = {
+      url: () => lessonUrl,
+      waitForSelector,
+      evaluate,
+      frames: () => [],
+    } as unknown as Page;
+
+    const content = await extractJoshComeauLesson(page, lessonUrl);
+
+    expect(waitForSelector).toHaveBeenCalledWith(
+      expect.stringContaining("LessonContent__Wrapper"),
+      expect.objectContaining({ state: "attached" })
+    );
+    expect(evaluate).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.stringContaining("LessonContent__Wrapper")
+    );
+    expect(content.title).toBe("Fix The Converter");
+    expect(content.markdownContent).toContain("Interactive lesson");
+  });
+
+  it("waits for a Vimeo player frame that attaches after the iframe", async () => {
+    const lessonUrl = "https://courses.joshwcomeau.com/joy-of-react/tools-of-the-trade/navigation";
+    const embedUrl = "https://player.vimeo.com/video/700226454";
+    const frame = {
+      url: () => embedUrl,
+      waitForFunction: vi.fn().mockResolvedValue(undefined),
+      evaluate: vi.fn().mockResolvedValue({
+        hls: {
+          default_cdn: "fastly_skyfire",
+          cdns: { fastly_skyfire: { url: "https://cdn.example/navigation.m3u8" } },
+        },
+        scriptText: "",
+      }),
+    };
+    const frames = vi.fn().mockReturnValueOnce([]).mockReturnValue([frame]);
+    const waitForTimeout = vi.fn().mockResolvedValue(undefined);
+    const page = {
+      url: () => lessonUrl,
+      waitForSelector: vi.fn().mockResolvedValue(undefined),
+      evaluate: vi.fn().mockResolvedValue({
+        title: "Navigation",
+        htmlContent: "<p>Lesson</p>",
+        embedUrls: [embedUrl],
+        resourceUrls: [],
+      }),
+      frames,
+      waitForTimeout,
+    } as unknown as Page;
+
+    const content = await extractJoshComeauLesson(page, lessonUrl);
+
+    expect(waitForTimeout).toHaveBeenCalledWith(250);
+    expect(frames).toHaveBeenCalledTimes(2);
+    expect(content.videos[0]?.hlsUrl).toBe("https://cdn.example/navigation.m3u8");
   });
 
   it("formats multiple local videos before the lesson text", () => {

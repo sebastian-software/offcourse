@@ -89,7 +89,7 @@ async function createAuthenticatedCourseSession(
       isLoginPage: isJoshComeauLoginPage,
       verifySession: createJoshComeauSessionVerifier(courseUrl),
     },
-    { headless }
+    { headless, useStandardBrowserUserAgent: true }
   );
 
   return {

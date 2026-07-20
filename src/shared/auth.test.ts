@@ -4,6 +4,7 @@ import {
   isHighLevelLoginPage,
   isSkoolLoginPage,
   isTransientAuthNavigationError,
+  normalizeHeadlessChromiumUserAgent,
 } from "./auth.js";
 
 describe("auth", () => {
@@ -75,6 +76,21 @@ describe("auth", () => {
 
     it("does not hide unrelated verifier failures", () => {
       expect(isTransientAuthNavigationError(new Error("selector is invalid"))).toBe(false);
+    });
+  });
+
+  describe("normalizeHeadlessChromiumUserAgent", () => {
+    it("uses Chromium's standard product name without changing its version", () => {
+      expect(
+        normalizeHeadlessChromiumUserAgent(
+          "Mozilla/5.0 AppleWebKit/537.36 HeadlessChrome/141.0.7390.0 Safari/537.36"
+        )
+      ).toBe("Mozilla/5.0 AppleWebKit/537.36 Chrome/141.0.7390.0 Safari/537.36");
+      expect(
+        normalizeHeadlessChromiumUserAgent(
+          "Mozilla/5.0 AppleWebKit/537.36 Chrome/141.0.7390.0 Safari/537.36"
+        )
+      ).toBe("Mozilla/5.0 AppleWebKit/537.36 Chrome/141.0.7390.0 Safari/537.36");
     });
   });
 });
