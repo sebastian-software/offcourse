@@ -21,7 +21,7 @@ import { checkFfmpeg, concatSegments } from "./ffmpeg.js";
  */
 export function parseHLSPlaylist(content: string, baseUrl: string): HLSQuality[] {
   try {
-    const playlist = HLS.parse(content);
+    const playlist = HLS.parse(normalizeDuplicateHlsMediaNames(content));
 
     if (!("variants" in playlist) || !playlist.variants) {
       return [];
@@ -54,6 +54,37 @@ export function parseHLSPlaylist(content: string, baseUrl: string): HLSQuality[]
 function getHlsAttribute(line: string, name: string): string | null {
   const match = new RegExp(`(?:^|[:,])${name}=("[^"]*"|[^,]*)`).exec(line);
   return match?.[1]?.replace(/^"|"$/g, "") ?? null;
+}
+
+/**
+ * Vimeo can publish multiple subtitle renditions with the same display name.
+ * Rendition names do not affect variant selection, so make only duplicate
+ * names unique before passing the master playlist to the strict HLS model.
+ */
+function normalizeDuplicateHlsMediaNames(content: string): string {
+  const occurrences = new Map<string, number>();
+  return content
+    .split("\n")
+    .map((line) => {
+      if (!line.startsWith("#EXT-X-MEDIA:")) return line;
+
+      const type = getHlsAttribute(line, "TYPE");
+      const groupId = getHlsAttribute(line, "GROUP-ID");
+      const name = getHlsAttribute(line, "NAME");
+      if (!type || !groupId || !name) return line;
+
+      const key = `${type}\0${groupId}\0${name}`;
+      const occurrence = (occurrences.get(key) ?? 0) + 1;
+      occurrences.set(key, occurrence);
+      if (occurrence === 1) return line;
+
+      const uniqueName = `${name} (${occurrence})`.replaceAll('"', "'");
+      return line.replace(
+        /(^|,)NAME=("[^"]*"|[^,]*)/,
+        (_match, prefix: string) => `${prefix}NAME="${uniqueName}"`
+      );
+    })
+    .join("\n");
 }
 
 /**
