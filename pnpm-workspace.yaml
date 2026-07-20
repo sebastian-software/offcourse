@@ -6,5 +6,5 @@ allowBuilds:
   esbuild: true
 
 overrides:
-  "@commitlint/read": 21.2.0
+  "@commitlint/read": 21.2.1
   ast-v8-to-istanbul: 1.0.4
