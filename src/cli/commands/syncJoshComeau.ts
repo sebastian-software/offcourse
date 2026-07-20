@@ -1,5 +1,4 @@
 import chalk from "chalk";
-import cliProgress from "cli-progress";
 import ora from "ora";
 import { basename } from "node:path";
 import type { Browser, BrowserContext, Page } from "playwright";
@@ -7,7 +6,6 @@ import { loadConfig } from "../../config/configManager.js";
 import { downloadVideo } from "../../downloader/index.js";
 import { getAuthenticatedSession } from "../../shared/auth.js";
 import { pathExists } from "../../shared/fs.js";
-import { parallelProcess } from "../../shared/parallelWorker.js";
 import { createFolderName } from "../../shared/slug.js";
 import { createShutdownManager } from "../../shared/shutdown.js";
 import {
@@ -34,6 +32,7 @@ import {
   getVideoPath,
   saveMarkdown,
 } from "../../storage/fileSystem.js";
+import { runParallelSyncStage } from "../syncPipeline.js";
 
 const shutdown = createShutdownManager();
 
@@ -133,32 +132,20 @@ async function processLessons(
   options: SyncJoshComeauOptions,
   config: { extractionConcurrency: number; videoQuality: string }
 ): Promise<{ results: LessonResult[]; errors: { index: number; error: unknown }[] }> {
-  const progressBar = new cliProgress.SingleBar(
-    {
-      format: "   {bar} {percentage}% | {value}/{total} | {status}",
-      barCompleteChar: "█",
-      barIncompleteChar: "░",
-      barsize: 30,
-      hideCursor: true,
-    },
-    cliProgress.Presets.shades_grey
-  );
-  progressBar.start(tasks.length, 0, { status: "Starting..." });
-  let processed = 0;
-
-  const result = await parallelProcess(
+  return runParallelSyncStage({
     context,
     mainPage,
     tasks,
-    async (page, task) => {
+    concurrency: config.extractionConcurrency,
+    shouldContinue: shutdown.shouldContinue,
+    getTaskLabel: (task) => task.lesson.name,
+    processTask: async (page, task) => {
       const { lesson, moduleDir } = task;
       const markdownPath = getMarkdownPath(moduleDir, lesson.index, lesson.name);
       const needsContent =
         !options.skipContent && ((options.force ?? false) || !(await pathExists(markdownPath)));
 
       if (options.skipVideos && !needsContent) {
-        processed++;
-        progressBar.update(processed, { status: lesson.name });
         return {
           cached: true,
           contentSaved: false,
@@ -244,9 +231,6 @@ async function processLessons(
         }
       }
 
-      processed++;
-      const shortName = lesson.name.length > 42 ? `${lesson.name.slice(0, 39)}...` : lesson.name;
-      progressBar.update(processed, { status: shortName });
       return {
         cached: !needsContent && resourcesDownloaded === 0 && videosDownloaded === 0,
         contentSaved: needsContent,
@@ -254,19 +238,7 @@ async function processLessons(
         videosDownloaded,
       };
     },
-    {
-      concurrency: Math.min(config.extractionConcurrency, Math.max(tasks.length, 1)),
-      shouldContinue: shutdown.shouldContinue,
-      onError: (_error, index) => {
-        processed++;
-        const lessonName = tasks[index]?.lesson.name ?? "Lesson";
-        progressBar.update(processed, { status: `Failed: ${lessonName}` });
-      },
-    }
-  );
-
-  progressBar.stop();
-  return result;
+  });
 }
 
 /** Downloads a Josh Comeau course for offline access. */

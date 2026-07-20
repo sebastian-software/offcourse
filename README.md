@@ -147,7 +147,7 @@ pnpm release           # Release to npm
 
 ## Acknowledgments
 
-Thanks to [Sindre Sorhus](https://github.com/sindresorhus) for the excellent packages powering this project: `slugify`, `conf`, `delay`, `execa`, `ky`, `p-queue`, `p-retry`.
+Thanks to [Sindre Sorhus](https://github.com/sindresorhus) for the excellent packages powering this project: `slugify`, `conf`, `delay`, `execa`, `ky`, `p-retry`.
 
 ## License
 

@@ -1,12 +1,10 @@
 import chalk from "chalk";
-import cliProgress from "cli-progress";
 import ora from "ora";
 import { basename } from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { loadConfig } from "../../config/configManager.js";
-import { downloadVideo, type VideoDownloadTask } from "../../downloader/index.js";
+import type { VideoDownloadTask } from "../../downloader/index.js";
 import { getAuthenticatedSession } from "../../shared/auth.js";
-import { parallelProcess } from "../../shared/parallelWorker.js";
 import { pathExists } from "../../shared/fs.js";
 import { createFolderName } from "../../shared/slug.js";
 import { createShutdownManager } from "../../shared/shutdown.js";
@@ -34,6 +32,7 @@ import {
   isLessonSynced,
   saveMarkdown,
 } from "../../storage/fileSystem.js";
+import { downloadVideoTasks, runParallelSyncStage } from "../syncPipeline.js";
 
 const shutdown = createShutdownManager();
 
@@ -150,24 +149,15 @@ async function processLessons(
 ): Promise<{ results: LessonResult[]; errors: { index: number; error: unknown }[] }> {
   const browserCookies = await context.cookies();
   const cookies = browserCookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
-  const progressBar = new cliProgress.SingleBar(
-    {
-      format: "   {bar} {percentage}% | {value}/{total} | {status}",
-      barCompleteChar: "█",
-      barIncompleteChar: "░",
-      barsize: 30,
-      hideCursor: true,
-    },
-    cliProgress.Presets.shades_grey
-  );
-  progressBar.start(tasks.length, 0, { status: "Starting..." });
-  let processed = 0;
 
-  const result = await parallelProcess(
+  return runParallelSyncStage({
     context,
     mainPage,
     tasks,
-    async (page, task) => {
+    concurrency: config.extractionConcurrency,
+    shouldContinue: shutdown.shouldContinue,
+    getTaskLabel: (task) => task.lesson.name,
+    processTask: async (page, task) => {
       const { lesson, moduleDir } = task;
       const syncStatus = await isLessonSynced(moduleDir, lesson.index, lesson.name);
       const force = options.force ?? false;
@@ -175,8 +165,6 @@ async function processLessons(
       const needsVideo = !options.skipVideos && (force || !syncStatus.video);
 
       if (!needsContent && !needsVideo) {
-        processed++;
-        progressBar.update(processed, { status: lesson.name });
         return {
           cached: true,
           contentSaved: false,
@@ -251,10 +239,6 @@ async function processLessons(
         };
       }
 
-      processed++;
-      const shortName = lesson.name.length > 42 ? `${lesson.name.slice(0, 39)}...` : lesson.name;
-      progressBar.update(processed, { status: shortName });
-
       return {
         cached: false,
         contentSaved: needsContent,
@@ -262,66 +246,7 @@ async function processLessons(
         videoTask,
       };
     },
-    {
-      concurrency: Math.min(config.extractionConcurrency, Math.max(tasks.length, 1)),
-      shouldContinue: shutdown.shouldContinue,
-      onError: (_error, index) => {
-        processed++;
-        const lessonName = tasks[index]?.lesson.name ?? "Lesson";
-        progressBar.update(processed, { status: `Failed: ${lessonName}` });
-      },
-    }
-  );
-
-  progressBar.stop();
-  return result;
-}
-
-async function downloadVideos(
-  tasks: VideoDownloadTask[],
-  concurrency: number
-): Promise<{ completed: number; failures: { lesson: string; error: string }[] }> {
-  if (tasks.length === 0) return { completed: 0, failures: [] };
-
-  console.log(chalk.blue(`\n🎬 Downloading ${tasks.length} videos...\n`));
-  const progressBar = new cliProgress.SingleBar(
-    {
-      format: "   {bar} {percentage}% | {value}/{total} | {status}",
-      barCompleteChar: "█",
-      barIncompleteChar: "░",
-      barsize: 30,
-      hideCursor: true,
-    },
-    cliProgress.Presets.shades_grey
-  );
-  progressBar.start(tasks.length, 0, { status: "Starting..." });
-
-  const queue = [...tasks];
-  const failures: { lesson: string; error: string }[] = [];
-  let completed = 0;
-  let processed = 0;
-
-  const runWorker = async (): Promise<void> => {
-    while (shutdown.shouldContinue() && queue.length > 0) {
-      const task = queue.shift();
-      if (!task) break;
-
-      const result = await downloadVideo(task);
-      if (result.success) {
-        completed++;
-      } else {
-        failures.push({ lesson: task.lessonName, error: result.error ?? "Download failed" });
-      }
-      processed++;
-      progressBar.update(processed, { status: task.lessonName });
-    }
-  };
-
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, tasks.length) }, async () => runWorker())
-  );
-  progressBar.stop();
-  return { completed, failures };
+  });
 }
 
 /** Downloads a Piccalilli course for offline access. */
@@ -412,11 +337,10 @@ export async function syncPiccalilliCommand(
 
     const downloads = options.skipVideos
       ? { completed: 0, failures: [] }
-      : await downloadVideos(videoTasks, config.concurrency);
-
-    for (const failure of downloads.failures) {
-      console.error(chalk.red(`   ${failure.lesson}: ${failure.error}`));
-    }
+      : await downloadVideoTasks(videoTasks, {
+          concurrency: config.concurrency,
+          shouldContinue: shutdown.shouldContinue,
+        });
     for (const extractionError of extraction.errors) {
       const lesson = lessonTasks[extractionError.index]?.lesson.name ?? "Unknown lesson";
       const message =

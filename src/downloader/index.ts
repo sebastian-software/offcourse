@@ -119,9 +119,6 @@ export {
   type HLSDownloadResult,
 } from "./hlsDownloader.js";
 
-// Queue
-export { AsyncQueue, type QueueItem, type QueueOptions } from "./queue.js";
-
 // Validator
 export { validateLoomHls, validateVideoHls, validateVimeoVideo } from "./hlsValidator.js";
 
