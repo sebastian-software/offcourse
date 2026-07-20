@@ -14,7 +14,9 @@ const mocks = vi.hoisted(() => ({
   getDownloadFilePath: vi.fn(),
   getMarkdownPath: vi.fn(),
   getVideoPath: vi.fn(),
+  initializeCourseState: vi.fn(),
   isCourseUrl: vi.fn(),
+  isLessonSynced: vi.fn(),
   normalizeCourseUrl: vi.fn(),
   parallelProcess: vi.fn(),
   pathExists: vi.fn(),
@@ -78,6 +80,12 @@ vi.mock("../../shared/shutdown.js", () => ({
     shouldContinue: mocks.shouldContinue,
   }),
 }));
+vi.mock("../../state/index.js", () => ({
+  initializeCourseState: mocks.initializeCourseState,
+  LessonStatus: { PENDING: "pending", DOWNLOADED: "downloaded" },
+  markLessonFailure: vi.fn(),
+  markLessonScanReady: vi.fn(),
+}));
 vi.mock("../../scraper/joshcomeau/index.js", () => ({
   buildJoshComeauCourseStructure: mocks.buildCourseStructure,
   createJoshComeauSessionVerifier: () => vi.fn(),
@@ -97,6 +105,7 @@ vi.mock("../../storage/fileSystem.js", () => ({
   getDownloadFilePath: mocks.getDownloadFilePath,
   getMarkdownPath: mocks.getMarkdownPath,
   getVideoPath: mocks.getVideoPath,
+  isLessonSynced: mocks.isLessonSynced,
   saveMarkdown: mocks.saveMarkdown,
 }));
 
@@ -181,11 +190,28 @@ beforeEach(() => {
   mocks.createModuleDirectory.mockResolvedValue("/courses/css-for-js/01-rendering-logic");
   mocks.getMarkdownPath.mockReturnValue("/courses/css-for-js/01-rendering-logic/01-flow.md");
   mocks.getVideoPath.mockReturnValue("/courses/css-for-js/01-rendering-logic/01-flow.mp4");
+  mocks.isLessonSynced.mockResolvedValue({ content: false, video: false });
   mocks.getDownloadFilePath.mockImplementation(
     (_moduleDir: string, _index: number, _name: string, filename: string) =>
       `/courses/css-for-js/01-rendering-logic/${filename}`
   );
   mocks.pathExists.mockResolvedValue(false);
+  const stateLesson = {
+    id: 1,
+    status: "pending",
+    retryCount: 0,
+  };
+  mocks.initializeCourseState.mockReturnValue({
+    key: "joshcomeau-css-for-js",
+    database: {
+      close: vi.fn(),
+      getLessonByUrl: vi.fn(() => stateLesson),
+      markLessonDownloaded: vi.fn(),
+      markLessonSkipped: vi.fn(),
+    },
+    lessonsByUrl: new Map([[`${courseUrl}/rendering-logic/flow-layout`, stateLesson]]),
+    retryLessonIds: new Set(),
+  });
   mocks.extractLesson.mockResolvedValue(lessonContent());
   mocks.rewriteLinks.mockImplementation((markdown: string) => markdown);
   mocks.formatMarkdown.mockReturnValue("# Flow Layout\n");
@@ -261,7 +287,7 @@ describe("syncJoshComeauCommand", () => {
   });
 
   it("uses the cached fast path when content exists and videos are skipped", async () => {
-    mocks.pathExists.mockResolvedValue(true);
+    mocks.isLessonSynced.mockResolvedValue({ content: true, video: true });
 
     await syncJoshComeauCommand(courseUrl, { skipVideos: true });
 

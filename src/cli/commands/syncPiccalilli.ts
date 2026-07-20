@@ -33,6 +33,15 @@ import {
   saveMarkdown,
 } from "../../storage/fileSystem.js";
 import { downloadVideoTasks, runParallelSyncStage } from "../syncPipeline.js";
+import {
+  initializeCourseState,
+  LessonStatus,
+  markLessonFailure,
+  markLessonScanReady,
+  recordVideoDownloadResult,
+  type CourseDatabase,
+  type LessonRecord,
+} from "../../state/index.js";
 
 const shutdown = createShutdownManager();
 
@@ -45,12 +54,14 @@ export interface SyncPiccalilliOptions {
   visible?: boolean;
   quality?: string;
   courseName?: string;
+  retryFailed?: boolean;
 }
 
 interface LessonTask {
   module: PiccalilliModule;
   lesson: PiccalilliLesson;
   moduleDir: string;
+  stateId: number;
 }
 
 interface LessonResult {
@@ -126,6 +137,7 @@ async function createAuthenticatedCourseSession(
 async function buildLessonTasks(
   structure: PiccalilliCourseStructure,
   courseDir: string,
+  lessonsByUrl: Map<string, LessonRecord>,
   limit?: number
 ): Promise<LessonTask[]> {
   const tasks: LessonTask[] = [];
@@ -133,7 +145,9 @@ async function buildLessonTasks(
   for (const module of structure.modules) {
     const moduleDir = await createModuleDirectory(courseDir, module.index, module.name);
     for (const lesson of module.lessons) {
-      tasks.push({ module, lesson, moduleDir });
+      const stateLesson = lessonsByUrl.get(lesson.url);
+      if (!stateLesson) throw new Error(`Missing state record for ${lesson.name}`);
+      tasks.push({ module, lesson, moduleDir, stateId: stateLesson.id });
     }
   }
 
@@ -145,7 +159,9 @@ async function processLessons(
   mainPage: Page,
   tasks: LessonTask[],
   options: SyncPiccalilliOptions,
-  config: { extractionConcurrency: number; videoQuality: string }
+  config: { extractionConcurrency: number; videoQuality: string },
+  database: CourseDatabase,
+  retryLessonIds: Set<number>
 ): Promise<{ results: LessonResult[]; errors: { index: number; error: unknown }[] }> {
   const browserCookies = await context.cookies();
   const cookies = browserCookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
@@ -158,11 +174,20 @@ async function processLessons(
     shouldContinue: shutdown.shouldContinue,
     getTaskLabel: (task) => task.lesson.name,
     processTask: async (page, task) => {
-      const { lesson, moduleDir } = task;
+      const { lesson, moduleDir, stateId } = task;
       const syncStatus = await isLessonSynced(moduleDir, lesson.index, lesson.name);
+      const stateLesson = database.getLessonByUrl(lesson.url);
+      const retryFailed = retryLessonIds.has(stateId);
+      if (syncStatus.video && stateLesson?.status !== LessonStatus.DOWNLOADED) {
+        database.markLessonDownloaded(stateId);
+      }
       const force = options.force ?? false;
-      const needsContent = !options.skipContent && (force || !syncStatus.content);
-      const needsVideo = !options.skipVideos && (force || !syncStatus.video);
+      const needsContent = !options.skipContent && (force || retryFailed || !syncStatus.content);
+      const needsVideo =
+        !options.skipVideos &&
+        (force ||
+          retryFailed ||
+          (stateLesson?.status !== LessonStatus.DOWNLOADED && !syncStatus.video));
 
       if (!needsContent && !needsVideo) {
         return {
@@ -228,7 +253,7 @@ async function processLessons(
           throw new Error(`Could not resolve Bunny HLS playlist for ${lesson.name}`);
         }
         videoTask = {
-          lessonId: lesson.number,
+          lessonId: stateId,
           lessonName: lesson.name,
           videoUrl: content.video.hlsUrl,
           videoType: "hls",
@@ -237,6 +262,9 @@ async function processLessons(
           cookies,
           referer: content.video.referer,
         };
+        markLessonScanReady(database, stateId, videoTask);
+      } else if (needsVideo) {
+        database.markLessonSkipped(stateId, "No video found");
       }
 
       return {
@@ -282,6 +310,7 @@ export async function syncPiccalilliCommand(
     typeof options.limit === "number" ? allLessons.slice(0, options.limit) : allLessons;
   const needsAuthentication = selectedLessons.some((lesson) => !lesson.isFree);
   let browser: Browser | undefined = publicSession.browser;
+  let database: CourseDatabase | undefined;
 
   try {
     let session: { browser: Browser; context: BrowserContext; page: Page } = publicSession;
@@ -302,8 +331,36 @@ export async function syncPiccalilliCommand(
 
     shutdown.registerBrowser(browser);
 
+    const state = initializeCourseState(
+      "piccalilli",
+      courseUrl,
+      {
+        name: structure.name,
+        url: structure.url,
+        modules: structure.modules.map((module) => ({
+          slug: module.slug,
+          name: module.name,
+          position: module.index,
+          lessons: module.lessons.map((lesson) => ({
+            slug: lesson.slug,
+            name: lesson.name,
+            url: lesson.url,
+            position: lesson.index,
+          })),
+        })),
+      },
+      options
+    );
+    database = state.database;
+    console.log(chalk.gray(`   State: ~/.offcourse/cache/${state.key}.db`));
+
     const courseDir = await createCourseDirectory(config.outputDir, structure.name);
-    const lessonTasks = await buildLessonTasks(structure, courseDir, options.limit);
+    const lessonTasks = await buildLessonTasks(
+      structure,
+      courseDir,
+      state.lessonsByUrl,
+      options.limit
+    );
     if (options.limit) {
       console.log(chalk.yellow(`   Limiting sync to ${lessonTasks.length} lessons`));
     }
@@ -315,7 +372,9 @@ export async function syncPiccalilliCommand(
       session.page,
       lessonTasks,
       options,
-      config
+      config,
+      database,
+      state.retryLessonIds
     );
 
     if (!shutdown.shouldContinue()) return;
@@ -336,18 +395,25 @@ export async function syncPiccalilliCommand(
     );
 
     const downloads = options.skipVideos
-      ? { completed: 0, failures: [] }
+      ? { completed: 0, failures: [], outcomes: [] }
       : await downloadVideoTasks(videoTasks, {
           concurrency: config.concurrency,
           shouldContinue: shutdown.shouldContinue,
         });
     for (const extractionError of extraction.errors) {
-      const lesson = lessonTasks[extractionError.index]?.lesson.name ?? "Unknown lesson";
+      const lessonTask = lessonTasks[extractionError.index];
+      const lesson = lessonTask?.lesson.name ?? "Unknown lesson";
       const message =
         extractionError.error instanceof Error
           ? extractionError.error.message
           : String(extractionError.error);
+      if (lessonTask) {
+        markLessonFailure(database, lessonTask.stateId, extractionError.error, "EXTRACTION_ERROR");
+      }
       console.error(chalk.red(`   ${lesson}: ${message}`));
+    }
+    for (const outcome of downloads.outcomes) {
+      recordVideoDownloadResult(database, outcome.task, outcome.result, outcome.error);
     }
 
     const failureCount = extraction.errors.length + downloads.failures.length;
@@ -361,6 +427,7 @@ export async function syncPiccalilliCommand(
     }
     console.log(chalk.gray(`   Output: ${courseDir}\n`));
   } finally {
+    database?.close();
     if (browser) await browser.close();
   }
 }

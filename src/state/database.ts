@@ -102,8 +102,8 @@ export function getDbDir(): string {
 /**
  * Get the database file path for a course.
  */
-export function getDbPath(communitySlug: string): string {
-  const safeSlug = communitySlug.replace(/[^a-zA-Z0-9-]/g, "_");
+export function getDbPath(courseKey: string): string {
+  const safeSlug = courseKey.replace(/[^a-zA-Z0-9-]/g, "_");
   return join(getDbDir(), `${safeSlug}.db`);
 }
 
@@ -138,7 +138,7 @@ export function extractCommunitySlug(value: string): string {
 export class CourseDatabase {
   private db: Database.Database;
 
-  constructor(communitySlug: string, dbPath = getDbPath(communitySlug)) {
+  constructor(courseKey: string, dbPath = getDbPath(courseKey)) {
     // Ensure directory exists
     const dir = dirname(dbPath);
     if (!existsSync(dir)) {
@@ -419,6 +419,32 @@ export class CourseDatabase {
     position: number,
     isLocked = false
   ): LessonRecord {
+    const existing = this.db.prepare("SELECT id FROM lessons WHERE url = ?").get(url) as
+      { id: number } | undefined;
+
+    if (existing) {
+      const update = this.db.prepare(`
+        UPDATE lessons SET
+          module_id = ?,
+          slug = ?,
+          name = ?,
+          position = ?,
+          is_locked = ?,
+          updated_at = datetime('now')
+        WHERE id = ?
+        RETURNING *
+      `);
+      const row = update.get(
+        moduleId,
+        slug,
+        name,
+        position,
+        isLocked ? 1 : 0,
+        existing.id
+      ) as RawLessonRow;
+      return this.mapLessonRow(row);
+    }
+
     const stmt = this.db.prepare(`
       INSERT INTO lessons (module_id, slug, name, url, position, is_locked, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
@@ -732,22 +758,6 @@ export class CourseDatabase {
   }
 
   /**
-   * Reset all error lessons to pending for retry.
-   */
-  resetErrorLessons(): number {
-    const stmt = this.db.prepare(`
-      UPDATE lessons SET
-        status = 'pending',
-        error_message = NULL,
-        error_code = NULL,
-        updated_at = datetime('now')
-      WHERE status = 'error'
-    `);
-    const result = stmt.run();
-    return result.changes;
-  }
-
-  /**
    * Reset ALL lessons to pending (for --force full rescan).
    * Preserves locked status.
    */
@@ -763,23 +773,6 @@ export class CourseDatabase {
         retry_count = 0,
         updated_at = datetime('now')
       WHERE is_locked = 0
-    `);
-    const result = stmt.run();
-    return result.changes;
-  }
-
-  /**
-   * Reset error lessons to validated (for --resume --retry-errors).
-   * Only resets lessons that already have an HLS URL.
-   */
-  resetErrorLessonsForResume(): number {
-    const stmt = this.db.prepare(`
-      UPDATE lessons SET
-        status = 'validated',
-        error_message = NULL,
-        error_code = NULL,
-        updated_at = datetime('now')
-      WHERE status = 'error' AND hls_url IS NOT NULL
     `);
     const result = stmt.run();
     return result.changes;

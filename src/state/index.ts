@@ -13,3 +13,16 @@ export {
   type ModuleRecord,
   type VideoTypeValue,
 } from "./database.js";
+
+export {
+  getCourseStateKey,
+  initializeCourseState,
+  markLessonFailure,
+  markLessonScanReady,
+  recordVideoDownloadResult,
+  type CourseStateLesson,
+  type CourseStateModule,
+  type CourseStateStructure,
+  type InitializedCourseState,
+  type InitializeCourseStateOptions,
+} from "./courseState.js";

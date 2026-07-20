@@ -1,15 +1,27 @@
-import { describe, expect, it } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   getLessonBasename,
   getVideoPath,
   getMarkdownPath,
   getDownloadFilePath,
+  isLessonSynced,
 } from "./fileSystem.js";
 
 /** Normalize path to POSIX format for cross-platform test assertions */
 const toPosix = (p: string) => p.replace(/\\/g, "/");
 
 describe("fileSystem", () => {
+  const tempDirectories: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(
+      tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))
+    );
+  });
+
   describe("getLessonBasename", () => {
     it("creates numbered filename from lesson name", () => {
       expect(getLessonBasename(0, "Introduction")).toBe("01-introduction");
@@ -68,6 +80,33 @@ describe("fileSystem", () => {
     it("handles filenames with multiple extensions", () => {
       const path = getDownloadFilePath("/module", 0, "Intro", "archive.tar.gz");
       expect(toPosix(path)).toBe("/module/01-intro-archive.tar.gz");
+    });
+  });
+
+  describe("isLessonSynced", () => {
+    it("recognizes an existing lesson after its position changes", async () => {
+      const directory = await mkdtemp(join(tmpdir(), "offcourse-files-"));
+      tempDirectories.push(directory);
+      await writeFile(join(directory, "01-welcome.mp4"), "video");
+      await writeFile(join(directory, "01-welcome.md"), "content");
+
+      await expect(isLessonSynced(directory, 4, "Welcome")).resolves.toEqual({
+        video: true,
+        content: true,
+      });
+    });
+
+    it("does not guess when truncated lesson slugs are ambiguous", async () => {
+      const directory = await mkdtemp(join(tmpdir(), "offcourse-files-"));
+      tempDirectories.push(directory);
+      const longName = "A".repeat(110);
+      const slug = "a".repeat(100);
+      await writeFile(join(directory, `01-${slug}.mp4`), "video");
+      await writeFile(join(directory, `02-${slug}.mp4`), "video");
+
+      await expect(isLessonSynced(directory, 4, longName)).resolves.toMatchObject({
+        video: false,
+      });
     });
   });
 });

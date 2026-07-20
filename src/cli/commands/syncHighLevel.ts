@@ -32,6 +32,14 @@ import {
   formatHtmlLessonMarkdown,
   runParallelSyncStage,
 } from "../syncPipeline.js";
+import {
+  initializeCourseState,
+  LessonStatus,
+  markLessonFailure,
+  markLessonScanReady,
+  recordVideoDownloadResult,
+  type CourseDatabase,
+} from "../../state/index.js";
 
 /** Shutdown manager instance for this command. */
 const shutdown = createShutdownManager();
@@ -44,6 +52,8 @@ export interface SyncHighLevelOptions {
   visible?: boolean;
   quality?: string;
   courseName?: string;
+  force?: boolean;
+  retryFailed?: boolean;
 }
 
 /**
@@ -110,6 +120,7 @@ export async function syncHighLevelCommand(
 
   let browser;
   let session;
+  let database: CourseDatabase | undefined;
 
   try {
     const result = await getAuthenticatedSession(
@@ -224,6 +235,37 @@ export async function syncHighLevelCommand(
       return;
     }
 
+    const canonicalCourseUrl = `https://${courseStructure.domain}/courses/products/${courseStructure.course.id}`;
+    const state = initializeCourseState(
+      "highlevel",
+      canonicalCourseUrl,
+      {
+        name: courseStructure.course.title,
+        url: canonicalCourseUrl,
+        modules: courseStructure.categories.map((category, categoryIndex) => ({
+          slug: category.id,
+          name: category.title,
+          position: categoryIndex,
+          isLocked: category.isLocked,
+          lessons: category.posts.map((post, postIndex) => ({
+            slug: post.id,
+            name: post.title,
+            url: getHighLevelPostUrl(
+              courseStructure.domain,
+              courseStructure.course.id,
+              category.id,
+              post.id
+            ),
+            position: postIndex,
+            isLocked: post.isLocked,
+          })),
+        })),
+      },
+      options
+    );
+    database = state.database;
+    console.log(chalk.gray(`   State: ~/.offcourse/cache/${state.key}.db`));
+
     // Create course directory
     const courseSlug = createSlug(courseStructure.course.title);
     const courseDir = await createCourseDirectory(config.outputDir, courseSlug);
@@ -241,6 +283,8 @@ export async function syncHighLevelCommand(
       category: (typeof courseStructure.categories)[0];
       categoryIndex: number;
       moduleDir: string;
+      postUrl: string;
+      stateId: number;
     }
     const postTasks: PostTask[] = [];
 
@@ -251,7 +295,23 @@ export async function syncHighLevelCommand(
       const moduleDir = await createModuleDirectory(courseDir, catIndex, category.title);
 
       for (const [postIndex, post] of category.posts.entries()) {
-        postTasks.push({ post, postIndex, category, categoryIndex: catIndex, moduleDir });
+        const postUrl = getHighLevelPostUrl(
+          courseStructure.domain,
+          courseStructure.course.id,
+          category.id,
+          post.id
+        );
+        const stateLesson = state.lessonsByUrl.get(postUrl);
+        if (!stateLesson) throw new Error(`Missing state record for ${post.title}`);
+        postTasks.push({
+          post,
+          postIndex,
+          category,
+          categoryIndex: catIndex,
+          moduleDir,
+          postUrl,
+          stateId: stateLesson.id,
+        });
       }
     }
 
@@ -275,25 +335,27 @@ export async function syncHighLevelCommand(
 
     // Worker function to process a single post
     const processPost = async (page: import("playwright").Page, task: PostTask): Promise<void> => {
-      const { post, postIndex, category, moduleDir } = task;
+      const { post, postIndex, category, moduleDir, postUrl, stateId } = task;
 
       try {
         const syncStatus = await isLessonSynced(moduleDir, postIndex, post.title);
-        const needsContent = !options.skipContent && !syncStatus.content;
-        const needsVideo = !options.skipVideos && !syncStatus.video;
+        const stateLesson = database?.getLessonByUrl(postUrl);
+        const retryFailed = state.retryLessonIds.has(stateId);
+        if (syncStatus.video && stateLesson?.status !== LessonStatus.DOWNLOADED) {
+          database?.markLessonDownloaded(stateId);
+        }
+        const needsContent =
+          !options.skipContent && (options.force === true || retryFailed || !syncStatus.content);
+        const needsVideo =
+          !options.skipVideos &&
+          (options.force === true ||
+            retryFailed ||
+            (stateLesson?.status !== LessonStatus.DOWNLOADED && !syncStatus.video));
 
         if (!needsContent && !needsVideo) {
           resultsLock.skipped++;
           return;
         }
-
-        // Get full post URL
-        const postUrl = getHighLevelPostUrl(
-          courseStructure.domain,
-          courseStructure.course.id,
-          category.id,
-          post.id
-        );
 
         // Extract content
         const content = await extractHighLevelPostContent(
@@ -305,56 +367,57 @@ export async function syncHighLevelCommand(
           category.id
         );
 
-        if (content) {
-          // Save markdown if needed
-          if (needsContent) {
-            const markdown = formatHighLevelMarkdown(
-              content.title,
-              content.description,
-              content.htmlContent,
-              content.video?.url
-            );
+        if (!content) throw new Error(`Could not extract ${post.title}`);
 
-            await saveMarkdown(
-              moduleDir,
-              createFolderName(postIndex, post.title) + ".md",
-              markdown
-            );
+        // Save markdown if needed
+        if (needsContent) {
+          const markdown = formatHighLevelMarkdown(
+            content.title,
+            content.description,
+            content.htmlContent,
+            content.video?.url
+          );
 
-            // Download attachments
-            for (const attachment of content.attachments) {
-              if (attachment.url) {
-                const attachmentPath = getDownloadFilePath(
-                  moduleDir,
-                  postIndex,
-                  post.title,
-                  attachment.name
-                );
-                await downloadFile(attachment.url, attachmentPath);
-              }
+          await saveMarkdown(moduleDir, createFolderName(postIndex, post.title) + ".md", markdown);
+
+          // Download attachments
+          for (const attachment of content.attachments) {
+            if (attachment.url) {
+              const attachmentPath = getDownloadFilePath(
+                moduleDir,
+                postIndex,
+                post.title,
+                attachment.name
+              );
+              await downloadFile(attachment.url, attachmentPath);
             }
-
-            resultsLock.contentExtracted++;
-          } else {
-            resultsLock.skipped++;
           }
 
-          // Queue video download
-          if (needsVideo && content.video?.url) {
-            resultsLock.videoTasks.push({
-              lessonId: post.id as unknown as number,
-              lessonName: post.title,
-              videoUrl: content.video.url,
-              videoType:
-                content.video.type === "hls"
-                  ? "highlevel"
-                  : (content.video.type as VideoDownloadTask["videoType"]),
-              outputPath: getVideoPath(moduleDir, postIndex, post.title),
-              preferredQuality: options.quality,
-            });
-          }
+          resultsLock.contentExtracted++;
+        } else {
+          resultsLock.skipped++;
         }
-      } catch {
+
+        // Queue video download
+        if (needsVideo && content.video?.url) {
+          const videoTask: VideoDownloadTask = {
+            lessonId: stateId,
+            lessonName: post.title,
+            videoUrl: content.video.url,
+            videoType:
+              content.video.type === "hls"
+                ? "highlevel"
+                : (content.video.type as VideoDownloadTask["videoType"]),
+            outputPath: getVideoPath(moduleDir, postIndex, post.title),
+            preferredQuality: options.quality,
+          };
+          resultsLock.videoTasks.push(videoTask);
+          if (database) markLessonScanReady(database, stateId, videoTask);
+        } else if (needsVideo) {
+          database?.markLessonSkipped(stateId, "No video found");
+        }
+      } catch (error) {
+        if (database) markLessonFailure(database, stateId, error, "EXTRACTION_ERROR");
         const shortName = post.title.length > 30 ? post.title.substring(0, 27) + "..." : post.title;
         console.error(`\n   ⚠️ Error: ${shortName}`);
       }
@@ -383,15 +446,21 @@ export async function syncHighLevelCommand(
 
     // Phase 3: Download videos
     if (!options.skipVideos && videoTasks.length > 0) {
-      await downloadVideoTasks(videoTasks, {
+      const downloads = await downloadVideoTasks(videoTasks, {
         concurrency: config.concurrency,
         shouldContinue: shutdown.shouldContinue,
       });
+      if (database) {
+        for (const outcome of downloads.outcomes) {
+          recordVideoDownloadResult(database, outcome.task, outcome.result, outcome.error);
+        }
+      }
     }
 
     console.log(chalk.green("\n✅ Sync complete!\n"));
     console.log(chalk.gray(`   Output: ${courseDir}\n`));
   } finally {
+    database?.close();
     await browser.close();
   }
 }

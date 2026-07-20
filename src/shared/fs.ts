@@ -110,4 +110,4 @@ export async function getFileSize(path: string): Promise<number | null> {
 }
 
 // Re-export commonly used fs/promises functions
-export { readFile, writeFile, mkdir, unlink, stat } from "node:fs/promises";
+export { readFile, writeFile, mkdir, unlink, stat, readdir } from "node:fs/promises";

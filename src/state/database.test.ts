@@ -288,6 +288,38 @@ describe("CourseDatabase", () => {
     });
   });
 
+  it("preserves lesson state when a stable URL moves to another module", () => {
+    const database = createDatabase();
+    const originalModule = database.upsertModule("module-1", "Original module", 0);
+    const nextModule = database.upsertModule("module-2", "Next module", 1);
+    const lesson = database.upsertLesson(
+      originalModule.id,
+      "lesson-1",
+      "Original lesson",
+      "https://example.com/lessons/stable-id",
+      0
+    );
+    database.markLessonDownloaded(lesson.id, 1234);
+
+    const moved = database.upsertLesson(
+      nextModule.id,
+      "lesson-1",
+      "Renamed lesson",
+      "https://example.com/lessons/stable-id",
+      4
+    );
+
+    expect(moved).toMatchObject({
+      id: lesson.id,
+      moduleId: nextModule.id,
+      name: "Renamed lesson",
+      position: 4,
+      status: LessonStatus.DOWNLOADED,
+      videoFileSize: 1234,
+    });
+    expect(database.getLessonCount()).toBe(1);
+  });
+
   it("orders and joins module and lesson records", () => {
     const database = createDatabase();
     const secondModule = database.upsertModule("module-2", "Second", 1, true);
@@ -382,7 +414,7 @@ describe("CourseDatabase", () => {
     expect(database.incrementRetryCount(999_999)).toBe(0);
   });
 
-  it("supports error, skip, resume, and force-reset state transitions", () => {
+  it("supports error, skip, retry queueing, and force-reset state transitions", () => {
     const database = createDatabase();
     const withHls = addLesson(database, "with-hls");
     const withoutHls = addLesson(database, "without-hls");
@@ -407,11 +439,11 @@ describe("CourseDatabase", () => {
     database.markLessonError(withHls.id, "Download failed", "TIMEOUT");
     database.markLessonError(withoutHls.id, "Scan failed");
     expect(database.getLessonsByErrorCode("TIMEOUT").map(({ id }) => id)).toEqual([withHls.id]);
-    expect(database.resetErrorLessonsForResume()).toBe(1);
+    database.queueForRetry(withHls.id, LessonStatus.VALIDATED);
     expect(database.getLessonsByStatus(LessonStatus.VALIDATED).map(({ id }) => id)).toEqual([
       withHls.id,
     ]);
-    expect(database.resetErrorLessons()).toBe(1);
+    database.queueForRetry(withoutHls.id);
     expect(database.getLessonsByStatus(LessonStatus.PENDING).map(({ id }) => id)).toEqual([
       withoutHls.id,
     ]);
