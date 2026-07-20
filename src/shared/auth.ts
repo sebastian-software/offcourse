@@ -1,14 +1,21 @@
-import type { Browser, BrowserContext, Page } from "playwright";
+import type { Browser, BrowserContext, BrowserContextOptions, Page } from "playwright";
 import { chromium } from "playwright";
 import { getSessionPath, SESSIONS_DIR } from "../config/paths.js";
 import { ensureDir, outputJson, pathExists, readJson, removeFile } from "./fs.js";
 
 const SESSION_DIRECTORY_MODE = 0o700;
 const SESSION_FILE_MODE = 0o600;
+type StorageState = Exclude<NonNullable<BrowserContextOptions["storageState"]>, string>;
 
 export interface AuthSession {
   context: BrowserContext;
   page: Page;
+}
+
+export interface AuthSessionOptions {
+  forceLogin?: boolean;
+  headless?: boolean;
+  useStandardBrowserUserAgent?: boolean;
 }
 
 export interface AuthConfig {
@@ -92,15 +99,40 @@ export async function hasValidSession(domain: string): Promise<boolean> {
 /**
  * Loads an existing session from disk.
  */
-async function loadSession(browser: Browser, domain: string): Promise<BrowserContext> {
+async function loadSession(
+  browser: Browser,
+  domain: string,
+  useStandardBrowserUserAgent = false
+): Promise<BrowserContext> {
   const sessionPath = getSessionPath(domain);
-  // Playwright's storageState type is complex, we load it as-is from JSON
-  const storageState = await readJson(sessionPath);
+  const storageState = await readJson<StorageState>(sessionPath);
   if (!storageState) {
     throw new Error("Session file not found or invalid");
   }
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any
-  return browser.newContext({ storageState: storageState as any });
+  const userAgent = useStandardBrowserUserAgent
+    ? await getStandardBrowserUserAgent(browser)
+    : undefined;
+  return browser.newContext({
+    storageState,
+    ...(userAgent ? { userAgent } : {}),
+  });
+}
+
+export function normalizeHeadlessChromiumUserAgent(userAgent: string): string {
+  return userAgent.replace(/\bHeadlessChrome\//g, "Chrome/");
+}
+
+async function getStandardBrowserUserAgent(browser: Browser): Promise<string | undefined> {
+  let context: BrowserContext | undefined;
+  try {
+    context = await browser.newContext();
+    const page = await context.newPage();
+    return normalizeHeadlessChromiumUserAgent(await page.evaluate(() => navigator.userAgent));
+  } catch {
+    return undefined;
+  } finally {
+    await context?.close().catch(() => {});
+  }
 }
 
 /**
@@ -189,9 +221,10 @@ export async function performInteractiveLogin(config: AuthConfig): Promise<AuthS
  */
 export async function getAuthenticatedSession(
   config: AuthConfig,
-  options: { forceLogin?: boolean; headless?: boolean } = {}
+  options: AuthSessionOptions = {}
 ): Promise<{ browser: Browser; session: AuthSession; usedCachedSession: boolean }> {
   const useHeadless = options.headless !== false;
+  const useStandardBrowserUserAgent = useHeadless && options.useStandardBrowserUserAgent === true;
 
   const browser = await chromium.launch({
     headless: useHeadless,
@@ -200,7 +233,7 @@ export async function getAuthenticatedSession(
   // Try to use existing session
   if (!options.forceLogin && (await hasValidSession(config.domain))) {
     try {
-      const context = await loadSession(browser, config.domain);
+      const context = await loadSession(browser, config.domain, useStandardBrowserUserAgent);
       const page = await context.newPage();
 
       // Navigate to verify session
@@ -250,7 +283,7 @@ export async function getAuthenticatedSession(
   // After login, reopen with headless browser if needed
   if (useHeadless) {
     const newBrowser = await chromium.launch({ headless: true });
-    const context = await loadSession(newBrowser, config.domain);
+    const context = await loadSession(newBrowser, config.domain, useStandardBrowserUserAgent);
     const page = await context.newPage();
 
     // Close the interactive session

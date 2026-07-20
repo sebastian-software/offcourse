@@ -32,6 +32,9 @@ interface VimeoHlsConfig {
   cdns?: Record<string, { avc_url?: string; url?: string }>;
 }
 
+const JOSH_COMEAU_LESSON_ROOT_SELECTOR =
+  '[data-test="unlocked-content"], [class*="LessonContent__Wrapper"]';
+
 export function chooseVimeoHlsUrl(hls: VimeoHlsConfig | null | undefined): string | null {
   if (!hls?.cdns) return null;
   const preferred = [
@@ -193,6 +196,16 @@ async function resolveVimeoHlsUrl(frame: Frame): Promise<string | null> {
   );
 }
 
+async function resolveVimeoHlsUrlForPage(page: Page, videoId: string): Promise<string | null> {
+  const timeoutAt = Date.now() + 10000;
+  do {
+    const frame = page.frames().find((candidate) => candidate.url().includes(`/video/${videoId}`));
+    if (frame) return resolveVimeoHlsUrl(frame);
+    await page.waitForTimeout(250);
+  } while (Date.now() < timeoutAt);
+  return null;
+}
+
 /** Extracts lesson text, downloadable resources, and all Vimeo streams. */
 export async function extractJoshComeauLesson(
   page: Page,
@@ -203,16 +216,22 @@ export async function extractJoshComeauLesson(
     await page.waitForLoadState("domcontentloaded");
   }
 
-  await page.waitForSelector('[data-test="unlocked-content"]', {
+  await page.waitForSelector(JOSH_COMEAU_LESSON_ROOT_SELECTOR, {
     state: "attached",
     timeout: 15000,
   });
 
-  const extracted = await page.evaluate(() => {
-    const root = document.querySelector<HTMLElement>('[data-test="unlocked-content"]');
+  const extracted = await page.evaluate((rootSelector) => {
+    const root =
+      document.querySelector<HTMLElement>('[data-test="unlocked-content"]') ??
+      document.querySelector<HTMLElement>(rootSelector);
     if (!root) throw new Error("Josh Comeau lesson content is locked or unavailable");
 
-    const title = root.querySelector("#lesson-title, h1")?.textContent?.trim() ?? "Untitled lesson";
+    const title =
+      root.querySelector("#lesson-title, h1")?.textContent?.trim() ??
+      document.querySelector("h1")?.textContent?.trim() ??
+      document.title.split(" • ")[0]?.trim() ??
+      "Untitled lesson";
     const embedUrls = Array.from(
       root.querySelectorAll<HTMLIFrameElement>('iframe[src*="player.vimeo.com/video/"]')
     ).map((iframe) => iframe.src);
@@ -239,7 +258,7 @@ export async function extractJoshComeauLesson(
       embedUrls: [...new Set(embedUrls)],
       resourceUrls: [...new Set(resourceUrls)],
     };
-  });
+  }, JOSH_COMEAU_LESSON_ROOT_SELECTOR);
 
   const resources = extracted.resourceUrls.map((url, index) => ({
     url,
@@ -248,12 +267,9 @@ export async function extractJoshComeauLesson(
   const videos: JoshComeauVideo[] = [];
   for (const embedUrl of extracted.embedUrls) {
     const videoId = /player\.vimeo\.com\/video\/(\d+)/.exec(embedUrl)?.[1];
-    const frame = videoId
-      ? page.frames().find((candidate) => candidate.url().includes(`/video/${videoId}`))
-      : undefined;
     videos.push({
       embedUrl,
-      hlsUrl: frame ? await resolveVimeoHlsUrl(frame) : null,
+      hlsUrl: videoId ? await resolveVimeoHlsUrlForPage(page, videoId) : null,
       referer: lessonUrl,
     });
   }
