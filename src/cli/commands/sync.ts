@@ -1,12 +1,10 @@
 import chalk from "chalk";
-import cliProgress from "cli-progress";
 import ora from "ora";
 import { basename, dirname, join } from "node:path";
 import { loadConfig } from "../../config/configManager.js";
 import { downloadVideo, type VideoDownloadTask, validateVideoHls } from "../../downloader/index.js";
 import { getAuthenticatedSession, isSkoolLoginPage } from "../../shared/auth.js";
 import { getFileSize, outputFile } from "../../shared/fs.js";
-import { createWorkerPool, closeWorkerPool } from "../../shared/parallelWorker.js";
 import { createShutdownManager } from "../../shared/shutdown.js";
 import { extractLessonContent, formatMarkdown, extractVideoUrl } from "../../scraper/extractor.js";
 import { buildCourseStructure, type CourseStructure } from "../../scraper/navigator.js";
@@ -32,6 +30,11 @@ import {
   LessonStatus,
   type LessonWithModule,
 } from "../../state/index.js";
+import {
+  createSyncProgressBar,
+  downloadVideoTasks,
+  runParallelSyncStage,
+} from "../syncPipeline.js";
 
 /** Shutdown manager instance for this command. */
 const shutdown = createShutdownManager();
@@ -359,7 +362,7 @@ async function scanCourseStructure(
   const parallelLabel = scanConcurrency > 1 ? ` (${scanConcurrency}x parallel)` : "";
   console.log(chalk.blue(`\n📚 Phase 1: Scanning course structure...${parallelLabel}\n`));
 
-  let progressBar: cliProgress.SingleBar | undefined;
+  let progressBar: ReturnType<typeof createSyncProgressBar> | undefined;
   let scanSpinner: ReturnType<typeof ora> | undefined;
   let totalModules = 0;
   let lockedModules = 0;
@@ -383,16 +386,7 @@ async function scanCourseStructure(
           scanSpinner?.stop();
           scanSpinner = undefined;
           totalModules = progress.totalModules;
-          progressBar = new cliProgress.SingleBar(
-            {
-              format: "   {bar} {percentage}% | {value}/{total} | {status}",
-              barCompleteChar: "█",
-              barIncompleteChar: "░",
-              barsize: 30,
-              hideCursor: true,
-            },
-            cliProgress.Presets.shades_grey
-          );
+          progressBar = createSyncProgressBar();
           progressBar.start(totalModules, 0, { status: "Starting..." });
         } else if (progress.phase === "lessons" && progress.currentModule !== undefined) {
           if (progress.skippedLocked) {
@@ -484,17 +478,7 @@ async function validateVideos(
 
   console.log(chalk.blue(`\n🔍 Phase 2: Validating ${lessonsToScan.length} videos...\n`));
 
-  // Create progress bar
-  const progressBar = new cliProgress.SingleBar(
-    {
-      format: "   {bar} {percentage}% | {value}/{total} | {status}",
-      barCompleteChar: "█",
-      barIncompleteChar: "░",
-      barsize: 30,
-      hideCursor: true,
-    },
-    cliProgress.Presets.shades_grey
-  );
+  const progressBar = createSyncProgressBar();
 
   progressBar.start(lessonsToScan.length, 0, { status: "Starting..." });
 
@@ -677,33 +661,6 @@ async function extractContentAndQueueVideos(
     : `📝 Extracting content for ${lessonTasks.length} lessons (${extractionConcurrency}x parallel)...`;
   console.log(chalk.blue(`\n${phase3Label}\n`));
 
-  // Create progress bar
-  const progressBar = new cliProgress.SingleBar(
-    {
-      format: "   {bar} {percentage}% | {value}/{total} | {status}",
-      barCompleteChar: "█",
-      barIncompleteChar: "░",
-      barsize: 30,
-      hideCursor: true,
-    },
-    cliProgress.Presets.shades_grey
-  );
-
-  progressBar.start(lessonTasks.length, 0, { status: "Starting..." });
-
-  // Create worker pages for parallel extraction
-  const { pages: workerPages, isUsingMainPage } = await createWorkerPool(
-    context,
-    mainPage,
-    extractionConcurrency
-  );
-  if (isUsingMainPage) {
-    console.error(chalk.yellow("\n   Could not create parallel tabs, falling back to sequential"));
-  }
-
-  // Thread-safe counters and task queue
-  let processed = 0;
-  const taskQueue = [...lessonTasks];
   const resultsLock = {
     videoTasks: [] as VideoDownloadTask[],
     contentExtracted: 0,
@@ -772,30 +729,15 @@ async function extractContentAndQueueVideos(
     }
   };
 
-  // Process tasks with worker pool
-  const runWorker = async (page: import("playwright").Page): Promise<void> => {
-    while (shutdown.shouldContinue() && taskQueue.length > 0) {
-      const task = taskQueue.shift();
-      if (!task) break;
-
-      const shortName =
-        task.lesson.name.length > 40 ? task.lesson.name.substring(0, 37) + "..." : task.lesson.name;
-
-      await processLesson(page, task);
-
-      processed++;
-      progressBar.update(processed, { status: shortName });
-    }
-  };
-
-  // Start all workers
-  const workerPromises = workerPages.map((page) => runWorker(page));
-  await Promise.all(workerPromises);
-
-  // Close worker pages (except the main page)
-  await closeWorkerPool(workerPages, mainPage);
-
-  progressBar.stop();
+  await runParallelSyncStage({
+    context,
+    mainPage,
+    tasks: lessonTasks,
+    concurrency: extractionConcurrency,
+    shouldContinue: shutdown.shouldContinue,
+    processTask: processLesson,
+    getTaskLabel: (task) => task.lesson.name,
+  });
 
   // Print summary
   console.log();
@@ -821,176 +763,59 @@ async function downloadVideos(
   config: { concurrency: number; retryAttempts: number },
   _options?: SyncOptions
 ): Promise<void> {
-  const total = videoTasks.length;
-  console.log(chalk.blue(`\n🎬 Phase 4: Downloading ${total} videos...\n`));
-
-  // Create multi-bar container with auto-clear
-  const multibar = new cliProgress.MultiBar(
-    {
-      clearOnComplete: true,
-      hideCursor: true,
-      format: "   {typeTag} {bar} {percentage}% | {lessonName}",
-      barCompleteChar: "█",
-      barIncompleteChar: "░",
-      barsize: 25,
-      autopadding: true,
+  const summary = await downloadVideoTasks(videoTasks, {
+    concurrency: config.concurrency,
+    shouldContinue: shutdown.shouldContinue,
+    heading: `Phase 4: Downloading ${videoTasks.length} videos...`,
+    downloadTask: async (task, onProgress) => {
+      try {
+        const result = await downloadVideo(task, onProgress);
+        if (result.success) {
+          const fileSize = await getFileSize(task.outputPath);
+          db.markLessonDownloaded(task.lessonId, fileSize ?? undefined);
+        } else {
+          db.markLessonError(task.lessonId, result.error ?? "Download failed", result.errorCode);
+        }
+        return result;
+      } catch (error) {
+        db.markLessonError(task.lessonId, error instanceof Error ? error.message : String(error));
+        throw error;
+      }
     },
-    cliProgress.Presets.shades_grey
-  );
-
-  // Overall progress bar at the top
-  const overallBar = multibar.create(total, 0, {
-    typeTag: "[TOTAL]".padEnd(8),
-    lessonName: `0/${total} completed`,
   });
 
-  // Track results
-  const downloadAttempts: DownloadAttempt[] = [];
-  const errors: { id: string; error: string }[] = [];
-  let completed = 0;
-  let failed = 0;
-
-  // Active downloads map: lessonName -> bar
-  const activeBars = new Map<string, cliProgress.SingleBar>();
-
-  // Process downloads with controlled concurrency
-  const taskQueue = [...videoTasks];
-  const activePromises = new Set<Promise<void>>();
-
-  const processTask = async (task: VideoDownloadTask): Promise<void> => {
-    const typeTag = task.videoType ? `[${task.videoType.toUpperCase()}]` : "[VIDEO]";
-    const shortName =
-      task.lessonName.length > 40 ? task.lessonName.substring(0, 37) + "..." : task.lessonName;
-
-    // Create progress bar for this download
-    const bar = multibar.create(100, 0, {
-      typeTag: typeTag.padEnd(8),
-      lessonName: shortName,
-    });
-    activeBars.set(task.lessonName, bar);
-
-    try {
-      const downloadResult = await downloadVideo(task, (progress) => {
-        bar.update(Math.round(progress.percent));
-      });
-
-      // Record the attempt
-      const attempt: DownloadAttempt = {
-        lessonName: task.lessonName,
-        videoUrl: task.videoUrl,
-        videoType: task.videoType,
-        success: downloadResult.success,
-        timestamp: new Date().toISOString(),
-      };
-
-      if (!downloadResult.success) {
-        attempt.error = downloadResult.error;
-        attempt.errorCode = downloadResult.errorCode;
-        attempt.details = downloadResult.details;
-
-        db.markLessonError(
-          task.lessonId,
-          downloadResult.error ?? "Download failed",
-          downloadResult.errorCode
-        );
-
-        errors.push({
-          id: task.lessonName,
-          error: downloadResult.error ?? "Download failed",
-        });
-        failed++;
-      } else {
-        // Update database with success
-        const fileSize = await getFileSize(task.outputPath);
-        db.markLessonDownloaded(task.lessonId, fileSize ?? undefined);
-        completed++;
-      }
-
-      downloadAttempts.push(attempt);
-    } catch (error) {
-      failed++;
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      errors.push({ id: task.lessonName, error: errorMsg });
-      db.markLessonError(task.lessonId, errorMsg);
-    } finally {
-      // Remove the bar when done (key fix!)
-      multibar.remove(bar);
-      activeBars.delete(task.lessonName);
-
-      // Update overall progress
-      const done = completed + failed;
-      overallBar.update(done, {
-        lessonName: `${done}/${total} completed (${failed} failed)`,
-      });
-    }
-  };
-
-  // Run downloads with controlled concurrency
-  while (shutdown.shouldContinue() && (taskQueue.length > 0 || activePromises.size > 0)) {
-    // Start new downloads up to concurrency limit
-    while (
-      shutdown.shouldContinue() &&
-      taskQueue.length > 0 &&
-      activePromises.size < config.concurrency
-    ) {
-      const task = taskQueue.shift();
-      if (task) {
-        const promise = processTask(task).finally(() => {
-          activePromises.delete(promise);
-        });
-        activePromises.add(promise);
-      }
-    }
-
-    // Wait for at least one to complete
-    if (activePromises.size > 0) {
-      await Promise.race(activePromises);
-    }
-  }
-
-  // Stop multibar
-  multibar.stop();
-
-  // Print summary
-  console.log();
-  if (failed === 0) {
-    console.log(chalk.green(`   ✓ ${completed} videos downloaded successfully`));
-  } else {
-    console.log(chalk.yellow(`   Videos: ${completed} downloaded, ${failed} failed`));
-  }
-
-  if (errors.length > 0) {
-    console.log(chalk.yellow("\n   Failed downloads:"));
-    for (const error of errors) {
-      const task = videoTasks.find((t) => t.lessonName === error.id);
-      const typeTag = task?.videoType ? `[${task.videoType.toUpperCase()}]` : "";
-      console.log(chalk.red(`   - ${typeTag} ${error.id}: ${error.error}`));
-    }
-
-    // Save diagnostic log
-    const failedAttempts = downloadAttempts.filter((a) => !a.success);
-    if (failedAttempts.length > 0) {
-      const logPath = join(courseDir, `download-errors-${Date.now()}.json`);
-      const logData = {
-        timestamp: new Date().toISOString(),
-        totalAttempts: videoTasks.length,
-        successful: completed,
-        failed,
-        concurrency: config.concurrency,
-        retryAttempts: config.retryAttempts,
-        failures: failedAttempts.map((attempt) => {
-          const redacted = {
-            ...attempt,
-            videoUrl: redactDownloadUrl(attempt.videoUrl),
-          };
-          if (redacted.error) redacted.error = redactDownloadUrlsInText(redacted.error);
-          if (redacted.details) redacted.details = redactDownloadUrlsInText(redacted.details);
-          return redacted;
-        }),
-      };
-      await outputFile(logPath, JSON.stringify(logData, null, 2));
-      console.log(chalk.gray(`\n   📋 Detailed error log saved: ${logPath}`));
-    }
+  const downloadAttempts: DownloadAttempt[] = summary.outcomes.map((outcome) => ({
+    lessonName: outcome.task.lessonName,
+    videoUrl: outcome.task.videoUrl,
+    videoType: outcome.task.videoType,
+    success: outcome.result?.success ?? false,
+    error: outcome.error,
+    errorCode: outcome.result?.errorCode,
+    details: outcome.result?.details,
+    timestamp: new Date().toISOString(),
+  }));
+  const failedAttempts = downloadAttempts.filter((attempt) => !attempt.success);
+  if (failedAttempts.length > 0) {
+    const logPath = join(courseDir, `download-errors-${Date.now()}.json`);
+    const logData = {
+      timestamp: new Date().toISOString(),
+      totalAttempts: videoTasks.length,
+      successful: summary.completed,
+      failed: summary.failures.length,
+      concurrency: config.concurrency,
+      retryAttempts: config.retryAttempts,
+      failures: failedAttempts.map((attempt) => {
+        const redacted = {
+          ...attempt,
+          videoUrl: redactDownloadUrl(attempt.videoUrl),
+        };
+        if (redacted.error) redacted.error = redactDownloadUrlsInText(redacted.error);
+        if (redacted.details) redacted.details = redactDownloadUrlsInText(redacted.details);
+        return redacted;
+      }),
+    };
+    await outputFile(logPath, JSON.stringify(logData, null, 2));
+    console.log(chalk.gray(`\n   📋 Detailed error log saved: ${logPath}`));
   }
 }
 
@@ -1086,17 +911,7 @@ async function retryFailedLessons(
     details: string;
   }[] = [];
 
-  // Progress bar
-  const progressBar = new cliProgress.SingleBar(
-    {
-      format: "   {bar} {percentage}% | {value}/{total} | {status}",
-      barCompleteChar: "█",
-      barIncompleteChar: "░",
-      barsize: 30,
-      hideCursor: true,
-    },
-    cliProgress.Presets.shades_grey
-  );
+  const progressBar = createSyncProgressBar();
 
   progressBar.start(errorLessons.length, 0, { status: "Starting..." });
 

@@ -1,10 +1,8 @@
 import chalk from "chalk";
-import cliProgress from "cli-progress";
 import ora from "ora";
 import { loadConfig } from "../../config/configManager.js";
-import { downloadVideo, type VideoDownloadTask } from "../../downloader/index.js";
+import type { VideoDownloadTask } from "../../downloader/index.js";
 import { getAuthenticatedSession } from "../../shared/auth.js";
-import { createWorkerPool, closeWorkerPool } from "../../shared/parallelWorker.js";
 import { createShutdownManager } from "../../shared/shutdown.js";
 import {
   buildLearningSuiteCourseStructure,
@@ -29,6 +27,12 @@ import {
   isLessonSynced,
   downloadFile,
 } from "../../storage/fileSystem.js";
+import {
+  createSyncProgressBar,
+  downloadVideoTasks,
+  formatHtmlLessonMarkdown,
+  runParallelSyncStage,
+} from "../syncPipeline.js";
 
 /** Shutdown manager instance for this command. */
 const shutdown = createShutdownManager();
@@ -114,7 +118,7 @@ export async function syncLearningSuiteCommand(
 
     // Build course structure
     let courseStructure: LearningSuiteCourseStructure | null = null;
-    let progressBar: cliProgress.SingleBar | undefined;
+    let progressBar: ReturnType<typeof createSyncProgressBar> | undefined;
     let scanSpinner: ReturnType<typeof ora> | undefined;
 
     try {
@@ -135,16 +139,7 @@ export async function syncLearningSuiteCommand(
           } else if (progress.phase === "modules" && progress.totalModules) {
             scanSpinner?.stop();
             scanSpinner = undefined;
-            progressBar = new cliProgress.SingleBar(
-              {
-                format: "   {bar} {percentage}% | {value}/{total} | {status}",
-                barCompleteChar: "█",
-                barIncompleteChar: "░",
-                barsize: 30,
-                hideCursor: true,
-              },
-              cliProgress.Presets.shades_grey
-            );
+            progressBar = createSyncProgressBar();
             progressBar.start(progress.totalModules, 0, { status: "Scanning modules..." });
           } else if (progress.phase === "lessons") {
             if (progress.skippedLocked) {
@@ -278,34 +273,6 @@ export async function syncLearningSuiteCommand(
       : `📝 Extracting content for ${totalToProcess} lessons (${extractionConcurrency}x parallel)...`;
     console.log(chalk.blue(`\n${phase2Label}\n`));
 
-    const contentProgressBar = new cliProgress.SingleBar(
-      {
-        format: "   {bar} {percentage}% | {value}/{total} | {status}",
-        barCompleteChar: "█",
-        barIncompleteChar: "░",
-        barsize: 30,
-        hideCursor: true,
-      },
-      cliProgress.Presets.shades_grey
-    );
-
-    contentProgressBar.start(totalToProcess, 0, { status: "Starting..." });
-
-    // Create worker pages for parallel extraction
-    const { pages: workerPages, isUsingMainPage } = await createWorkerPool(
-      session.context,
-      session.page,
-      extractionConcurrency
-    );
-    if (isUsingMainPage) {
-      console.error(
-        chalk.yellow("\n   Could not create parallel tabs, falling back to sequential")
-      );
-    }
-
-    // Thread-safe counters and task queue
-    let processed = 0;
-    const taskQueue = [...lessonTasks];
     const resultsLock = { videoTasks, contentExtracted: 0, skipped: 0 };
 
     // Worker function to process a single lesson
@@ -398,32 +365,15 @@ export async function syncLearningSuiteCommand(
       }
     };
 
-    // Process tasks with worker pool
-    const runWorker = async (page: import("playwright").Page): Promise<void> => {
-      while (shutdown.shouldContinue() && taskQueue.length > 0) {
-        const task = taskQueue.shift();
-        if (!task) break;
-
-        const shortName =
-          task.lesson.title.length > 40
-            ? task.lesson.title.substring(0, 37) + "..."
-            : task.lesson.title;
-
-        await processLesson(page, task);
-
-        processed++;
-        contentProgressBar.update(processed, { status: shortName });
-      }
-    };
-
-    // Start all workers
-    const workerPromises = workerPages.map((page) => runWorker(page));
-    await Promise.all(workerPromises);
-
-    // Close worker pages (except the main session page)
-    await closeWorkerPool(workerPages, session.page);
-
-    contentProgressBar.stop();
+    await runParallelSyncStage({
+      context: session.context,
+      mainPage: session.page,
+      tasks: lessonTasks,
+      concurrency: extractionConcurrency,
+      shouldContinue: shutdown.shouldContinue,
+      processTask: processLesson,
+      getTaskLabel: (task) => task.lesson.title,
+    });
 
     // Update counters from results lock
     contentExtracted = resultsLock.contentExtracted;
@@ -454,7 +404,10 @@ export async function syncLearningSuiteCommand(
         }
       }
 
-      await downloadVideos(videoTasks, config);
+      await downloadVideoTasks(videoTasks, {
+        concurrency: config.concurrency,
+        shouldContinue: shutdown.shouldContinue,
+      });
     }
 
     console.log(chalk.green("\n✅ Sync complete!\n"));
@@ -502,117 +455,6 @@ function mapVideoType(type: string, url?: string): VideoDownloadTask["videoType"
 }
 
 /**
- * Downloads videos with progress display.
- */
-async function downloadVideos(
-  videoTasks: VideoDownloadTask[],
-  config: { concurrency: number }
-): Promise<void> {
-  const total = videoTasks.length;
-  console.log(chalk.blue(`\n🎬 Downloading ${total} videos...\n`));
-
-  const multibar = new cliProgress.MultiBar(
-    {
-      clearOnComplete: true,
-      hideCursor: true,
-      format: "   {typeTag} {bar} {percentage}% | {lessonName}",
-      barCompleteChar: "█",
-      barIncompleteChar: "░",
-      barsize: 25,
-      autopadding: true,
-    },
-    cliProgress.Presets.shades_grey
-  );
-
-  const overallBar = multibar.create(total, 0, {
-    typeTag: "[TOTAL]".padEnd(8),
-    lessonName: `0/${total} completed`,
-  });
-
-  let completed = 0;
-  let failed = 0;
-  const errors: { name: string; error: string }[] = [];
-
-  const activeBars = new Map<string, cliProgress.SingleBar>();
-  const taskQueue = [...videoTasks];
-  const activePromises = new Set<Promise<void>>();
-
-  const processTask = async (task: VideoDownloadTask): Promise<void> => {
-    const typeTag = task.videoType ? `[${task.videoType.toUpperCase()}]` : "[VIDEO]";
-    const shortName =
-      task.lessonName.length > 40 ? task.lessonName.substring(0, 37) + "..." : task.lessonName;
-
-    const bar = multibar.create(100, 0, {
-      typeTag: typeTag.padEnd(8),
-      lessonName: shortName,
-    });
-    activeBars.set(task.lessonName, bar);
-
-    try {
-      const result = await downloadVideo(task, (progress) => {
-        bar.update(Math.round(progress.percent));
-      });
-
-      if (!result.success) {
-        errors.push({ name: task.lessonName, error: result.error ?? "Download failed" });
-        failed++;
-      } else {
-        completed++;
-      }
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      errors.push({ name: task.lessonName, error: errorMsg });
-      failed++;
-    } finally {
-      multibar.remove(bar);
-      activeBars.delete(task.lessonName);
-
-      const done = completed + failed;
-      overallBar.update(done, {
-        lessonName: `${done}/${total} completed (${failed} failed)`,
-      });
-    }
-  };
-
-  while (shutdown.shouldContinue() && (taskQueue.length > 0 || activePromises.size > 0)) {
-    while (
-      shutdown.shouldContinue() &&
-      taskQueue.length > 0 &&
-      activePromises.size < config.concurrency
-    ) {
-      const task = taskQueue.shift();
-      if (task) {
-        const promise = processTask(task).finally(() => {
-          activePromises.delete(promise);
-        });
-        activePromises.add(promise);
-      }
-    }
-
-    if (activePromises.size > 0) {
-      await Promise.race(activePromises);
-    }
-  }
-
-  multibar.stop();
-
-  // Print summary
-  console.log();
-  if (failed === 0) {
-    console.log(chalk.green(`   ✓ ${completed} videos downloaded successfully`));
-  } else {
-    console.log(chalk.yellow(`   Videos: ${completed} downloaded, ${failed} failed`));
-  }
-
-  if (errors.length > 0) {
-    console.log(chalk.yellow("\n   Failed downloads:"));
-    for (const error of errors) {
-      console.log(chalk.red(`   - ${error.name}: ${error.error}`));
-    }
-  }
-}
-
-/**
  * Format markdown content for LearningSuite lessons.
  */
 export function formatLearningSuiteMarkdown(
@@ -620,39 +462,7 @@ export function formatLearningSuiteMarkdown(
   description: string | null,
   htmlContent: string | null
 ): string {
-  const lines: string[] = [];
-
-  lines.push(`# ${title}`);
-  lines.push("");
-
-  if (description) {
-    lines.push(description);
-    lines.push("");
-  }
-
-  if (htmlContent) {
-    lines.push("---");
-    lines.push("");
-    // Simple HTML to text conversion
-    const text = htmlContent
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<\/p>/gi, "\n\n")
-      .replace(/<\/div>/gi, "\n")
-      .replace(/<\/li>/gi, "\n")
-      .replace(/<li>/gi, "- ")
-      .replace(/<[^>]+>/g, "")
-      .replace(/&nbsp;/g, " ")
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"')
-      .trim();
-
-    lines.push(text);
-    lines.push("");
-  }
-
-  return lines.join("\n");
+  return formatHtmlLessonMarkdown({ title, description, htmlContent });
 }
 
 /**
