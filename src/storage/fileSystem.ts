@@ -6,7 +6,8 @@ import { expandPath, getSyncStatePath } from "../config/paths.js";
 import type { CourseSyncState } from "../config/schema.js";
 import { courseSyncStateSchema } from "../config/schema.js";
 import { createFolderName } from "../scraper/navigator.js";
-import { ensureDir, outputFile, pathExists, readJson, outputJson } from "../shared/fs.js";
+import { slugify } from "../shared/slug.js";
+import { ensureDir, outputFile, pathExists, readJson, outputJson, readdir } from "../shared/fs.js";
 import { http } from "../shared/http.js";
 
 // ============================================
@@ -134,11 +135,32 @@ export async function isLessonSynced(
   lessonIndex: number,
   lessonName: string
 ): Promise<{ video: boolean; content: boolean }> {
-  const [video, content] = await Promise.all([
+  const [exactVideo, exactContent] = await Promise.all([
     pathExists(getVideoPath(moduleDir, lessonIndex, lessonName)),
     pathExists(getMarkdownPath(moduleDir, lessonIndex, lessonName)),
   ]);
-  return { video, content };
+
+  if (exactVideo && exactContent) return { video: true, content: true };
+
+  let files: string[];
+  try {
+    files = await readdir(moduleDir);
+  } catch {
+    return { video: exactVideo, content: exactContent };
+  }
+
+  const lessonSlug = slugify(lessonName);
+  if (!lessonSlug) return { video: exactVideo, content: exactContent };
+
+  const hasUniquePositionIndependentMatch = (extension: "mp4" | "md"): boolean => {
+    const expected = `${lessonSlug}.${extension}`;
+    return files.filter((file) => file.replace(/^\d+-/, "") === expected).length === 1;
+  };
+
+  return {
+    video: exactVideo || hasUniquePositionIndependentMatch("mp4"),
+    content: exactContent || hasUniquePositionIndependentMatch("md"),
+  };
 }
 
 /**

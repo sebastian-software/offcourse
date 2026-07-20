@@ -33,6 +33,14 @@ import {
   formatHtmlLessonMarkdown,
   runParallelSyncStage,
 } from "../syncPipeline.js";
+import {
+  initializeCourseState,
+  LessonStatus,
+  markLessonFailure,
+  markLessonScanReady,
+  recordVideoDownloadResult,
+  type CourseDatabase,
+} from "../../state/index.js";
 
 /** Shutdown manager instance for this command. */
 const shutdown = createShutdownManager();
@@ -46,6 +54,7 @@ export interface SyncLearningSuiteOptions {
   quality?: string;
   courseName?: string;
   force?: boolean;
+  retryFailed?: boolean;
 }
 
 export interface CompleteLearningSuiteOptions {
@@ -78,6 +87,7 @@ export async function syncLearningSuiteCommand(
 
   let browser: Awaited<ReturnType<typeof getAuthenticatedSession>>["browser"] | undefined;
   let session: Awaited<ReturnType<typeof getAuthenticatedSession>>["session"] | undefined;
+  let database: CourseDatabase | undefined;
 
   try {
     const result = await getAuthenticatedSession(
@@ -222,6 +232,38 @@ export async function syncLearningSuiteCommand(
       return;
     }
 
+    const canonicalCourseUrl = `https://${courseStructure.domain}/student/course/${courseStructure.courseSlug ?? courseStructure.course.id}/${courseStructure.course.id}`;
+    const state = initializeCourseState(
+      "learningsuite",
+      canonicalCourseUrl,
+      {
+        name: courseStructure.course.title,
+        url: canonicalCourseUrl,
+        modules: courseStructure.modules.map((module, moduleIndex) => ({
+          slug: module.id,
+          name: module.title,
+          position: moduleIndex,
+          isLocked: module.isLocked,
+          lessons: module.lessons.map((lesson, lessonIndex) => ({
+            slug: lesson.id,
+            name: lesson.title,
+            url: getLearningSuiteLessonUrl(
+              courseStructure.domain,
+              courseStructure.courseSlug ?? courseStructure.course.id,
+              courseStructure.course.id,
+              lesson.moduleId,
+              lesson.id
+            ),
+            position: lessonIndex,
+            isLocked: lesson.isLocked,
+          })),
+        })),
+      },
+      options
+    );
+    database = state.database;
+    console.log(chalk.gray(`   State: ~/.offcourse/cache/${state.key}.db`));
+
     // Create course directory
     const courseSlug = slugify(courseStructure.course.title);
     const courseDir = await createCourseDirectory(config.outputDir, courseSlug);
@@ -239,6 +281,8 @@ export async function syncLearningSuiteCommand(
       lessonIndex: number;
       moduleDir: string;
       moduleIndex: number;
+      lessonUrl: string;
+      stateId: number;
     }
     const lessonTasks: LessonTask[] = [];
 
@@ -253,7 +297,23 @@ export async function syncLearningSuiteCommand(
           skippedLocked++;
           continue;
         }
-        lessonTasks.push({ lesson, lessonIndex, moduleDir, moduleIndex: modIndex });
+        const lessonUrl = getLearningSuiteLessonUrl(
+          courseStructure.domain,
+          courseStructure.courseSlug ?? courseStructure.course.id,
+          courseStructure.course.id,
+          lesson.moduleId,
+          lesson.id
+        );
+        const stateLesson = state.lessonsByUrl.get(lessonUrl);
+        if (!stateLesson) throw new Error(`Missing state record for ${lesson.title}`);
+        lessonTasks.push({
+          lesson,
+          lessonIndex,
+          moduleDir,
+          moduleIndex: modIndex,
+          lessonUrl,
+          stateId: stateLesson.id,
+        });
       }
     }
 
@@ -280,27 +340,27 @@ export async function syncLearningSuiteCommand(
       page: import("playwright").Page,
       task: LessonTask
     ): Promise<void> => {
-      const { lesson, lessonIndex, moduleDir } = task;
+      const { lesson, lessonIndex, moduleDir, lessonUrl, stateId } = task;
 
       try {
         const syncStatus = await isLessonSynced(moduleDir, lessonIndex, lesson.title);
+        const stateLesson = database?.getLessonByUrl(lessonUrl);
+        const retryFailed = state.retryLessonIds.has(stateId);
+        if (syncStatus.video && stateLesson?.status !== LessonStatus.DOWNLOADED) {
+          database?.markLessonDownloaded(stateId);
+        }
         const needsContent =
-          !options.skipContent && (options.force === true || !syncStatus.content);
-        const needsVideo = !options.skipVideos && (options.force === true || !syncStatus.video);
+          !options.skipContent && (options.force === true || retryFailed || !syncStatus.content);
+        const needsVideo =
+          !options.skipVideos &&
+          (options.force === true ||
+            retryFailed ||
+            (stateLesson?.status !== LessonStatus.DOWNLOADED && !syncStatus.video));
 
         if (!needsContent && !needsVideo) {
           resultsLock.skipped++;
           return;
         }
-
-        // Get full lesson URL
-        const lessonUrl = getLearningSuiteLessonUrl(
-          courseStructure.domain,
-          courseStructure.courseSlug ?? courseStructure.course.id,
-          courseStructure.course.id,
-          lesson.moduleId,
-          lesson.id
-        );
 
         // Extract content
         const content = await extractLearningSuitePostContent(
@@ -311,53 +371,58 @@ export async function syncLearningSuiteCommand(
           lesson.id
         );
 
-        if (content) {
-          // Save markdown if needed
-          if (needsContent) {
-            const markdown = formatLearningSuiteMarkdown(
-              content.title,
-              content.description,
-              content.htmlContent
-            );
+        if (!content) throw new Error(`Could not extract ${lesson.title}`);
 
-            await saveMarkdown(
-              moduleDir,
-              createFolderName(lessonIndex, lesson.title) + ".md",
-              markdown
-            );
+        // Save markdown if needed
+        if (needsContent) {
+          const markdown = formatLearningSuiteMarkdown(
+            content.title,
+            content.description,
+            content.htmlContent
+          );
 
-            // Download attachments
-            for (const attachment of content.attachments) {
-              if (attachment.url) {
-                const attachmentPath = getDownloadFilePath(
-                  moduleDir,
-                  lessonIndex,
-                  lesson.title,
-                  attachment.name
-                );
-                await downloadFile(attachment.url, attachmentPath);
-              }
+          await saveMarkdown(
+            moduleDir,
+            createFolderName(lessonIndex, lesson.title) + ".md",
+            markdown
+          );
+
+          // Download attachments
+          for (const attachment of content.attachments) {
+            if (attachment.url) {
+              const attachmentPath = getDownloadFilePath(
+                moduleDir,
+                lessonIndex,
+                lesson.title,
+                attachment.name
+              );
+              await downloadFile(attachment.url, attachmentPath);
             }
-
-            resultsLock.contentExtracted++;
-          } else {
-            resultsLock.skipped++;
           }
 
-          // Queue video download
-          if (needsVideo && content.video?.url) {
-            const videoUrl = content.video.hlsUrl ?? content.video.url;
-            resultsLock.videoTasks.push({
-              lessonId: lesson.id as unknown as number,
-              lessonName: lesson.title,
-              videoUrl,
-              videoType: mapVideoType(content.video.type, videoUrl),
-              outputPath: getVideoPath(moduleDir, lessonIndex, lesson.title),
-              preferredQuality: options.quality,
-            });
-          }
+          resultsLock.contentExtracted++;
+        } else {
+          resultsLock.skipped++;
         }
-      } catch {
+
+        // Queue video download
+        if (needsVideo && content.video?.url) {
+          const videoUrl = content.video.hlsUrl ?? content.video.url;
+          const videoTask: VideoDownloadTask = {
+            lessonId: stateId,
+            lessonName: lesson.title,
+            videoUrl,
+            videoType: mapVideoType(content.video.type, videoUrl),
+            outputPath: getVideoPath(moduleDir, lessonIndex, lesson.title),
+            preferredQuality: options.quality,
+          };
+          resultsLock.videoTasks.push(videoTask);
+          if (database) markLessonScanReady(database, stateId, videoTask);
+        } else if (needsVideo) {
+          database?.markLessonSkipped(stateId, "No video found");
+        }
+      } catch (error) {
+        if (database) markLessonFailure(database, stateId, error, "EXTRACTION_ERROR");
         // Log error but continue processing
         const shortName =
           lesson.title.length > 30 ? lesson.title.substring(0, 27) + "..." : lesson.title;
@@ -404,10 +469,15 @@ export async function syncLearningSuiteCommand(
         }
       }
 
-      await downloadVideoTasks(videoTasks, {
+      const downloads = await downloadVideoTasks(videoTasks, {
         concurrency: config.concurrency,
         shouldContinue: shutdown.shouldContinue,
       });
+      if (database) {
+        for (const outcome of downloads.outcomes) {
+          recordVideoDownloadResult(database, outcome.task, outcome.result, outcome.error);
+        }
+      }
     }
 
     console.log(chalk.green("\n✅ Sync complete!\n"));
@@ -420,6 +490,7 @@ export async function syncLearningSuiteCommand(
     }
     throw error;
   } finally {
+    database?.close();
     // Always close the browser to prevent hanging
     if (browser) {
       try {

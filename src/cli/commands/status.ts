@@ -1,12 +1,7 @@
 import chalk from "chalk";
-import {
-  CourseDatabase,
-  extractCommunitySlug,
-  isSkoolUrl,
-  LessonStatus,
-  getDbPath,
-} from "../../state/index.js";
+import { CourseDatabase, getCourseStateKey, LessonStatus, getDbPath } from "../../state/index.js";
 import { existsSync } from "node:fs";
+import { detectSyncPlatform } from "../syncPlatform.js";
 
 export interface StatusOptions {
   errors?: boolean;
@@ -21,22 +16,22 @@ export interface StatusOptions {
 export function statusCommand(url: string, options: StatusOptions): void {
   console.log(chalk.blue("\n📊 Course Status\n"));
 
-  // Validate URL
-  if (!isSkoolUrl(url)) {
-    console.log(chalk.red("❌ Invalid URL. Please provide a Skool URL."));
+  const platform = detectSyncPlatform(url);
+  if (!platform) {
+    console.log(chalk.red("❌ Unsupported course URL."));
     process.exit(1);
   }
 
-  const communitySlug = extractCommunitySlug(url);
-  const dbPath = getDbPath(communitySlug);
+  const courseKey = getCourseStateKey(platform, url);
+  const dbPath = getDbPath(courseKey);
 
   if (!existsSync(dbPath)) {
-    console.log(chalk.yellow(`   No sync state found for: ${communitySlug}`));
+    console.log(chalk.yellow(`   No sync state found for: ${courseKey}`));
     console.log(chalk.gray(`   Run 'offcourse sync ${url}' to start syncing.\n`));
     return;
   }
 
-  const db = new CourseDatabase(communitySlug);
+  const db = new CourseDatabase(courseKey);
 
   try {
     const meta = db.getCourseMetadata();

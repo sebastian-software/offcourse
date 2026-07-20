@@ -32,7 +32,7 @@ export const VideoType = {
 export type VideoTypeValue = (typeof VideoType)[keyof typeof VideoType];
 
 /** Current SQLite schema version stored in PRAGMA user_version. */
-export const DATABASE_SCHEMA_VERSION = 2;
+export const DATABASE_SCHEMA_VERSION = 3;
 
 /**
  * Module record from database.
@@ -102,8 +102,8 @@ export function getDbDir(): string {
 /**
  * Get the database file path for a course.
  */
-export function getDbPath(communitySlug: string): string {
-  const safeSlug = communitySlug.replace(/[^a-zA-Z0-9-]/g, "_");
+export function getDbPath(courseKey: string): string {
+  const safeSlug = courseKey.replace(/[^a-zA-Z0-9-]/g, "_");
   return join(getDbDir(), `${safeSlug}.db`);
 }
 
@@ -138,7 +138,7 @@ export function extractCommunitySlug(value: string): string {
 export class CourseDatabase {
   private db: Database.Database;
 
-  constructor(communitySlug: string, dbPath = getDbPath(communitySlug)) {
+  constructor(courseKey: string, dbPath = getDbPath(courseKey)) {
     // Ensure directory exists
     const dir = dirname(dbPath);
     if (!existsSync(dir)) {
@@ -225,6 +225,46 @@ export class CourseDatabase {
         version: 2,
         up: () => {
           this.db.exec("CREATE INDEX IF NOT EXISTS idx_lessons_url ON lessons(url)");
+        },
+      },
+      {
+        version: 3,
+        up: () => {
+          // Older databases could contain duplicate URL records because URL was
+          // only indexed, not unique. Keep the most useful state before enforcing
+          // the stable identity invariant for future writes.
+          this.db.exec(`
+            DELETE FROM lessons
+            WHERE id IN (
+              SELECT id
+              FROM (
+                SELECT
+                  id,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY url
+                    ORDER BY
+                      CASE status
+                        WHEN 'downloaded' THEN 6
+                        WHEN 'validated' THEN 5
+                        WHEN 'scanned' THEN 4
+                        WHEN 'error' THEN 3
+                        WHEN 'skipped' THEN 2
+                        ELSE 1
+                      END DESC,
+                      retry_count DESC,
+                      updated_at DESC,
+                      id ASC
+                  ) AS duplicate_rank
+                FROM lessons
+                WHERE url <> ''
+              )
+              WHERE duplicate_rank > 1
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_lessons_url_unique
+              ON lessons(url)
+              WHERE url <> '';
+          `);
         },
       },
     ];
@@ -419,6 +459,34 @@ export class CourseDatabase {
     position: number,
     isLocked = false
   ): LessonRecord {
+    const existing = url
+      ? (this.db.prepare("SELECT id FROM lessons WHERE url = ?").get(url) as
+          { id: number } | undefined)
+      : undefined;
+
+    if (existing) {
+      const update = this.db.prepare(`
+        UPDATE lessons SET
+          module_id = ?,
+          slug = ?,
+          name = ?,
+          position = ?,
+          is_locked = ?,
+          updated_at = datetime('now')
+        WHERE id = ?
+        RETURNING *
+      `);
+      const row = update.get(
+        moduleId,
+        slug,
+        name,
+        position,
+        isLocked ? 1 : 0,
+        existing.id
+      ) as RawLessonRow;
+      return this.mapLessonRow(row);
+    }
+
     const stmt = this.db.prepare(`
       INSERT INTO lessons (module_id, slug, name, url, position, is_locked, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
@@ -732,22 +800,6 @@ export class CourseDatabase {
   }
 
   /**
-   * Reset all error lessons to pending for retry.
-   */
-  resetErrorLessons(): number {
-    const stmt = this.db.prepare(`
-      UPDATE lessons SET
-        status = 'pending',
-        error_message = NULL,
-        error_code = NULL,
-        updated_at = datetime('now')
-      WHERE status = 'error'
-    `);
-    const result = stmt.run();
-    return result.changes;
-  }
-
-  /**
    * Reset ALL lessons to pending (for --force full rescan).
    * Preserves locked status.
    */
@@ -763,23 +815,6 @@ export class CourseDatabase {
         retry_count = 0,
         updated_at = datetime('now')
       WHERE is_locked = 0
-    `);
-    const result = stmt.run();
-    return result.changes;
-  }
-
-  /**
-   * Reset error lessons to validated (for --resume --retry-errors).
-   * Only resets lessons that already have an HLS URL.
-   */
-  resetErrorLessonsForResume(): number {
-    const stmt = this.db.prepare(`
-      UPDATE lessons SET
-        status = 'validated',
-        error_message = NULL,
-        error_code = NULL,
-        updated_at = datetime('now')
-      WHERE status = 'error' AND hls_url IS NOT NULL
     `);
     const result = stmt.run();
     return result.changes;
