@@ -7,4 +7,4 @@ allowBuilds:
 
 overrides:
   "@commitlint/read": 21.2.1
-  ast-v8-to-istanbul: 1.0.4
+  ast-v8-to-istanbul: 1.0.5
