@@ -58,6 +58,22 @@ export interface SyncOptions {
   force?: boolean;
   retryFailed?: boolean;
   visible?: boolean;
+  quality?: string;
+  courseName?: string;
+}
+
+/** Returns options that are accepted globally but not supported by Skool yet. */
+export function getUnsupportedSkoolOptionWarnings(options: Pick<SyncOptions, "quality">): string[] {
+  return options.quality ? ["--quality is not supported for Skool videos yet; ignoring it."] : [];
+}
+
+/** Applies the optional CLI course-name override without changing the discovered structure. */
+export function applyCourseNameOverride(
+  courseStructure: CourseStructure,
+  courseName?: string
+): CourseStructure {
+  const trimmedCourseName = courseName?.trim();
+  return trimmedCourseName ? { ...courseStructure, name: trimmedCourseName } : courseStructure;
 }
 
 /**
@@ -158,6 +174,10 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
   shutdown.setup();
 
   console.log(chalk.blue("\n📚 Course Sync\n"));
+
+  for (const warning of getUnsupportedSkoolOptionWarnings(options)) {
+    console.log(chalk.yellow(`   ⚠️  ${warning}`));
+  }
 
   // Validate URL
   if (!isSkoolUrl(url)) {
@@ -385,7 +405,7 @@ async function scanCourseStructure(
   let lockedModules = 0;
 
   try {
-    const courseStructure = await buildCourseStructure(
+    const discoveredCourseStructure = await buildCourseStructure(
       page,
       url,
       (progress) => {
@@ -437,6 +457,7 @@ async function scanCourseStructure(
         shouldContinue: shutdown.shouldContinue,
       }
     );
+    const courseStructure = applyCourseNameOverride(discoveredCourseStructure, options.courseName);
 
     const discoveredLessons = courseStructure.modules.reduce(
       (sum, module) => sum + module.lessons.length,
