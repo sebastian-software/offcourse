@@ -215,7 +215,8 @@ describe("CourseDatabase", () => {
       INSERT INTO lessons (module_id, slug, name, url, position, status, video_url, hls_url)
         VALUES
           (1, 'with-video', 'With video', 'https://example.com/with-video', 0, 'scanned', 'https://vimeo.com/123', 'https://cdn.example/video.m3u8'),
-          (1, 'without-video', 'Without video', 'https://example.com/without-video', 1, 'scanned', NULL, NULL);
+          (1, 'video-without-hls', 'Video without HLS', 'https://example.com/video-without-hls', 1, 'scanned', 'https://vimeo.com/456', NULL),
+          (1, 'without-video', 'Without video', 'https://example.com/without-video', 2, 'scanned', NULL, NULL);
     `);
     legacy.close();
 
@@ -241,6 +242,9 @@ describe("CourseDatabase", () => {
       status: LessonStatus.VALIDATED,
     });
     expect(reopened.getLessonByUrl("https://example.com/without-video")).toMatchObject({
+      status: LessonStatus.PENDING,
+    });
+    expect(reopened.getLessonByUrl("https://example.com/video-without-hls")).toMatchObject({
       status: LessonStatus.PENDING,
     });
   });

@@ -289,7 +289,7 @@ export class CourseDatabase {
           this.db.exec(`
             UPDATE lessons
             SET status = CASE
-              WHEN video_url IS NOT NULL OR hls_url IS NOT NULL THEN 'validated'
+              WHEN hls_url IS NOT NULL THEN 'validated'
               ELSE 'pending'
             END,
             updated_at = datetime('now')
