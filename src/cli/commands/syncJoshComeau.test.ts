@@ -357,4 +357,58 @@ describe("syncJoshComeauCommand", () => {
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("HTTP 403"));
     expect(mocks.browserClose).toHaveBeenCalledOnce();
   });
+
+  it("downloads successful sibling lessons before reporting extraction failures", async () => {
+    const structure = courseStructure();
+    const secondLesson = {
+      name: "Responsive Design",
+      slug: "responsive-design",
+      url: `${courseUrl}/rendering-logic/responsive-design`,
+      number: 2,
+      index: 1,
+    };
+    const firstModule = structure.modules[0];
+    if (!firstModule) throw new Error("Expected the test course to have a module");
+    firstModule.lessons.push(secondLesson);
+    mocks.buildCourseStructure.mockResolvedValue(structure);
+
+    const firstStateLesson = { id: 1, status: "pending", retryCount: 0 };
+    const secondStateLesson = { id: 2, status: "pending", retryCount: 0 };
+    const database = {
+      close: vi.fn(),
+      getLessonByUrl: vi.fn((url: string) =>
+        url.endsWith("responsive-design") ? secondStateLesson : firstStateLesson
+      ),
+      markLessonDownloaded: vi.fn(),
+      markLessonSkipped: vi.fn(),
+    };
+    mocks.initializeCourseState.mockReturnValue({
+      key: "joshcomeau-css-for-js",
+      database,
+      lessonsByUrl: new Map([
+        [`${courseUrl}/rendering-logic/flow-layout`, firstStateLesson],
+        [secondLesson.url, secondStateLesson],
+      ]),
+      retryLessonIds: new Set(),
+    });
+    mocks.extractLesson.mockImplementation(async (_page: Page, url: string) => {
+      if (url.endsWith("flow-layout")) throw new Error("Extraction failed");
+      return lessonContent();
+    });
+
+    await expect(syncJoshComeauCommand(courseUrl, {})).rejects.toThrow(
+      "1 Josh Comeau lesson(s) failed"
+    );
+
+    expect(mocks.downloadVideoTasks).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ lessonId: 2 })]),
+      expect.objectContaining({ concurrency: 2 })
+    );
+    expect(mocks.markLessonFailure).toHaveBeenCalledWith(
+      database,
+      1,
+      expect.any(Error),
+      "SYNC_ERROR"
+    );
+  });
 });

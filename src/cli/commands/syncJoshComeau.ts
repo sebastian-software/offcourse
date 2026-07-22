@@ -442,10 +442,6 @@ export async function syncJoshComeauCommand(
       }
       console.error(chalk.red(`   ${lesson}: ${message}`));
     }
-    if (extraction.errors.length > 0) {
-      throw new Error(`${extraction.errors.length} Josh Comeau lesson(s) failed`);
-    }
-
     const videoTasks = extraction.results.flatMap((result) => result.videoTasks);
     const downloadSummary =
       options.skipVideos || videoTasks.length === 0
@@ -458,6 +454,10 @@ export async function syncJoshComeauCommand(
     const videos = currentDatabase
       ? recordJoshVideoDownloads(currentDatabase, extraction.results, downloadSummary)
       : 0;
+
+    if (extraction.errors.length > 0) {
+      throw new Error(`${extraction.errors.length} Josh Comeau lesson(s) failed`);
+    }
 
     const contentSaved = extraction.results.filter((result) => result.contentSaved).length;
     const cached = extraction.results.filter((result) => result.cached).length;
