@@ -1,4 +1,6 @@
 # Managed by Alfred/OpenClaw for sebastian-software.
+# Renovate owns version-update PRs (see renovate.json); Dependabot remains enabled
+# for security alerts only, with update PRs disabled to avoid overlapping bots.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
