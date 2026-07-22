@@ -1,4 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
+import { rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -9,6 +11,13 @@ import { createFolderName } from "../scraper/navigator.js";
 import { slugify } from "../shared/slug.js";
 import { ensureDir, outputFile, pathExists, readJson, outputJson, readdir } from "../shared/fs.js";
 import { http } from "../shared/http.js";
+
+interface FileDownloadResult {
+  success: boolean;
+  error?: string;
+}
+
+const activeDownloads = new Map<string, Promise<FileDownloadResult>>();
 
 // ============================================
 // Pure functions - testable without mocking
@@ -166,15 +175,27 @@ export async function isLessonSynced(
 /**
  * Downloads a file from a URL to the specified path.
  */
-export async function downloadFile(
-  url: string,
-  outputPath: string
-): Promise<{ success: boolean; error?: string }> {
+export async function downloadFile(url: string, outputPath: string): Promise<FileDownloadResult> {
   if (await pathExists(outputPath)) {
     return { success: true }; // Already downloaded
   }
 
+  const activeDownload = activeDownloads.get(outputPath);
+  if (activeDownload) return activeDownload;
+
+  const download = downloadFileOnce(url, outputPath);
+  activeDownloads.set(outputPath, download);
+
+  try {
+    return await download;
+  } finally {
+    activeDownloads.delete(outputPath);
+  }
+}
+
+async function downloadFileOnce(url: string, outputPath: string): Promise<FileDownloadResult> {
   await ensureDir(join(outputPath, ".."));
+  const tempPath = `${outputPath}.${randomUUID()}.tmp`;
 
   try {
     const response = await http.get(url);
@@ -184,11 +205,13 @@ export async function downloadFile(
       return { success: false, error: "No response body" };
     }
 
-    const fileStream = createWriteStream(outputPath);
+    const fileStream = createWriteStream(tempPath);
     await pipeline(Readable.fromWeb(body as import("stream/web").ReadableStream), fileStream);
+    await rename(tempPath, outputPath);
 
     return { success: true };
   } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => undefined);
     return { success: false, error: String(error) };
   }
 }
