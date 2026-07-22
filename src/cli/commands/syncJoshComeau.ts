@@ -23,6 +23,7 @@ import {
   type JoshComeauCourseStructure,
   type JoshComeauLesson,
   type JoshComeauModule,
+  type JoshComeauLessonContent,
 } from "../../scraper/joshcomeau/index.js";
 import {
   createCourseDirectory,
@@ -68,7 +69,16 @@ interface LessonTask {
 interface LessonResult {
   cached: boolean;
   contentSaved: boolean;
+  content?: JoshComeauLessonContent;
+  lessonIndex: number;
+  lessonName: string;
+  moduleDir: string;
+  localResourceLinks: { url: string; localFilename: string }[];
+  localVideoFilenames: (string | undefined)[];
+  resourceErrors: string[];
   resourcesDownloaded: number;
+  videoCount: number;
+  videoPaths: string[];
   videosDownloaded: number;
   stateId: number;
   videoTasks: VideoDownloadTask[];
@@ -167,7 +177,11 @@ async function processLessons(
       const stateLesson = getDatabase()?.getLessonByUrl(lesson.url);
       const retryFailed = retryLessonIds.has(stateId);
       const needsContent =
-        !options.skipContent && ((options.force ?? false) || retryFailed || !syncStatus.content);
+        !options.skipContent &&
+        ((options.force ?? false) ||
+          retryFailed ||
+          stateLesson?.status === LessonStatus.ERROR ||
+          !syncStatus.content);
       const needsVideo =
         !options.skipVideos &&
         ((options.force ?? false) ||
@@ -178,7 +192,15 @@ async function processLessons(
         return {
           cached: true,
           contentSaved: false,
+          lessonIndex: lesson.index,
+          lessonName: lesson.name,
+          moduleDir,
+          localResourceLinks: [],
+          localVideoFilenames: [],
+          resourceErrors: [],
           resourcesDownloaded: 0,
+          videoCount: 0,
+          videoPaths: [],
           videosDownloaded: 0,
           stateId,
           videoTasks: [],
@@ -193,54 +215,46 @@ async function processLessons(
       let resourcesDownloaded = 0;
       const videoTasks: VideoDownloadTask[] = [];
       let expectedVideoCount = 0;
+      const localResourceLinks: { url: string; localFilename: string }[] = [];
+      const localVideoFilenames: (string | undefined)[] = [];
+      const resourceErrors: string[] = [];
 
-      if (needsContent) {
-        const localResources = content.resources.map((resource) => ({
-          url: resource.url,
-          localFilename: basename(
-            getDownloadFilePath(moduleDir, lesson.index, lesson.name, resource.filename)
-          ),
-        }));
-        const offlineContent = {
-          ...content,
-          markdownContent: rewriteJoshComeauResourceLinks(content.markdownContent, localResources),
-        };
-        await saveMarkdown(
+      for (const resource of content.resources) {
+        const outputPath = getDownloadFilePath(
           moduleDir,
-          createFolderName(lesson.index, lesson.name) + ".md",
-          formatJoshComeauMarkdown(
-            offlineContent,
-            options.skipVideos ? [] : videoPaths.map((path) => basename(path))
-          )
+          lesson.index,
+          lesson.name,
+          resource.filename
         );
-
-        for (const resource of content.resources) {
-          const outputPath = getDownloadFilePath(
-            moduleDir,
-            lesson.index,
-            lesson.name,
-            resource.filename
-          );
-          if (!options.force && (await pathExists(outputPath))) continue;
-          const download = await downloadJoshComeauResource(
-            page,
-            resource.url,
-            outputPath,
-            lesson.url
-          );
-          if (!download.success) {
-            throw new Error(
-              `Resource ${resource.filename} failed: ${download.error ?? "unknown error"}`
-            );
-          }
-          resourcesDownloaded++;
+        const localFilename = basename(outputPath);
+        const exists = await pathExists(outputPath);
+        if (exists && !options.force) {
+          localResourceLinks.push({ url: resource.url, localFilename });
+          continue;
         }
+        if (!needsContent) continue;
+
+        const download = await downloadJoshComeauResource(
+          page,
+          resource.url,
+          outputPath,
+          lesson.url
+        );
+        if (!download.success) {
+          resourceErrors.push(
+            `Resource ${resource.filename} failed: ${download.error ?? "unknown error"}`
+          );
+          continue;
+        }
+        resourcesDownloaded++;
+        localResourceLinks.push({ url: resource.url, localFilename });
       }
 
       if (needsVideo) {
         for (const [index, video] of content.videos.entries()) {
           const outputPath = videoPaths[index];
           if (!outputPath || (!options.force && !retryFailed && (await pathExists(outputPath)))) {
+            if (outputPath) localVideoFilenames[index] = basename(outputPath);
             continue;
           }
           expectedVideoCount++;
@@ -268,7 +282,16 @@ async function processLessons(
           return {
             cached: false,
             contentSaved: needsContent,
+            content,
+            lessonIndex: lesson.index,
+            lessonName: lesson.name,
+            moduleDir,
+            localResourceLinks,
+            localVideoFilenames,
+            resourceErrors,
             resourcesDownloaded,
+            videoCount: content.videos.length,
+            videoPaths,
             videosDownloaded: 0,
             stateId,
             videoTasks,
@@ -283,7 +306,16 @@ async function processLessons(
       return {
         cached: !needsContent && resourcesDownloaded === 0 && videoTasks.length === 0,
         contentSaved: needsContent,
+        content,
+        lessonIndex: lesson.index,
+        lessonName: lesson.name,
+        moduleDir,
+        localResourceLinks,
+        localVideoFilenames,
+        resourceErrors,
         resourcesDownloaded,
+        videoCount: needsVideo ? content.videos.length : 0,
+        videoPaths,
         videosDownloaded: 0,
         stateId,
         videoTasks,
@@ -291,6 +323,38 @@ async function processLessons(
       };
     },
   });
+}
+
+async function saveJoshComeauLessonMarkdown(
+  results: LessonResult[],
+  summary: Awaited<ReturnType<typeof downloadVideoTasks>>
+): Promise<void> {
+  for (const result of results) {
+    if (!result.content) continue;
+
+    const localVideoFilenames = [...result.localVideoFilenames];
+    for (const task of result.videoTasks) {
+      const outcome = summary.outcomes.find(
+        (candidate) => candidate.task.outputPath === task.outputPath
+      );
+      if (!outcome?.result?.success) continue;
+      const videoIndex = result.videoPaths.indexOf(task.outputPath);
+      if (videoIndex >= 0) localVideoFilenames[videoIndex] = basename(task.outputPath);
+    }
+
+    const content = {
+      ...result.content,
+      markdownContent: rewriteJoshComeauResourceLinks(
+        result.content.markdownContent,
+        result.localResourceLinks
+      ),
+    };
+    await saveMarkdown(
+      result.moduleDir,
+      createFolderName(result.lessonIndex, result.lessonName) + ".md",
+      formatJoshComeauMarkdown(content, localVideoFilenames)
+    );
+  }
 }
 
 function recordJoshVideoDownloads(
@@ -306,7 +370,12 @@ function recordJoshVideoDownloads(
 
   let videosDownloaded = 0;
   for (const result of results) {
-    if (result.expectedVideoCount === 0) continue;
+    if (result.videoCount === 0) continue;
+
+    if (result.expectedVideoCount === 0) {
+      database.markLessonDownloaded(result.stateId);
+      continue;
+    }
 
     const outcomes = result.videoTasks.map((task) =>
       summary.outcomes.find((outcome) => outcome.task.outputPath === task.outputPath)
@@ -454,9 +523,23 @@ export async function syncJoshComeauCommand(
             shouldContinue: shutdown.shouldContinue,
             heading: `Downloading ${videoTasks.length} Josh Comeau videos...`,
           });
+    await saveJoshComeauLessonMarkdown(extraction.results, downloadSummary);
     const videos = currentDatabase
       ? recordJoshVideoDownloads(currentDatabase, extraction.results, downloadSummary)
       : 0;
+    for (const result of extraction.results) {
+      for (const resourceError of result.resourceErrors) {
+        if (currentDatabase) {
+          markLessonFailure(
+            currentDatabase,
+            result.stateId,
+            resourceError,
+            "RESOURCE_DOWNLOAD_FAILED"
+          );
+        }
+        console.error(chalk.yellow(`   ${result.lessonName}: ${resourceError}`));
+      }
+    }
 
     if (extraction.errors.length > 0) {
       throw new Error(`${extraction.errors.length} Josh Comeau lesson(s) failed`);

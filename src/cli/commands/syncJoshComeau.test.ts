@@ -91,7 +91,7 @@ vi.mock("../../shared/shutdown.js", () => ({
 }));
 vi.mock("../../state/index.js", () => ({
   initializeCourseState: mocks.initializeCourseState,
-  LessonStatus: { PENDING: "pending", DOWNLOADED: "downloaded" },
+  LessonStatus: { ERROR: "error", PENDING: "pending", DOWNLOADED: "downloaded" },
   markLessonFailure: mocks.markLessonFailure,
   markLessonScanReady: mocks.markLessonScanReady,
   recordVideoDownloadResult: vi.fn(),
@@ -374,15 +374,37 @@ describe("syncJoshComeauCommand", () => {
     );
   });
 
-  it("reports lesson failures and still closes the browser", async () => {
+  it("keeps optional resource failures from failing the lesson", async () => {
     mocks.downloadResource.mockResolvedValue({ success: false, error: "HTTP 403" });
 
-    await expect(syncJoshComeauCommand(courseUrl, { skipVideos: true })).rejects.toThrow(
-      "1 Josh Comeau lesson(s) failed"
-    );
+    await expect(syncJoshComeauCommand(courseUrl, { skipVideos: true })).resolves.toBeUndefined();
 
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("HTTP 403"));
+    expect(mocks.markLessonFailure).toHaveBeenCalledWith(
+      expect.any(Object),
+      1,
+      "Resource flow.zip failed: HTTP 403",
+      "RESOURCE_DOWNLOAD_FAILED"
+    );
     expect(mocks.browserClose).toHaveBeenCalledOnce();
+  });
+
+  it("keeps failed video links remote until a download succeeds", async () => {
+    mocks.downloadVideoTasks.mockImplementation(async (tasks: unknown[]) => ({
+      completed: 0,
+      failures: tasks.map((task) => ({ task, error: "HTTP 503" })),
+      outcomes: tasks.map((task) => ({ task, result: { success: false }, error: "HTTP 503" })),
+    }));
+
+    await syncJoshComeauCommand(courseUrl, {});
+
+    expect(mocks.formatMarkdown).toHaveBeenCalledWith(expect.any(Object), []);
+  });
+
+  it("keeps video links remote when videos are skipped", async () => {
+    await syncJoshComeauCommand(courseUrl, { skipVideos: true });
+
+    expect(mocks.formatMarkdown).toHaveBeenCalledWith(expect.any(Object), []);
   });
 
   it("downloads successful sibling lessons before reporting extraction failures", async () => {
