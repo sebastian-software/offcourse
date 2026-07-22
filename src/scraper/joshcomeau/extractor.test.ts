@@ -63,6 +63,7 @@ describe("Josh Comeau extractor", () => {
     const page = {
       url: () => lessonUrl,
       waitForSelector,
+      waitForFunction: vi.fn().mockResolvedValue(undefined),
       evaluate,
       frames: () => [],
     } as unknown as Page;
@@ -100,6 +101,7 @@ describe("Josh Comeau extractor", () => {
     const page = {
       url: () => lessonUrl,
       waitForSelector: vi.fn().mockResolvedValue(undefined),
+      waitForFunction: vi.fn().mockResolvedValue(undefined),
       evaluate: vi.fn().mockResolvedValue({
         title: "Navigation",
         htmlContent: "<p>Lesson</p>",
@@ -115,6 +117,53 @@ describe("Josh Comeau extractor", () => {
     expect(waitForTimeout).toHaveBeenCalledWith(250);
     expect(frames).toHaveBeenCalledTimes(2);
     expect(content.videos[0]?.hlsUrl).toBe("https://cdn.example/navigation.m3u8");
+  });
+
+  it("re-evaluates when a resource attaches after the video", async () => {
+    const lessonUrl = "https://courses.joshwcomeau.com/joy-of-react/fundamentals/intro";
+    const embedUrl = "https://player.vimeo.com/video/700226455";
+    const frame = {
+      url: () => embedUrl,
+      waitForFunction: vi.fn().mockResolvedValue(undefined),
+      evaluate: vi.fn().mockResolvedValue({ hls: null, scriptText: "" }),
+    };
+    const evaluate = vi
+      .fn()
+      .mockResolvedValueOnce({
+        title: "Intro",
+        htmlContent: "<p>Lesson</p>",
+        embedUrls: [embedUrl],
+        resourceUrls: [],
+      })
+      .mockResolvedValueOnce({
+        title: "Intro",
+        htmlContent: "<p>Lesson</p>",
+        embedUrls: [embedUrl],
+        resourceUrls: ["https://courses.joshwcomeau.com/downloads/intro.zip"],
+      });
+    const waitForSelector = vi.fn().mockResolvedValue(undefined);
+    const waitForFunction = vi.fn().mockResolvedValue(undefined);
+    const page = {
+      url: () => lessonUrl,
+      waitForSelector,
+      waitForFunction,
+      evaluate,
+      frames: () => [frame],
+      waitForTimeout: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Page;
+
+    const content = await extractJoshComeauLesson(page, lessonUrl);
+
+    expect(waitForFunction).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({
+        rootSelector: expect.stringContaining("LessonContent__Wrapper"),
+        selectors: ["a[download]"],
+      }),
+      { timeout: 3000 }
+    );
+    expect(evaluate).toHaveBeenCalledTimes(2);
+    expect(content.videos).toHaveLength(1);
   });
 
   it("formats multiple local videos before the lesson text", () => {
