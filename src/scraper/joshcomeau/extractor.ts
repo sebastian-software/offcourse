@@ -1,7 +1,12 @@
 import type { Frame, Page } from "playwright";
+import { randomUUID } from "node:crypto";
+import { createWriteStream } from "node:fs";
 import { dirname } from "node:path";
+import { rename, rm } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
+import { Readable } from "node:stream";
 import { convertHtmlToMarkdown } from "../extractor.js";
-import { ensureDir, outputBinaryFile } from "../../shared/fs.js";
+import { ensureDir } from "../../shared/fs.js";
 import { selectVimeoHlsUrl, type VimeoHlsConfig } from "../../downloader/shared/index.js";
 
 export interface JoshComeauResource {
@@ -32,6 +37,7 @@ const JOSH_COMEAU_LESSON_ROOT_SELECTOR =
   '[data-test="unlocked-content"], [class*="LessonContent__Wrapper"]';
 const JOSH_COMEAU_VIDEO_SELECTOR = 'iframe[src*="player.vimeo.com/video/"]';
 const JOSH_COMEAU_RESOURCE_SELECTOR = "a[download]";
+const JOSH_COMEAU_RESOURCE_TIMEOUT_MS = 120_000;
 
 export { selectVimeoHlsUrl as chooseVimeoHlsUrl } from "../../downloader/shared/index.js";
 
@@ -98,7 +104,7 @@ export function getJoshComeauResourceFilename(url: string, fallbackIndex = 0): s
 
 export function formatJoshComeauMarkdown(
   content: JoshComeauLessonContent,
-  localVideoFilenames: string[] = []
+  localVideoFilenames: (string | undefined)[] = []
 ): string {
   const lines = [`# ${content.title}`, ""];
 
@@ -176,7 +182,16 @@ async function resolveVimeoHlsUrl(frame: Frame): Promise<string | null> {
 async function resolveVimeoHlsUrlForPage(page: Page, videoId: string): Promise<string | null> {
   const timeoutAt = Date.now() + 10000;
   do {
-    const frame = page.frames().find((candidate) => candidate.url().includes(`/video/${videoId}`));
+    const frame = page.frames().find((candidate) => {
+      try {
+        const segments = new URL(candidate.url()).pathname.split("/").filter(Boolean);
+        return segments.some(
+          (segment, index) => segment === "video" && segments[index + 1] === videoId
+        );
+      } catch {
+        return false;
+      }
+    });
     if (frame) return resolveVimeoHlsUrl(frame);
     await page.waitForTimeout(250);
   } while (Date.now() < timeoutAt);
@@ -286,17 +301,31 @@ export async function downloadJoshComeauResource(
   outputPath: string,
   referer: string
 ): Promise<JoshComeauResourceDownloadResult> {
+  let tempPath: string | undefined;
   try {
-    const response = await page.request.get(resourceUrl, {
-      headers: { Referer: referer },
-      timeout: 30000,
+    const cookies = await page.context().cookies(resourceUrl);
+    const headers = new Headers({ Referer: referer });
+    if (cookies.length > 0) {
+      headers.set("Cookie", cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; "));
+    }
+
+    const response = await fetch(resourceUrl, {
+      headers,
+      signal: AbortSignal.timeout(JOSH_COMEAU_RESOURCE_TIMEOUT_MS),
     });
-    if (!response.ok()) return { success: false, error: `HTTP ${response.status()}` };
+    if (!response.ok) return { success: false, error: `HTTP ${response.status}` };
+    if (!response.body) return { success: false, error: "No response body" };
 
     await ensureDir(dirname(outputPath));
-    await outputBinaryFile(outputPath, await response.body());
+    tempPath = `${outputPath}.${randomUUID()}.tmp`;
+    await pipeline(
+      Readable.fromWeb(response.body as import("stream/web").ReadableStream),
+      createWriteStream(tempPath)
+    );
+    await rename(tempPath, outputPath);
     return { success: true };
   } catch (error) {
+    if (tempPath) await rm(tempPath, { force: true }).catch(() => undefined);
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 }

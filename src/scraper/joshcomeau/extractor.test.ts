@@ -1,7 +1,11 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import type { Page } from "playwright";
 import { describe, expect, it, vi } from "vitest";
 import {
   chooseVimeoHlsUrl,
+  downloadJoshComeauResource,
   extractJoshComeauLesson,
   extractVimeoHlsUrlFromPlayerScript,
   formatJoshComeauMarkdown,
@@ -119,6 +123,45 @@ describe("Josh Comeau extractor", () => {
     expect(content.videos[0]?.hlsUrl).toBe("https://cdn.example/navigation.m3u8");
   });
 
+  it("matches Vimeo frame IDs by path segment instead of prefix", async () => {
+    const lessonUrl = "https://courses.joshwcomeau.com/joy-of-react/fundamentals/videos";
+    const shortVideoUrl = "https://player.vimeo.com/video/123";
+    const longVideoUrl = "https://player.vimeo.com/video/1234";
+    const shortFrame = {
+      url: () => shortVideoUrl,
+      waitForFunction: vi.fn().mockResolvedValue(undefined),
+      evaluate: vi.fn().mockResolvedValue({
+        hls: { default_cdn: "fastly_skyfire", cdns: { fastly_skyfire: { url: "short" } } },
+        scriptText: "",
+      }),
+    };
+    const longFrame = {
+      url: () => longVideoUrl,
+      waitForFunction: vi.fn().mockResolvedValue(undefined),
+      evaluate: vi.fn().mockResolvedValue({
+        hls: { default_cdn: "fastly_skyfire", cdns: { fastly_skyfire: { url: "long" } } },
+        scriptText: "",
+      }),
+    };
+    const page = {
+      url: () => lessonUrl,
+      waitForSelector: vi.fn().mockResolvedValue(undefined),
+      waitForFunction: vi.fn().mockResolvedValue(undefined),
+      evaluate: vi.fn().mockResolvedValue({
+        title: "Videos",
+        htmlContent: "<p>Lesson</p>",
+        embedUrls: [shortVideoUrl, longVideoUrl],
+        resourceUrls: [],
+      }),
+      frames: () => [longFrame, shortFrame],
+      waitForTimeout: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Page;
+
+    const content = await extractJoshComeauLesson(page, lessonUrl);
+
+    expect(content.videos.map((video) => video.hlsUrl)).toEqual(["short", "long"]);
+  });
+
   it("re-evaluates when a resource attaches after the video", async () => {
     const lessonUrl = "https://courses.joshwcomeau.com/joy-of-react/fundamentals/intro";
     const embedUrl = "https://player.vimeo.com/video/700226455";
@@ -218,5 +261,39 @@ describe("Josh Comeau extractor", () => {
         "`const path = '/downloads/file.zip'`",
       ].join("\n")
     );
+  });
+
+  it("streams authenticated resources to disk without buffering the whole response", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "offcourse-josh-"));
+    const outputPath = join(directory, "resource.zip");
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("resource data"));
+    const page = {
+      context: () => ({
+        cookies: vi.fn().mockResolvedValue([{ name: "session", value: "secret" }]),
+      }),
+    } as unknown as Page;
+
+    try {
+      await expect(
+        downloadJoshComeauResource(
+          page,
+          "https://courses.joshwcomeau.com/downloads/resource.zip",
+          outputPath,
+          "https://courses.joshwcomeau.com/lesson"
+        )
+      ).resolves.toEqual({ success: true });
+
+      expect(await readFile(outputPath, "utf8")).toBe("resource data");
+      expect(fetch).toHaveBeenCalledWith(
+        "https://courses.joshwcomeau.com/downloads/resource.zip",
+        expect.objectContaining({
+          headers: expect.any(Headers),
+          signal: expect.any(AbortSignal),
+        })
+      );
+    } finally {
+      fetch.mockRestore();
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });
