@@ -18,6 +18,7 @@ import { syncJoshComeauCommand, type SyncJoshComeauOptions } from "./commands/sy
 import { isLearningSuitePortal } from "../scraper/learningsuite/index.js";
 import { syncPiccalilliCommand, type SyncPiccalilliOptions } from "./commands/syncPiccalilli.js";
 import { detectSyncPlatform } from "./syncPlatform.js";
+import { isSkoolUrl } from "../state/index.js";
 
 function isSignalShutdownPending(): boolean {
   return process.exitCode === 130 || process.exitCode === 143;
@@ -136,7 +137,7 @@ program
     wrapAction(async (url: string, options: { visible?: boolean }) => {
       if (isLearningSuitePortal(url)) {
         await completeLearningSuiteCommand(url, options);
-      } else if (url.includes("skool.com")) {
+      } else if (isSkoolUrl(url)) {
         console.log("\n⚠️  Auto-complete for Skool coming soon!\n");
         console.log("   Skool lessons can be marked complete manually in the browser.");
         console.log("   This feature will be added in a future update.\n");

@@ -55,3 +55,25 @@ export function resolveUrlWithParams(uri: string, baseUrl: string, queryParams: 
   // Don't add params if URL already has them
   return resolved.includes("?") ? resolved : resolved + queryParams;
 }
+
+/** Removes credentials and signed query data before a download URL is persisted. */
+export function redactDownloadUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return `${parsed.protocol}[redacted]`;
+    }
+
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return "[redacted]";
+  }
+}
+
+/** Redacts signed URLs embedded in error and diagnostic text. */
+export function redactDownloadUrlsInText(text: string): string {
+  return text.replace(
+    /\b((?:https?:\/\/|segments:)[^\s"'<>]*?)([),.;:!?]*)(?=\s|$)/gi,
+    (_match, url: string, punctuation: string) => `${redactDownloadUrl(url)}${punctuation}`
+  );
+}

@@ -212,6 +212,11 @@ describe("CourseDatabase", () => {
         updated_at TEXT DEFAULT (datetime('now')),
         UNIQUE(module_id, slug)
       );
+      INSERT INTO lessons (module_id, slug, name, url, position, status, video_url, hls_url)
+        VALUES
+          (1, 'with-video', 'With video', 'https://example.com/with-video', 0, 'scanned', 'https://vimeo.com/123', 'https://cdn.example/video.m3u8'),
+          (1, 'video-without-hls', 'Video without HLS', 'https://example.com/video-without-hls', 1, 'scanned', 'https://vimeo.com/456', NULL),
+          (1, 'without-video', 'Without video', 'https://example.com/without-video', 2, 'scanned', NULL, NULL);
     `);
     legacy.close();
 
@@ -233,7 +238,15 @@ describe("CourseDatabase", () => {
 
     const reopened = new CourseDatabase("legacy", path);
     databases.push(reopened);
-    expect(reopened.getLessonCount()).toBe(0);
+    expect(reopened.getLessonByUrl("https://example.com/with-video")).toMatchObject({
+      status: LessonStatus.VALIDATED,
+    });
+    expect(reopened.getLessonByUrl("https://example.com/without-video")).toMatchObject({
+      status: LessonStatus.PENDING,
+    });
+    expect(reopened.getLessonByUrl("https://example.com/video-without-hls")).toMatchObject({
+      status: LessonStatus.PENDING,
+    });
   });
 
   it("deduplicates legacy lesson URLs before enforcing uniqueness", () => {
@@ -459,7 +472,7 @@ describe("CourseDatabase", () => {
     expect(database.getStatusSummary()).toMatchObject({ pending: 2, locked: 1 });
   });
 
-  it("moves lessons through scan, validation, and download queries", () => {
+  it("moves lessons through validation and download queries", () => {
     const database = createDatabase();
     const lesson = addLesson(database);
 
@@ -470,9 +483,9 @@ describe("CourseDatabase", () => {
       VideoType.VIMEO,
       "https://vimeo.com/123",
       null,
-      LessonStatus.SCANNED
+      LessonStatus.VALIDATED
     );
-    expect(database.getLessonsToValidate().map(({ id }) => id)).toEqual([lesson.id]);
+    expect(database.getLessonsToDownload()).toEqual([]);
 
     database.updateLessonScan(
       lesson.id,
@@ -490,13 +503,15 @@ describe("CourseDatabase", () => {
     });
   });
 
-  it("tracks retry state and excludes unsupported providers", () => {
+  it("tracks retry state and excludes unsupported providers and types", () => {
     const database = createDatabase();
     const retryable = addLesson(database, "retryable");
     const unsupported = addLesson(database, "unsupported");
+    const unsupportedType = addLesson(database, "unsupported-type");
 
     database.markLessonError(retryable.id, "Temporary failure", "TIMEOUT");
     database.markLessonError(unsupported.id, "Unsupported", "UNSUPPORTED_PROVIDER");
+    database.markLessonError(unsupportedType.id, "Unsupported type", "UNSUPPORTED_TYPE");
     expect(database.incrementRetryCount(retryable.id)).toBe(1);
     expect(database.getLessonsToRetry(3).map(({ id }) => id)).toEqual([retryable.id]);
 

@@ -172,10 +172,33 @@ describe("persistCourseStructure", () => {
     });
   });
 
-  it("honors the lesson limit inside the transaction", () => {
+  it("counts only new lessons toward the limit", () => {
     withDatabase((database) => {
-      expect(persistCourseStructure(database, structure, 1)).toBe(1);
-      expect(database.getLessonCount()).toBe(1);
+      expect(persistCourseStructure(database, structure)).toBe(2);
+
+      const firstModule = structure.modules[0];
+      if (!firstModule) throw new Error("Expected a test module");
+      const expandedStructure: CourseStructure = {
+        ...structure,
+        modules: [
+          {
+            ...firstModule,
+            lessons: [
+              ...firstModule.lessons,
+              {
+                name: "Lesson 3",
+                slug: "lesson-3",
+                url: "https://www.skool.com/test-course/classroom/lesson-3",
+                index: 2,
+                isLocked: false,
+              },
+            ],
+          },
+        ],
+      };
+
+      expect(persistCourseStructure(database, expandedStructure, 1)).toBe(1);
+      expect(database.getLessonCount()).toBe(3);
     });
   });
 

@@ -1,6 +1,7 @@
 import type { DownloadResult, VideoDownloadTask } from "../downloader/index.js";
 import type { SyncPlatform } from "../cli/syncPlatform.js";
 import { slugify } from "../shared/slug.js";
+import { redactDownloadUrlsInText } from "../shared/url.js";
 import {
   CourseDatabase,
   extractCommunitySlug,
@@ -117,7 +118,7 @@ export function persistCourseStateStructure(
       );
 
       for (const lesson of module.lessons) {
-        if (persistLimit !== undefined && database.getLessonCount() >= persistLimit) break outer;
+        if (persistLimit !== undefined && newLessons >= persistLimit) break outer;
 
         const existingLesson = database.getLessonByUrl(lesson.url);
         database.upsertLesson(
@@ -183,6 +184,8 @@ export function markLessonScanReady(
   task: Pick<VideoDownloadTask, "videoType" | "videoUrl">
 ): void {
   const supportedTypes = new Set<VideoTypeValue>([
+    "hls",
+    "highlevel",
     "loom",
     "vimeo",
     "youtube",
@@ -191,8 +194,8 @@ export function markLessonScanReady(
     "unknown",
   ]);
   const videoType =
-    task.videoType && supportedTypes.has(task.videoType as VideoTypeValue)
-      ? (task.videoType as VideoTypeValue)
+    task.videoType && supportedTypes.has(task.videoType)
+      ? task.videoType
       : task.videoType
         ? "native"
         : null;
@@ -214,18 +217,7 @@ export function markLessonFailure(
   error: unknown,
   errorCode = "SYNC_ERROR"
 ): void {
-  const message = (error instanceof Error ? error.message : String(error)).replace(
-    /\b(?:https?:\/\/|segments:)[^\s"'<>]+/gi,
-    (url) => {
-      if (url.toLowerCase().startsWith("segments:")) return "segments:[redacted]";
-      try {
-        const parsed = new URL(url);
-        return `${parsed.origin}${parsed.pathname}`;
-      } catch {
-        return "[redacted]";
-      }
-    }
-  );
+  const message = redactDownloadUrlsInText(error instanceof Error ? error.message : String(error));
   database.markLessonError(lessonId, message, errorCode);
   database.incrementRetryCount(lessonId);
 }
