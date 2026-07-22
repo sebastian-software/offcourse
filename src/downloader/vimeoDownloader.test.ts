@@ -3,6 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+interface SegmentDownloadResult {
+  success: boolean;
+  error?: string;
+}
+
 const sharedMocks = vi.hoisted(() => ({
   checkFfmpeg: vi.fn<() => Promise<boolean>>(),
   downloadProgressiveVideo:
@@ -21,7 +26,7 @@ const sharedMocks = vi.hoisted(() => ({
         headers?: Record<string, string>;
         onProgress?: (current: number, total: number) => void;
       }
-    ) => Promise<boolean>
+    ) => Promise<SegmentDownloadResult>
   >(),
   getSegmentUrls:
     vi.fn<(playlistUrl: string, headers?: Record<string, string>) => Promise<string[]>>(),
@@ -155,7 +160,7 @@ describe("downloadVimeoVideo HLS", () => {
       .mockResolvedValueOnce(["https://cdn.test/audio-1.ts?token=abc"]);
     sharedMocks.downloadSegmentsToFile.mockImplementation(async (_segments, path) => {
       writeFileSync(path, "segment data");
-      return true;
+      return { success: true };
     });
     sharedMocks.mergeVideoAudio.mockImplementation(async (videoPath, audioPath) => {
       expect(existsSync(videoPath)).toBe(true);
@@ -198,7 +203,7 @@ describe("downloadVimeoVideo HLS", () => {
       .mockResolvedValueOnce(["https://cdn.test/audio-1.ts"]);
     sharedMocks.downloadSegmentsToFile.mockImplementation(async (_segments, path) => {
       writeFileSync(path, "segment data");
-      return true;
+      return { success: true };
     });
     sharedMocks.mergeVideoAudio.mockRejectedValue(new Error("ffmpeg crashed"));
 
@@ -223,7 +228,7 @@ describe("downloadVimeoVideo HLS", () => {
       .mockResolvedValueOnce(["https://cdn.test/audio-1.ts"]);
     sharedMocks.downloadSegmentsToFile.mockImplementationOnce(async (_segments, path) => {
       writeFileSync(path, "partial video");
-      return false;
+      return { success: false, error: "video segment failed" };
     });
 
     const result = await downloadVimeoVideo(
@@ -231,7 +236,11 @@ describe("downloadVimeoVideo HLS", () => {
       join(testDir, "video.mp4")
     );
 
-    expect(result).toMatchObject({ success: false, errorCode: "DOWNLOAD_FAILED" });
+    expect(result).toMatchObject({
+      success: false,
+      errorCode: "DOWNLOAD_FAILED",
+      details: "video segment failed",
+    });
     const tempVideoPath = sharedMocks.downloadSegmentsToFile.mock.calls[0]?.[1];
     if (!tempVideoPath) throw new Error("Expected a video temp path");
     expect(existsSync(tempVideoPath)).toBe(false);

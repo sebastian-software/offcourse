@@ -54,6 +54,7 @@ export {
   parseSegmentsUrl,
   resolveHlsUri,
   SEGMENTS_URL_PREFIX,
+  type SegmentDownloadResult,
 } from "./hlsDownload.js";
 
 // Vimeo config parsing

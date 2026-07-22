@@ -163,4 +163,30 @@ describe("downloadProgressiveVideo", () => {
     expect(existsSync(outputPath)).toBe(false);
     expect(existsSync(`${outputPath}.tmp`)).toBe(false);
   });
+
+  it("fails a download when the response body stops producing chunks", async () => {
+    const root = await mkdtemp(join(tmpdir(), "offcourse-progressive-stalled-"));
+    createdPaths.push(root);
+    const outputPath = join(root, "video.mp4");
+    const body = new ReadableStream<Uint8Array>({
+      pull() {
+        return new Promise(() => undefined);
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(body, { status: 200 }))
+    );
+
+    const result = await downloadProgressiveVideo("https://cdn.example.com/video.mp4", outputPath, {
+      inactivityTimeoutMs: 5,
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: "Download stalled for 5ms",
+      errorCode: "DOWNLOAD_FAILED",
+    });
+    expect(existsSync(`${outputPath}.tmp`)).toBe(false);
+  }, 1000);
 });

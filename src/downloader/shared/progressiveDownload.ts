@@ -2,7 +2,7 @@
  * Progressive (direct) file download utilities.
  * Used for MP4, WebM, and other direct video file downloads.
  */
-import { createWriteStream, existsSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -10,14 +10,33 @@ import { USER_AGENT } from "../../shared/http.js";
 import { fetchWithRetry } from "./network.js";
 import type { DownloadResult, ProgressCallback, RequestHeaders } from "./types.js";
 
+const DEFAULT_BODY_INACTIVITY_TIMEOUT_MS = 30_000;
+
 function createProgressReadable(
   body: ReadableStream<Uint8Array>,
   total: number,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  inactivityTimeoutMs = DEFAULT_BODY_INACTIVITY_TIMEOUT_MS
 ): Readable {
   const reader = body.getReader();
   let downloaded = 0;
   let completed = false;
+
+  const readChunk = (): Promise<ReadableStreamReadResult<Uint8Array>> => {
+    if (inactivityTimeoutMs <= 0) return reader.read();
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`Download stalled for ${inactivityTimeoutMs}ms`));
+      }, inactivityTimeoutMs);
+      reader
+        .read()
+        .then(resolve, reject)
+        .finally(() => {
+          clearTimeout(timeout);
+        });
+    });
+  };
 
   const releaseReader = () => {
     try {
@@ -29,8 +48,7 @@ function createProgressReadable(
 
   return new Readable({
     read() {
-      reader
-        .read()
+      readChunk()
         .then(({ done, value }) => {
           if (done) {
             completed = true;
@@ -93,9 +111,10 @@ export async function downloadFile(
     cookies?: string | undefined;
     referer?: string | undefined;
     headers?: RequestHeaders | undefined;
+    inactivityTimeoutMs?: number | undefined;
   } = {}
 ): Promise<DownloadResult> {
-  const { onProgress, cookies, referer, headers: extraHeaders } = options;
+  const { onProgress, cookies, referer, headers: extraHeaders, inactivityTimeoutMs } = options;
 
   if (existsSync(outputPath)) {
     return { success: true, outputPath };
@@ -121,7 +140,7 @@ export async function downloadFile(
     const response = await fetchWithRetry(
       url,
       { headers: headers as HeadersInit },
-      { timeoutMs: 10 * 60_000 }
+      { timeoutMs: 30_000, timeoutMode: "headers" }
     );
 
     if (!response.ok) {
@@ -144,7 +163,7 @@ export async function downloadFile(
     }
 
     const fileStream = createWriteStream(tempPath);
-    const readable = createProgressReadable(response.body, total, onProgress);
+    const readable = createProgressReadable(response.body, total, onProgress, inactivityTimeoutMs);
 
     await pipeline(readable, fileStream);
     renameSync(tempPath, outputPath);
@@ -153,7 +172,11 @@ export async function downloadFile(
 
     return { success: true, outputPath };
   } catch (error) {
-    if (existsSync(tempPath)) unlinkSync(tempPath);
+    try {
+      rmSync(tempPath, { force: true });
+    } catch {
+      // Best-effort cleanup must not hide the original download error.
+    }
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),
@@ -173,9 +196,10 @@ export async function downloadProgressiveVideo(
     onProgress?: ProgressCallback | undefined;
     referer?: string | undefined;
     headers?: RequestHeaders | undefined;
+    inactivityTimeoutMs?: number | undefined;
   } = {}
 ): Promise<DownloadResult> {
-  const { onProgress, referer, headers: extraHeaders } = options;
+  const { onProgress, referer, headers: extraHeaders, inactivityTimeoutMs } = options;
   const tempPath = `${outputPath}.tmp`;
 
   try {
@@ -188,7 +212,7 @@ export async function downloadProgressiveVideo(
     const response = await fetchWithRetry(
       url,
       { headers: headers as HeadersInit },
-      { timeoutMs: 10 * 60_000 }
+      { timeoutMs: 30_000, timeoutMode: "headers" }
     );
 
     if (!response.ok) {
@@ -216,7 +240,7 @@ export async function downloadProgressiveVideo(
     }
 
     const fileStream = createWriteStream(tempPath);
-    const readable = createProgressReadable(response.body, total, onProgress);
+    const readable = createProgressReadable(response.body, total, onProgress, inactivityTimeoutMs);
 
     await pipeline(readable, fileStream);
     renameSync(tempPath, outputPath);
@@ -224,7 +248,11 @@ export async function downloadProgressiveVideo(
 
     return { success: true, outputPath };
   } catch (error) {
-    if (existsSync(tempPath)) unlinkSync(tempPath);
+    try {
+      rmSync(tempPath, { force: true });
+    } catch {
+      // Best-effort cleanup must not hide the original download error.
+    }
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),
