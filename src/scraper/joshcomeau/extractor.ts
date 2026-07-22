@@ -34,6 +34,7 @@ interface VimeoHlsConfig {
 
 const JOSH_COMEAU_LESSON_ROOT_SELECTOR =
   '[data-test="unlocked-content"], [class*="LessonContent__Wrapper"]';
+const JOSH_COMEAU_HYDRATED_ASSET_SELECTOR = 'iframe[src*="player.vimeo.com/video/"], a[download]';
 
 export function chooseVimeoHlsUrl(hls: VimeoHlsConfig | null | undefined): string | null {
   if (!hls?.cdns) return null;
@@ -221,44 +222,56 @@ export async function extractJoshComeauLesson(
     timeout: 15000,
   });
 
-  const extracted = await page.evaluate((rootSelector) => {
-    const root =
-      document.querySelector<HTMLElement>('[data-test="unlocked-content"]') ??
-      document.querySelector<HTMLElement>(rootSelector);
-    if (!root) throw new Error("Josh Comeau lesson content is locked or unavailable");
+  const evaluateLesson = () =>
+    page.evaluate((rootSelector) => {
+      const root =
+        document.querySelector<HTMLElement>('[data-test="unlocked-content"]') ??
+        document.querySelector<HTMLElement>(rootSelector);
+      if (!root) throw new Error("Josh Comeau lesson content is locked or unavailable");
 
-    const title =
-      root.querySelector("#lesson-title, h1")?.textContent?.trim() ??
-      document.querySelector("h1")?.textContent?.trim() ??
-      document.title.split(" • ")[0]?.trim() ??
-      "Untitled lesson";
-    const embedUrls = Array.from(
-      root.querySelectorAll<HTMLIFrameElement>('iframe[src*="player.vimeo.com/video/"]')
-    ).map((iframe) => iframe.src);
-    const resourceUrls = Array.from(root.querySelectorAll<HTMLAnchorElement>("a[href]"))
-      .filter((link) => link.hasAttribute("download"))
-      .map((link) => link.href);
+      const title =
+        root.querySelector("#lesson-title, h1")?.textContent?.trim() ??
+        document.querySelector("h1")?.textContent?.trim() ??
+        document.title.split(" • ")[0]?.trim() ??
+        "Untitled lesson";
+      const embedUrls = Array.from(
+        root.querySelectorAll<HTMLIFrameElement>('iframe[src*="player.vimeo.com/video/"]')
+      ).map((iframe) => iframe.src);
+      const resourceUrls = Array.from(root.querySelectorAll<HTMLAnchorElement>("a[href]"))
+        .filter((link) => link.hasAttribute("download"))
+        .map((link) => link.href);
 
-    const clone = root.cloneNode(true) as HTMLElement;
-    clone.querySelector("#lesson-title")?.remove();
-    clone.querySelectorAll('[class*="VideoPlayer__Wrapper"]').forEach((element) => {
-      element.remove();
-    });
-    clone
-      .querySelectorAll(
-        'script, style, svg, iframe, video, button, input, textarea, [data-test="complete-lesson-button"]'
-      )
-      .forEach((element) => {
+      const clone = root.cloneNode(true) as HTMLElement;
+      clone.querySelector("#lesson-title")?.remove();
+      clone.querySelectorAll('[class*="VideoPlayer__Wrapper"]').forEach((element) => {
         element.remove();
       });
+      clone
+        .querySelectorAll(
+          'script, style, svg, iframe, video, button, input, textarea, [data-test="complete-lesson-button"]'
+        )
+        .forEach((element) => {
+          element.remove();
+        });
 
-    return {
-      title,
-      htmlContent: clone.innerHTML,
-      embedUrls: [...new Set(embedUrls)],
-      resourceUrls: [...new Set(resourceUrls)],
-    };
-  }, JOSH_COMEAU_LESSON_ROOT_SELECTOR);
+      return {
+        title,
+        htmlContent: clone.innerHTML,
+        embedUrls: [...new Set(embedUrls)],
+        resourceUrls: [...new Set(resourceUrls)],
+      };
+    }, JOSH_COMEAU_LESSON_ROOT_SELECTOR);
+
+  let extracted = await evaluateLesson();
+  if (extracted.embedUrls.length === 0 && extracted.resourceUrls.length === 0) {
+    await page
+      .waitForSelector(JOSH_COMEAU_HYDRATED_ASSET_SELECTOR, {
+        state: "attached",
+        timeout: 3000,
+      })
+      .catch(() => {});
+    extracted = await evaluateLesson();
+  }
 
   const resources = extracted.resourceUrls.map((url, index) => ({
     url,
