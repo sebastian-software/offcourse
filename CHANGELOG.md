@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/sebastian-software/offcourse/compare/v1.5.0...v1.5.1) (2026-07-22)
+
+
+### Bug Fixes
+
+* align npm trusted publishing workflow name ([#123](https://github.com/sebastian-software/offcourse/issues/123)) ([1568b82](https://github.com/sebastian-software/offcourse/commit/1568b8202db618fc76f40674777758adfe646e1b))
+
 ## [1.5.0](https://github.com/sebastian-software/offcourse/compare/v1.4.0...v1.5.0) (2026-07-22)
 
 ### Features

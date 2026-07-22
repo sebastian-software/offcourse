@@ -1,6 +1,6 @@
 {
   "name": "offcourse",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Download online courses for offline access – of course!",
   "type": "module",
   "bin": {
