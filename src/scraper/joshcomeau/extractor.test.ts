@@ -63,6 +63,7 @@ describe("Josh Comeau extractor", () => {
     const page = {
       url: () => lessonUrl,
       waitForSelector,
+      waitForFunction: vi.fn().mockResolvedValue(undefined),
       evaluate,
       frames: () => [],
     } as unknown as Page;
@@ -100,6 +101,7 @@ describe("Josh Comeau extractor", () => {
     const page = {
       url: () => lessonUrl,
       waitForSelector: vi.fn().mockResolvedValue(undefined),
+      waitForFunction: vi.fn().mockResolvedValue(undefined),
       evaluate: vi.fn().mockResolvedValue({
         title: "Navigation",
         htmlContent: "<p>Lesson</p>",
@@ -117,7 +119,7 @@ describe("Josh Comeau extractor", () => {
     expect(content.videos[0]?.hlsUrl).toBe("https://cdn.example/navigation.m3u8");
   });
 
-  it("re-evaluates the lesson after hydrated assets attach", async () => {
+  it("re-evaluates when a resource attaches after the video", async () => {
     const lessonUrl = "https://courses.joshwcomeau.com/joy-of-react/fundamentals/intro";
     const embedUrl = "https://player.vimeo.com/video/700226455";
     const frame = {
@@ -130,19 +132,21 @@ describe("Josh Comeau extractor", () => {
       .mockResolvedValueOnce({
         title: "Intro",
         htmlContent: "<p>Lesson</p>",
-        embedUrls: [],
+        embedUrls: [embedUrl],
         resourceUrls: [],
       })
       .mockResolvedValueOnce({
         title: "Intro",
         htmlContent: "<p>Lesson</p>",
         embedUrls: [embedUrl],
-        resourceUrls: [],
+        resourceUrls: ["https://courses.joshwcomeau.com/downloads/intro.zip"],
       });
     const waitForSelector = vi.fn().mockResolvedValue(undefined);
+    const waitForFunction = vi.fn().mockResolvedValue(undefined);
     const page = {
       url: () => lessonUrl,
       waitForSelector,
+      waitForFunction,
       evaluate,
       frames: () => [frame],
       waitForTimeout: vi.fn().mockResolvedValue(undefined),
@@ -150,13 +154,13 @@ describe("Josh Comeau extractor", () => {
 
     const content = await extractJoshComeauLesson(page, lessonUrl);
 
-    expect(waitForSelector).toHaveBeenCalledWith(
-      'iframe[src*="player.vimeo.com/video/"]',
-      expect.objectContaining({ timeout: 3000 })
-    );
-    expect(waitForSelector).toHaveBeenCalledWith(
-      "a[download]",
-      expect.objectContaining({ timeout: 3000 })
+    expect(waitForFunction).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({
+        rootSelector: expect.stringContaining("LessonContent__Wrapper"),
+        selectors: ["a[download]"],
+      }),
+      { timeout: 3000 }
     );
     expect(evaluate).toHaveBeenCalledTimes(2);
     expect(content.videos).toHaveLength(1);

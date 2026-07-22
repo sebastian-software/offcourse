@@ -264,23 +264,21 @@ export async function extractJoshComeauLesson(
     }, JOSH_COMEAU_LESSON_ROOT_SELECTOR);
 
   let extracted = await evaluateLesson();
-  const hydrationWaits: Promise<unknown>[] = [];
-  if (extracted.embedUrls.length === 0) {
-    hydrationWaits.push(
-      page
-        .waitForSelector(JOSH_COMEAU_VIDEO_SELECTOR, { state: "attached", timeout: 3000 })
-        .catch(() => {})
-    );
-  }
-  if (extracted.resourceUrls.length === 0) {
-    hydrationWaits.push(
-      page
-        .waitForSelector(JOSH_COMEAU_RESOURCE_SELECTOR, { state: "attached", timeout: 3000 })
-        .catch(() => {})
-    );
-  }
-  if (hydrationWaits.length > 0) {
-    await Promise.all(hydrationWaits);
+  const missingSelectors = [
+    ...(extracted.embedUrls.length === 0 ? [JOSH_COMEAU_VIDEO_SELECTOR] : []),
+    ...(extracted.resourceUrls.length === 0 ? [JOSH_COMEAU_RESOURCE_SELECTOR] : []),
+  ];
+  if (missingSelectors.length > 0) {
+    await page
+      .waitForFunction(
+        ({ rootSelector, selectors }) => {
+          const root = document.querySelector(rootSelector);
+          return root !== null && selectors.every((selector) => root.querySelector(selector));
+        },
+        { rootSelector: JOSH_COMEAU_LESSON_ROOT_SELECTOR, selectors: missingSelectors },
+        { timeout: 3000 }
+      )
+      .catch(() => {});
     extracted = await evaluateLesson();
   }
 
