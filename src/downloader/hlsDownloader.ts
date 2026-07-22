@@ -57,6 +57,7 @@ interface HLSFetchState {
 }
 
 const MAX_PLAYLIST_DEPTH = 3;
+const HEAD_UNSUPPORTED_STATUS_CODES = new Set([403, 405, 501]);
 
 async function fetchHLSQualitiesInternal(
   masterUrl: string,
@@ -219,13 +220,18 @@ export async function downloadHLSVideo(
   let resolvedCookies = cookies;
   let resolvedAuthToken = authToken;
   try {
-    const testResponse = await fetchWithAuthRedirects(hlsUrl, {
+    const requestOptions = {
       cookies,
       referer,
       authToken,
       credentialOrigin: new URL(hlsUrl).origin,
-      method: "HEAD",
-    });
+    };
+    let testResponse = await fetchWithAuthRedirects(hlsUrl, { ...requestOptions, method: "HEAD" });
+    if (!testResponse.ok && HEAD_UNSUPPORTED_STATUS_CODES.has(testResponse.status)) {
+      await testResponse.body?.cancel().catch(() => undefined);
+      testResponse = await fetchWithAuthRedirects(hlsUrl, { ...requestOptions, method: "GET" });
+      await testResponse.body?.cancel().catch(() => undefined);
+    }
     if (!testResponse.ok) {
       return {
         success: false,
