@@ -13,9 +13,13 @@ import {
   getSegmentUrls,
   mergeVideoAudio,
   parseHlsMasterPlaylist,
+  selectVimeoHlsUrl,
+  selectVimeoProgressiveUrl,
   type DownloadResult,
   type FetchResult,
   type ProgressCallback,
+  type VimeoHlsConfig,
+  type VimeoProgressiveRendition,
   type VideoInfo,
 } from "./shared/index.js";
 
@@ -62,18 +66,11 @@ export interface VimeoConfig {
   request?: {
     drm?: boolean;
     files?: {
-      hls?: {
-        cdns?: Record<string, { url?: string }>;
-      };
+      hls?: VimeoHlsConfig;
       dash?: {
         cdns?: Record<string, { url?: string }>;
       };
-      progressive?: {
-        url?: string;
-        quality?: string;
-        width?: number;
-        height?: number;
-      }[];
+      progressive?: VimeoProgressiveRendition[];
     };
   };
 }
@@ -107,28 +104,8 @@ export function extractVimeoId(url: string): string | null {
  * Selects Vimeo's preferred HLS CDN and highest progressive rendition.
  */
 export function parseVimeoConfig(config: VimeoConfig, videoId: string): VimeoFetchResult {
-  let hlsUrl: string | null = null;
-  const hlsCdns = config.request?.files?.hls?.cdns;
-  if (hlsCdns) {
-    const preferredCdns = ["akfire_interconnect_quic", "akamai_live", "fastly_skyfire", "fastly"];
-    for (const cdn of preferredCdns) {
-      if (hlsCdns[cdn]?.url) {
-        hlsUrl = hlsCdns[cdn].url;
-        break;
-      }
-    }
-
-    if (!hlsUrl) {
-      const firstCdn = Object.keys(hlsCdns)[0];
-      if (firstCdn) hlsUrl = hlsCdns[firstCdn]?.url ?? null;
-    }
-  }
-
-  const progressive = config.request?.files?.progressive;
-  const progressiveUrl =
-    progressive && progressive.length > 0
-      ? ([...progressive].sort((a, b) => (b.height ?? 0) - (a.height ?? 0))[0]?.url ?? null)
-      : null;
+  const hlsUrl = selectVimeoHlsUrl(config.request?.files?.hls);
+  const progressiveUrl = selectVimeoProgressiveUrl(config.request?.files?.progressive);
 
   if (!hlsUrl && !progressiveUrl) {
     if (config.request?.files?.dash) {
