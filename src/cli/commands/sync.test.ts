@@ -44,12 +44,22 @@ describe("hasLessonsPendingDownload", () => {
 });
 
 describe("shouldPreserveRetryError", () => {
-  it("preserves the existing error after shutdown", () => {
-    expect(shouldPreserveRetryError(false)).toBe(true);
+  it("preserves the existing error when shutdown closes the page", () => {
+    expect(
+      shouldPreserveRetryError(
+        new Error("Target page, context or browser has been closed"),
+        true,
+        true
+      )
+    ).toBe(true);
   });
 
   it("records a new error for an unexpected page closure", () => {
-    expect(shouldPreserveRetryError(true)).toBe(false);
+    expect(shouldPreserveRetryError(new Error("page has been closed"), true, false)).toBe(false);
+  });
+
+  it("records unrelated errors even during shutdown", () => {
+    expect(shouldPreserveRetryError(new Error("network timeout"), false, true)).toBe(false);
   });
 });
 

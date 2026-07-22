@@ -415,13 +415,22 @@ export async function syncPiccalilliCommand(
         extractionError.error instanceof Error
           ? extractionError.error.message
           : String(extractionError.error);
-      if (lessonTask) {
-        markLessonFailure(database, lessonTask.stateId, extractionError.error, "EXTRACTION_ERROR");
+      const currentDatabase = database;
+      if (lessonTask && currentDatabase) {
+        markLessonFailure(
+          currentDatabase,
+          lessonTask.stateId,
+          extractionError.error,
+          "EXTRACTION_ERROR"
+        );
       }
       console.error(chalk.red(`   ${lesson}: ${message}`));
     }
-    for (const outcome of downloads.outcomes) {
-      recordVideoDownloadResult(database, outcome.task, outcome.result, outcome.error);
+    const currentDatabase = database;
+    if (currentDatabase) {
+      for (const outcome of downloads.outcomes) {
+        recordVideoDownloadResult(currentDatabase, outcome.task, outcome.result, outcome.error);
+      }
     }
 
     const failureCount = extraction.errors.length + downloads.failures.length;

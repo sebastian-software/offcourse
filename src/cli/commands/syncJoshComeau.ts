@@ -380,6 +380,7 @@ export async function syncJoshComeauCommand(
       state.retryLessonIds
     );
     if (!shutdown.shouldContinue()) return;
+    const currentDatabase = database;
     for (const extractionError of extraction.errors) {
       const lesson = lessonTasks[extractionError.index]?.lesson.name ?? "Unknown lesson";
       const message =
@@ -387,8 +388,8 @@ export async function syncJoshComeauCommand(
           ? extractionError.error.message
           : String(extractionError.error);
       const lessonTask = lessonTasks[extractionError.index];
-      if (lessonTask) {
-        markLessonFailure(database, lessonTask.stateId, extractionError.error, "SYNC_ERROR");
+      if (lessonTask && currentDatabase) {
+        markLessonFailure(currentDatabase, lessonTask.stateId, extractionError.error, "SYNC_ERROR");
       }
       console.error(chalk.red(`   ${lesson}: ${message}`));
     }

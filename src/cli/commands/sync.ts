@@ -73,9 +73,16 @@ export function hasLessonsPendingDownload(db: Pick<CourseDatabase, "getLessonsBy
   return db.getLessonsByStatus(LessonStatus.VALIDATED).length > 0;
 }
 
-/** Keeps the original retry error when shutdown interrupts the retry. */
-export function shouldPreserveRetryError(shouldContinue: boolean): boolean {
-  return !shouldContinue;
+/** Keeps the original retry error only when a shutdown closes the Playwright page. */
+export function shouldPreserveRetryError(
+  error: unknown,
+  pageClosed: boolean,
+  isShuttingDown: boolean
+): boolean {
+  if (!isShuttingDown) return false;
+
+  const message = error instanceof Error ? error.message : String(error);
+  return pageClosed || /\b(?:browser|context|page)\b.*\b(?:closed|closing)\b/i.test(message);
 }
 
 /** Removes credentials and signed query data before a download URL is persisted. */
@@ -1056,7 +1063,11 @@ async function retryFailedLessons(
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      const preserveExistingError = shouldPreserveRetryError(shutdown.shouldContinue());
+      const preserveExistingError = shouldPreserveRetryError(
+        error,
+        page.isClosed(),
+        shutdown.isShuttingDown()
+      );
       if (!preserveExistingError) {
         db.markLessonError(lesson.id, errorMsg, "RETRY_ERROR");
       }
