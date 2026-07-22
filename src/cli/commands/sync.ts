@@ -6,6 +6,7 @@ import { downloadVideo, type VideoDownloadTask, validateVideoHls } from "../../d
 import { getAuthenticatedSession, isSkoolLoginPage } from "../../shared/auth.js";
 import { getFileSize, outputFile } from "../../shared/fs.js";
 import { createShutdownManager } from "../../shared/shutdown.js";
+import { redactDownloadUrl, redactDownloadUrlsInText } from "../../shared/url.js";
 import { extractLessonContent, formatMarkdown, extractVideoUrl } from "../../scraper/extractor.js";
 import { buildCourseStructure, type CourseStructure } from "../../scraper/navigator.js";
 import {
@@ -104,27 +105,7 @@ export function shouldPreserveRetryError(
   return pageClosed || /\b(?:browser|context|page)\b.*\b(?:closed|closing)\b/i.test(message);
 }
 
-/** Removes credentials and signed query data before a download URL is persisted. */
-export function redactDownloadUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return `${parsed.protocol}[redacted]`;
-    }
-
-    return `${parsed.origin}${parsed.pathname}`;
-  } catch {
-    return "[redacted]";
-  }
-}
-
-/** Redacts signed URLs embedded in downloader error and diagnostic text. */
-export function redactDownloadUrlsInText(text: string): string {
-  return text.replace(
-    /\b((?:https?:\/\/|segments:)[^\s"'<>]*?)([),.;:!?]*)(?=\s|$)/gi,
-    (_match, url: string, punctuation: string) => `${redactDownloadUrl(url)}${punctuation}`
-  );
-}
+export { redactDownloadUrl, redactDownloadUrlsInText } from "../../shared/url.js";
 
 /** Persist one discovered course structure as a single atomic state update. */
 export function persistCourseStructure(

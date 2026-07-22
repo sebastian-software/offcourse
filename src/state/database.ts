@@ -8,7 +8,6 @@ import { CACHE_DIR } from "../config/paths.js";
  */
 export const LessonStatus = {
   PENDING: "pending",
-  SCANNED: "scanned",
   VALIDATED: "validated",
   DOWNLOADED: "downloaded",
   ERROR: "error",
@@ -23,8 +22,6 @@ function lessonStatusPriority(status: string): number {
       return 5;
     case LessonStatus.VALIDATED:
       return 4;
-    case LessonStatus.SCANNED:
-      return 3;
     case LessonStatus.SKIPPED:
       return 2;
     case LessonStatus.ERROR:
@@ -42,6 +39,8 @@ export const VideoType = {
   VIMEO: "vimeo",
   YOUTUBE: "youtube",
   WISTIA: "wistia",
+  HLS: "hls",
+  HIGHLEVEL: "highlevel",
   NATIVE: "native",
   UNKNOWN: "unknown",
 } as const;
@@ -49,7 +48,7 @@ export const VideoType = {
 export type VideoTypeValue = (typeof VideoType)[keyof typeof VideoType];
 
 /** Current SQLite schema version stored in PRAGMA user_version. */
-export const DATABASE_SCHEMA_VERSION = 3;
+export const DATABASE_SCHEMA_VERSION = 4;
 
 /**
  * Module record from database.
@@ -281,6 +280,20 @@ export class CourseDatabase {
             CREATE UNIQUE INDEX IF NOT EXISTS idx_lessons_url_unique
               ON lessons(url)
               WHERE url <> '';
+          `);
+        },
+      },
+      {
+        version: 4,
+        up: () => {
+          this.db.exec(`
+            UPDATE lessons
+            SET status = CASE
+              WHEN video_url IS NOT NULL OR hls_url IS NOT NULL THEN 'validated'
+              ELSE 'pending'
+            END,
+            updated_at = datetime('now')
+            WHERE status = 'scanned';
           `);
         },
       },
@@ -767,11 +780,11 @@ export class CourseDatabase {
 
   /**
    * Get lessons that failed but can still be retried (retry_count < maxRetries).
-   * Only returns retryable errors (not UNSUPPORTED_PROVIDER).
+   * Only returns retryable errors (not unsupported providers or video types).
    */
   getLessonsToRetry(maxRetries = 3): LessonWithModule[] {
     return this.queryLessonsWithModules(
-      "l.status = 'error' AND l.retry_count < ? AND (l.error_code IS NULL OR l.error_code NOT IN ('UNSUPPORTED_PROVIDER'))",
+      "l.status = 'error' AND l.retry_count < ? AND (l.error_code IS NULL OR l.error_code NOT IN ('UNSUPPORTED_PROVIDER', 'UNSUPPORTED_TYPE'))",
       [maxRetries]
     );
   }
@@ -872,15 +885,6 @@ export class CourseDatabase {
   }
 
   /**
-   * Get lessons that need validation (scanned but not validated, with video).
-   */
-  getLessonsToValidate(): LessonWithModule[] {
-    return this.queryLessonsWithModules(
-      "l.status = 'scanned' AND l.video_url IS NOT NULL AND l.is_locked = 0"
-    );
-  }
-
-  /**
    * Get lessons that are ready for download (validated with HLS URL).
    */
   getLessonsToDownload(): LessonWithModule[] {
@@ -916,7 +920,6 @@ export class CourseDatabase {
 
     const summary: Record<LessonStatusType, number> & { locked: number } = {
       pending: 0,
-      scanned: 0,
       validated: 0,
       downloaded: 0,
       error: 0,

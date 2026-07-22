@@ -126,7 +126,7 @@ describe("initializeCourseState", () => {
     markLessonScanReady(state.database, task.lessonId, task);
     expect(state.database.getLessonByUrl("https://example.com/lesson-id")).toMatchObject({
       status: LessonStatus.VALIDATED,
-      videoType: "native",
+      videoType: "hls",
       videoUrl: "https://cdn.example.com/video.m3u8",
       hlsUrl: null,
     });
