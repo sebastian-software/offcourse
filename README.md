@@ -129,8 +129,11 @@ pnpm dev               # Watch mode
 pnpm check             # Format, lint, types, unit tests, and build
 pnpm test              # Unit tests in watch mode
 pnpm test:integration  # Network/ffmpeg integration tests
-pnpm release           # Release to npm
 ```
+
+### Releases
+
+Releases are automated with [Release Please](https://github.com/googleapis/release-please). Merging its release PR updates the package version and changelog, creates the GitHub release, and publishes the package to npm. The repository requires an `NPM_TOKEN` secret; a `RELEASE_PLEASE_TOKEN` secret is recommended so release PRs run the regular pull-request CI.
 
 ### Adding a New Platform
 

@@ -32,7 +32,6 @@
     "test:all": "pnpm test:run && pnpm test:integration",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
-    "release": "release-it",
     "prepublishOnly": "pnpm check",
     "prepare": "husky"
   },
@@ -76,7 +75,6 @@
     "@commitlint/cli": "21.2.1",
     "@commitlint/config-conventional": "^21.2.0",
     "@eslint/js": "^10.0.1",
-    "@release-it/conventional-changelog": "^11.0.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/cli-progress": "^3.11.6",
     "@types/node": "^26.1.1",
@@ -87,7 +85,6 @@
     "husky": "^9.1.7",
     "lint-staged": "^17.0.8",
     "prettier": "^3.9.5",
-    "release-it": "^20.2.1",
     "tsx": "^4.23.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.64.0",
