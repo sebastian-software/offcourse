@@ -32,6 +32,7 @@ src/
 ├── cli/                         # Command-line interface
 │   ├── index.ts                 # Commander entry point and command registration
 │   ├── syncPlatform.ts          # Auto-detection for supported platform URLs
+│   ├── syncPipeline.ts          # Shared extraction and video-download lifecycle
 │   └── commands/
 │       ├── config.ts            # Configuration management
 │       ├── inspect.ts           # Page analysis for debugging
@@ -49,6 +50,7 @@ src/
 │   └── paths.ts                 # Path resolution utilities
 │
 ├── scraper/                     # Platform-specific extraction
+│   ├── waits.ts                 # Shared best-effort content waits
 │   ├── extractor.ts             # Skool lesson content extraction
 │   ├── navigator.ts             # Skool course discovery
 │   ├── schemas.ts               # Shared scraper response schemas
@@ -77,7 +79,6 @@ src/
 │
 ├── downloader/                  # Video download handlers
 │   ├── index.ts                 # Download dispatcher by video type
-│   ├── queue.ts                 # Async download queue
 │   ├── hlsDownloader.ts         # Generic/HighLevel HLS downloads
 │   ├── hlsValidator.ts          # HLS validation
 │   ├── loomDownloader.ts        # Loom-specific downloads
@@ -85,6 +86,7 @@ src/
 │   └── shared/
 │       ├── ffmpeg.ts
 │       ├── hlsDownload.ts
+│       ├── network.ts
 │       ├── progressiveDownload.ts
 │       ├── types.ts
 │       └── index.ts
@@ -102,7 +104,8 @@ src/
 │   └── index.ts
 │
 ├── state/
-│   ├── database.ts              # SQLite-backed Skool sync state
+│   ├── courseState.ts           # Cross-platform course-state initialization
+│   ├── database.ts              # SQLite-backed course sync state
 │   └── index.ts
 │
 └── storage/
@@ -118,6 +121,7 @@ Handles user interaction via Commander.js. Each command is a separate module.
 - **login**: Opens browser for interactive authentication, saves session
 - **sync**: Auto-detects platform and delegates to appropriate handler
 - **sync handlers**: Platform-specific orchestration selected internally by URL
+- **syncPipeline.ts**: Shared extraction and video-download stages with progress and interruption handling
 - **inspect**: Debug tool for analyzing page structure
 - **config**: Read/write configuration values
 
@@ -163,7 +167,7 @@ To add a new platform, create a new directory under `src/scraper/` with the same
 
 Video download handlers. Each video host needs its own implementation.
 
-- **queue.ts**: Generic async queue with concurrency control and retry logic
+- **index.ts**: Dispatches each video task to the appropriate host-specific downloader
 - **loomDownloader.ts**: Handles Loom's HLS streaming format
 - **vimeoDownloader.ts**: Handles Vimeo video downloads
 - **hlsDownloader.ts**: Generic HLS download using ffmpeg (used for HighLevel native videos)
@@ -171,9 +175,10 @@ Video download handlers. Each video host needs its own implementation.
 
 ### State (`src/state/`)
 
-Persistent state management using SQLite.
+Persistent, platform-scoped course state management using SQLite.
 
-- **database.ts**: Manages sync state, tracks downloaded content
+- **database.ts**: Manages modules, lessons, download metadata, and failure details
+- **courseState.ts**: Builds stable keys and reconciles course structures for every supported platform
 - Enables resume functionality for interrupted syncs
 
 ### Storage (`src/storage/`)
@@ -211,7 +216,7 @@ Centralized configuration with Zod validation.
    ├─► Write Markdown to disk
    └─► Queue video for download
                     │
-7. Process queue ───────► Download videos with concurrency control
+7. Process downloads ───► Download videos with concurrency control
                     │
 8. Done ────────────────► Summary output
 ```
@@ -225,7 +230,7 @@ The `parallelWorker` module provides a shared worker pool for parallel operation
 - **Progress Tracking**: Real-time aggregated progress across all workers
 - **Error Isolation**: Failed tasks don't crash other workers
 
-Used by course scanning and content extraction. Video downloads use the separate downloader queue and its `concurrency` setting.
+Used by course scanning and content extraction. The shared video-download stage implements its own concurrency and interruption handling in `syncPipeline.ts`.
 
 ## Platform-Specific Details
 
