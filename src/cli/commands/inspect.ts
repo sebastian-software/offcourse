@@ -5,6 +5,7 @@ import { loadConfig } from "../../config/configManager.js";
 import { expandPath } from "../../config/paths.js";
 import { getAuthenticatedSession, isSkoolLoginPage } from "../../shared/auth.js";
 import { ensureDir, outputFile } from "../../shared/fs.js";
+import { waitForAttachedContent } from "../../scraper/waits.js";
 
 const SKOOL_DOMAIN = "www.skool.com";
 const SKOOL_LOGIN_URL = "https://www.skool.com/login";
@@ -71,8 +72,7 @@ export async function inspectCommand(url: string, options: InspectOptions): Prom
     await session.page.goto(url, { timeout: 60000 });
     // Use domcontentloaded instead of networkidle - some pages never stop loading
     await session.page.waitForLoadState("domcontentloaded");
-    // Give it a moment for JS to render
-    await session.page.waitForTimeout(2000);
+    await waitForAttachedContent(session.page, "body", 5000);
     pageSpinner.succeed("Page loaded");
 
     console.log(chalk.cyan("\n📄 Page Info:\n"));
@@ -188,9 +188,6 @@ export async function inspectCommand(url: string, options: InspectOptions): Prom
         } catch {
           console.log(chalk.yellow("   ⚠ No video element detected after click"));
         }
-
-        // Small delay for any animations/loading
-        await session.page.waitForTimeout(1000);
       } else {
         console.log(chalk.yellow("   ⚠ No clickable preview found"));
       }

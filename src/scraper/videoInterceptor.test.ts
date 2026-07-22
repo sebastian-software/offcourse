@@ -16,8 +16,11 @@ function createPage(client: FakeCdpSession, goto = vi.fn().mockResolvedValue(nul
     }),
     goto,
     evaluate: vi.fn().mockResolvedValue(null),
-    waitForTimeout: vi.fn().mockResolvedValue(undefined),
     $: vi.fn().mockResolvedValue(null),
+    frames: vi.fn().mockReturnValue([]),
+    waitForEvent: vi
+      .fn()
+      .mockRejectedValue(Object.assign(new Error("timed out"), { name: "TimeoutError" })),
   } as unknown as Page;
 }
 
@@ -113,12 +116,14 @@ describe("captureEncryptedHLSSegments", () => {
     };
     videoLocator.first.mockReturnValue(videoLocator);
     const locator = vi.fn().mockReturnValue(videoLocator);
-    const waitForTimeout = vi.fn().mockResolvedValue(undefined);
+    const waitForFunction = vi.fn().mockResolvedValue(undefined);
+    const waitForRequest = vi.fn().mockResolvedValue(undefined);
     const page = {
       on: requests.on.bind(requests),
       off: requests.off.bind(requests),
       locator,
-      waitForTimeout,
+      waitForFunction,
+      waitForRequest,
     } as unknown as Page;
 
     await expect(
@@ -135,7 +140,7 @@ describe("captureEncryptedHLSSegments", () => {
       videoDuration: 7,
     });
     expect(locator).toHaveBeenCalledWith("video");
-    expect(waitForTimeout).toHaveBeenCalledWith(250);
+    expect(waitForRequest).toHaveBeenCalledWith(expect.any(Function), { timeout: 250 });
     expect(requests.listenerCount("request")).toBe(0);
   });
 });

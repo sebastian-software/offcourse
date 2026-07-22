@@ -178,7 +178,17 @@ export async function performInteractiveLogin(config: AuthConfig): Promise<AuthS
   let loggedIn = false;
 
   while (!loggedIn && Date.now() - startTime < timeout) {
-    await page.waitForTimeout(1000);
+    const remaining = timeout - (Date.now() - startTime);
+    try {
+      await page.waitForURL((url) => !config.isLoginPage(url.toString()), {
+        timeout: Math.min(remaining, 1000),
+      });
+    } catch (error) {
+      if (!(error instanceof Error && error.name === "TimeoutError")) {
+        await browser.close();
+        throw error;
+      }
+    }
 
     const currentUrl = page.url();
 
@@ -210,8 +220,11 @@ export async function performInteractiveLogin(config: AuthConfig): Promise<AuthS
   }
 
   // Give the page a moment to fully load after login
-  await page.waitForLoadState("networkidle").catch(() => {});
-  await page.waitForTimeout(1000);
+  try {
+    await page.waitForLoadState("networkidle", { timeout: 5000 });
+  } catch (error) {
+    if (!(error instanceof Error && error.name === "TimeoutError")) throw error;
+  }
 
   // Save the session
   await saveSession(context, config.domain);
@@ -244,7 +257,11 @@ export async function getAuthenticatedSession(
       // Navigate to verify session
       await page.goto(config.loginUrl);
       await page.waitForLoadState("domcontentloaded");
-      await page.waitForTimeout(2000);
+      try {
+        await page.waitForURL((url) => !config.isLoginPage(url.toString()), { timeout: 2000 });
+      } catch (error) {
+        if (!(error instanceof Error && error.name === "TimeoutError")) throw error;
+      }
 
       const currentUrl = page.url();
 

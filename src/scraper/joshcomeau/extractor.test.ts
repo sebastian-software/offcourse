@@ -100,8 +100,8 @@ describe("Josh Comeau extractor", () => {
         scriptText: "",
       }),
     };
-    const frames = vi.fn().mockReturnValueOnce([]).mockReturnValue([frame]);
-    const waitForTimeout = vi.fn().mockResolvedValue(undefined);
+    const frames = vi.fn().mockReturnValue([]);
+    const waitForEvent = vi.fn().mockResolvedValue(frame);
     const page = {
       url: () => lessonUrl,
       waitForSelector: vi.fn().mockResolvedValue(undefined),
@@ -113,13 +113,16 @@ describe("Josh Comeau extractor", () => {
         resourceUrls: [],
       }),
       frames,
-      waitForTimeout,
+      waitForEvent,
     } as unknown as Page;
 
     const content = await extractJoshComeauLesson(page, lessonUrl);
 
-    expect(waitForTimeout).toHaveBeenCalledWith(250);
-    expect(frames).toHaveBeenCalledTimes(2);
+    expect(waitForEvent).toHaveBeenCalledWith(
+      "frameattached",
+      expect.objectContaining({ predicate: expect.any(Function), timeout: 10000 })
+    );
+    expect(frames).toHaveBeenCalledOnce();
     expect(content.videos[0]?.hlsUrl).toBe("https://cdn.example/navigation.m3u8");
   });
 
@@ -154,7 +157,6 @@ describe("Josh Comeau extractor", () => {
         resourceUrls: [],
       }),
       frames: () => [longFrame, shortFrame],
-      waitForTimeout: vi.fn().mockResolvedValue(undefined),
     } as unknown as Page;
 
     const content = await extractJoshComeauLesson(page, lessonUrl);
@@ -192,7 +194,6 @@ describe("Josh Comeau extractor", () => {
       waitForFunction,
       evaluate,
       frames: () => [frame],
-      waitForTimeout: vi.fn().mockResolvedValue(undefined),
     } as unknown as Page;
 
     const content = await extractJoshComeauLesson(page, lessonUrl);

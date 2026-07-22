@@ -44,7 +44,7 @@ describe("authenticated browser sessions", () => {
     const sessionPage = {
       goto: vi.fn().mockResolvedValue(undefined),
       waitForLoadState: vi.fn().mockResolvedValue(undefined),
-      waitForTimeout: vi.fn().mockResolvedValue(undefined),
+      waitForURL: vi.fn().mockResolvedValue(undefined),
       url: vi.fn().mockReturnValue("https://courses.example.com/dashboard"),
     } as unknown as Page;
     const sessionContext = {
@@ -94,7 +94,7 @@ describe("authenticated browser sessions", () => {
       goto: vi.fn().mockResolvedValue(undefined),
       url: vi.fn().mockReturnValue("https://courses.example.com/"),
       waitForLoadState: vi.fn().mockResolvedValue(undefined),
-      waitForTimeout: vi.fn().mockResolvedValue(undefined),
+      waitForURL: vi.fn().mockResolvedValue(undefined),
     } as unknown as Page;
     const context = {
       newPage: vi.fn().mockResolvedValue(page),

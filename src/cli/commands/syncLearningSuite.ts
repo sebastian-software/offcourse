@@ -18,6 +18,7 @@ import {
   type LearningSuiteCourseStructure,
   type LearningSuiteScanProgress,
 } from "../../scraper/learningsuite/index.js";
+import { waitForAttachedContent } from "../../scraper/waits.js";
 import {
   createCourseDirectory,
   createModuleDirectory,
@@ -716,7 +717,7 @@ export async function completeLearningSuiteCommand(
       // Navigate to course page to find modules
       const courseUrl = `https://${courseStructure.domain}/student/course/${courseStructure.courseSlug ?? courseStructure.course.id}/${courseStructure.course.id}`;
       await session.page.goto(courseUrl, { waitUntil: "load" });
-      await session.page.waitForTimeout(2000);
+      await waitForAttachedContent(session.page, 'a[href*="/student/course/"], button', 5000);
 
       // Start ALL unstarted modules in a loop using Playwright locator
       let modulesStarted = 0;
@@ -739,12 +740,9 @@ export async function completeLearningSuiteCommand(
           modulesStarted++;
           console.log(chalk.green(`   ▶️ Started module ${modulesStarted}`));
 
-          // Wait for navigation
-          await session.page.waitForTimeout(3000);
-
           // Go back to course page
           await session.page.goto(courseUrl, { waitUntil: "load" });
-          await session.page.waitForTimeout(2000);
+          await waitForAttachedContent(session.page, 'a[href*="/student/course/"], button', 5000);
         } catch {
           console.log(chalk.gray(`   Could not click START`));
           break;
@@ -787,7 +785,11 @@ export async function completeLearningSuiteCommand(
 
           try {
             await session.page.goto(lessonUrl, { waitUntil: "load" });
-            await session.page.waitForTimeout(2000);
+            await waitForAttachedContent(
+              session.page,
+              'button:has-text("Abschließen"), button:has-text("schlie"), button.MuiButton-colorSuccess',
+              5000
+            );
           } catch {
             continue; // Skip if navigation fails
           }
@@ -823,7 +825,6 @@ export async function completeLearningSuiteCommand(
 
           try {
             await completeButton.first().click({ timeout: 5000 });
-            await session.page.waitForTimeout(1000);
             roundCompleted++;
             grandTotalCompleted++;
             process.stdout.write(chalk.green(` ✓\n`));
