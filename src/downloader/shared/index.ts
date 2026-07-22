@@ -55,3 +55,12 @@ export {
   resolveHlsUri,
   SEGMENTS_URL_PREFIX,
 } from "./hlsDownload.js";
+
+// Vimeo config parsing
+export {
+  selectVimeoHlsUrl,
+  selectVimeoProgressiveUrl,
+  type VimeoCdnConfig,
+  type VimeoHlsConfig,
+  type VimeoProgressiveRendition,
+} from "./vimeoConfig.js";

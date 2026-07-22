@@ -2,6 +2,7 @@ import type { Frame, Page } from "playwright";
 import { dirname } from "node:path";
 import { convertHtmlToMarkdown } from "../extractor.js";
 import { ensureDir, outputBinaryFile } from "../../shared/fs.js";
+import { selectVimeoHlsUrl, type VimeoHlsConfig } from "../../downloader/shared/index.js";
 
 export interface JoshComeauResource {
   url: string;
@@ -27,38 +28,12 @@ export interface JoshComeauResourceDownloadResult {
   error?: string | undefined;
 }
 
-interface VimeoHlsConfig {
-  default_cdn?: string;
-  cdns?: Record<string, { avc_url?: string; url?: string }>;
-}
-
 const JOSH_COMEAU_LESSON_ROOT_SELECTOR =
   '[data-test="unlocked-content"], [class*="LessonContent__Wrapper"]';
 const JOSH_COMEAU_VIDEO_SELECTOR = 'iframe[src*="player.vimeo.com/video/"]';
 const JOSH_COMEAU_RESOURCE_SELECTOR = "a[download]";
 
-export function chooseVimeoHlsUrl(hls: VimeoHlsConfig | null | undefined): string | null {
-  if (!hls?.cdns) return null;
-  const preferred = [
-    hls.default_cdn,
-    "akfire_interconnect_quic",
-    "akamai_live",
-    "fastly_skyfire",
-    "fastly",
-  ].filter((value): value is string => Boolean(value));
-
-  for (const key of preferred) {
-    const cdn = hls.cdns[key];
-    const url = cdn?.avc_url ?? cdn?.url;
-    if (url) return url;
-  }
-
-  for (const cdn of Object.values(hls.cdns)) {
-    const url = cdn.avc_url ?? cdn.url;
-    if (url) return url;
-  }
-  return null;
-}
+export { selectVimeoHlsUrl as chooseVimeoHlsUrl } from "../../downloader/shared/index.js";
 
 function extractJsonObject(scriptText: string, start: number): string | null {
   let depth = 0;
@@ -105,7 +80,7 @@ export function extractVimeoHlsUrlFromPlayerScript(scriptText: string): string |
     const config = JSON.parse(json) as {
       request?: { files?: { hls?: VimeoHlsConfig } };
     };
-    return chooseVimeoHlsUrl(config.request?.files?.hls);
+    return selectVimeoHlsUrl(config.request?.files?.hls);
   } catch {
     return null;
   }
@@ -193,7 +168,7 @@ async function resolveVimeoHlsUrl(frame: Frame): Promise<string | null> {
     })
     .catch(() => ({ hls: null, scriptText: "" }));
   return (
-    chooseVimeoHlsUrl(playerConfig.hls) ??
+    selectVimeoHlsUrl(playerConfig.hls) ??
     extractVimeoHlsUrlFromPlayerScript(playerConfig.scriptText)
   );
 }

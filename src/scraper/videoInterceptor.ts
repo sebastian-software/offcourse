@@ -3,6 +3,12 @@
  * Excluded from coverage via vitest.config.ts.
  */
 import type { CDPSession, Page } from "playwright";
+import {
+  selectVimeoHlsUrl,
+  selectVimeoProgressiveUrl,
+  type VimeoHlsConfig,
+  type VimeoProgressiveRendition,
+} from "../downloader/shared/index.js";
 
 // ============================================================================
 // Type definitions for external browser APIs
@@ -12,10 +18,8 @@ import type { CDPSession, Page } from "playwright";
 interface VimeoPlayerConfig {
   request?: {
     files?: {
-      hls?: {
-        cdns?: Record<string, { url?: string }>;
-      };
-      progressive?: { url?: string; height?: number }[];
+      hls?: VimeoHlsConfig;
+      progressive?: VimeoProgressiveRendition[];
     };
   };
 }
@@ -140,6 +144,8 @@ export async function captureVimeoConfig(
         const result = {
           hlsUrl: null as string | null,
           progressiveUrl: null as string | null,
+          hlsConfig: null as VimeoHlsConfig | null,
+          progressiveRenditions: null as VimeoProgressiveRendition[] | null,
           debug: [] as string[],
         };
 
@@ -198,31 +204,9 @@ export async function captureVimeoConfig(
             for (const files of configPaths) {
               if (!files) continue;
 
-              // HLS
-              if (files.hls?.cdns) {
-                const cdns = files.hls.cdns;
-                for (const cdn of Object.keys(cdns)) {
-                  const cdnEntry = cdns[cdn];
-                  if (cdnEntry?.url) {
-                    result.hlsUrl = cdnEntry.url;
-                    result.debug.push(`Found HLS in playerConfig.${cdn}`);
-                    break;
-                  }
-                }
-              }
-
-              // Progressive MP4
-              if (!result.progressiveUrl && files.progressive && files.progressive.length > 0) {
-                const sorted = [...files.progressive].sort(
-                  (a, b) => (b.height ?? 0) - (a.height ?? 0)
-                );
-                result.progressiveUrl = sorted[0]?.url ?? null;
-                if (result.progressiveUrl) {
-                  result.debug.push("Found progressive in playerConfig");
-                }
-              }
-
-              if (result.hlsUrl || result.progressiveUrl) break;
+              if (files.hls?.cdns) result.hlsConfig = files.hls;
+              if (files.progressive?.length) result.progressiveRenditions = files.progressive;
+              if (result.hlsConfig || result.progressiveRenditions) break;
             }
           } catch (e) {
             result.debug.push(
@@ -251,8 +235,8 @@ export async function captureVimeoConfig(
         return result;
       });
 
-      hlsUrl = urls.hlsUrl;
-      progressiveUrl = urls.progressiveUrl;
+      hlsUrl = urls.hlsUrl ?? selectVimeoHlsUrl(urls.hlsConfig);
+      progressiveUrl = urls.progressiveUrl ?? selectVimeoProgressiveUrl(urls.progressiveRenditions);
 
       if (!hlsUrl && !progressiveUrl) {
         // Wait and try again

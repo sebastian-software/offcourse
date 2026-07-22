@@ -34,6 +34,36 @@ const sharedMocks = vi.hoisted(() => ({
         headers?: Record<string, string>
       ) => Promise<{ videoUrl: string | null; audioUrl: string | null }>
     >(),
+  selectVimeoHlsUrl: vi.fn(
+    (
+      hls:
+        | { default_cdn?: string; cdns?: Record<string, { avc_url?: string; url?: string }> }
+        | null
+        | undefined
+    ) => {
+      const cdns = hls?.cdns ?? {};
+      for (const key of [
+        hls?.default_cdn,
+        "akfire_interconnect_quic",
+        "akamai_live",
+        "fastly_skyfire",
+        "fastly",
+      ]) {
+        const cdn = key ? cdns[key] : undefined;
+        const url = cdn?.avc_url ?? cdn?.url;
+        if (url) return url;
+      }
+      return (
+        Object.values(cdns)
+          .map((cdn) => cdn.avc_url ?? cdn.url)
+          .find(Boolean) ?? null
+      );
+    }
+  ),
+  selectVimeoProgressiveUrl: vi.fn(
+    (progressive: { height?: number; url?: string }[] | null | undefined) =>
+      [...(progressive ?? [])].sort((a, b) => (b.height ?? 0) - (a.height ?? 0))[0]?.url ?? null
+  ),
 }));
 
 vi.mock("./shared/index.js", () => sharedMocks);
