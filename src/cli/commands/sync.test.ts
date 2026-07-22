@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  applyCourseNameOverride,
+  getUnsupportedSkoolOptionWarnings,
   hasLessonsPendingDownload,
   hasLessonsPendingValidation,
   persistCourseStructure,
@@ -12,6 +14,36 @@ import {
 } from "./sync.js";
 import { CourseDatabase, LessonStatus } from "../../state/database.js";
 import type { CourseStructure } from "../../scraper/navigator.js";
+
+describe("getUnsupportedSkoolOptionWarnings", () => {
+  it("warns when quality is passed to the Skool command", () => {
+    expect(getUnsupportedSkoolOptionWarnings({ quality: "1080p" })).toEqual([
+      "--quality is not supported for Skool videos yet; ignoring it.",
+    ]);
+  });
+
+  it("does not warn when no unsupported option is passed", () => {
+    expect(getUnsupportedSkoolOptionWarnings({})).toEqual([]);
+  });
+});
+
+describe("applyCourseNameOverride", () => {
+  const structure: CourseStructure = {
+    name: "Detected course",
+    url: "https://www.skool.com/test-course/classroom",
+    modules: [],
+  };
+
+  it("uses a trimmed override", () => {
+    expect(applyCourseNameOverride(structure, "  Custom course  ")).toMatchObject({
+      name: "Custom course",
+    });
+  });
+
+  it("keeps the discovered name when no override is supplied", () => {
+    expect(applyCourseNameOverride(structure)).toBe(structure);
+  });
+});
 
 describe("hasLessonsPendingValidation", () => {
   it("starts validation for newly inserted pending lessons", () => {
