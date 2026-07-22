@@ -133,7 +133,7 @@ pnpm test:integration  # Network/ffmpeg integration tests
 
 ### Releases
 
-Releases are automated with [Release Please](https://github.com/googleapis/release-please). Merging its release PR updates the package version and changelog, creates the GitHub release, and publishes the package to npm. The repository requires an `NPM_TOKEN` secret; a `RELEASE_PLEASE_TOKEN` secret is recommended so release PRs run the regular pull-request CI.
+Releases are automated with [Release Please](https://github.com/googleapis/release-please). Merging its release PR updates the package version and changelog, creates the GitHub release, and publishes the package to npm. The recommended setup is [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) for the `release-please.yml` workflow; an `NPM_TOKEN` repository secret remains supported as a fallback. A `RELEASE_PLEASE_TOKEN` secret is recommended so release PRs run the regular pull-request CI. To recover a release after configuring npm authentication, run the `Release` workflow manually with `publish` set to `true`.
 
 ### Adding a New Platform
 
