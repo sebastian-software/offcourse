@@ -311,6 +311,12 @@ export async function syncPiccalilliCommand(
   const needsAuthentication = selectedLessons.some((lesson) => !lesson.isFree);
   let browser: Browser | undefined = publicSession.browser;
   let database: CourseDatabase | undefined;
+  const closeDatabase = () => {
+    if (database) {
+      database.close();
+      database = undefined;
+    }
+  };
 
   try {
     let session: { browser: Browser; context: BrowserContext; page: Page } = publicSession;
@@ -352,6 +358,7 @@ export async function syncPiccalilliCommand(
       options
     );
     database = state.database;
+    shutdown.registerCleanup(closeDatabase);
     console.log(chalk.gray(`   State: ~/.offcourse/cache/${state.key}.db`));
 
     const courseDir = await createCourseDirectory(config.outputDir, structure.name);
@@ -427,7 +434,7 @@ export async function syncPiccalilliCommand(
     }
     console.log(chalk.gray(`   Output: ${courseDir}\n`));
   } finally {
-    database?.close();
+    closeDatabase();
     if (browser) await browser.close();
   }
 }

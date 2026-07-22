@@ -294,6 +294,12 @@ export async function syncJoshComeauCommand(
   const authSpinner = ora("Connecting to Josh Comeau Courses...").start();
   let browser: Browser | undefined;
   let database: CourseDatabase | undefined;
+  const closeDatabase = () => {
+    if (database) {
+      database.close();
+      database = undefined;
+    }
+  };
 
   try {
     const session = await createAuthenticatedCourseSession(courseUrl, useHeadless);
@@ -335,6 +341,7 @@ export async function syncJoshComeauCommand(
       options
     );
     database = state.database;
+    shutdown.registerCleanup(closeDatabase);
     console.log(chalk.gray(`   State: ~/.offcourse/cache/${state.key}.db`));
 
     const courseDir = await createCourseDirectory(config.outputDir, structure.name);
@@ -389,7 +396,7 @@ export async function syncJoshComeauCommand(
     if (!options.skipVideos) console.log(chalk.gray(`   Videos: ${videos} downloaded`));
     console.log(chalk.gray(`   Output: ${courseDir}\n`));
   } finally {
-    database?.close();
+    closeDatabase();
     if (browser) await browser.close();
   }
 }

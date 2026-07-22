@@ -121,6 +121,12 @@ export async function syncHighLevelCommand(
   let browser;
   let session;
   let database: CourseDatabase | undefined;
+  const closeDatabase = () => {
+    if (database) {
+      database.close();
+      database = undefined;
+    }
+  };
 
   try {
     const result = await getAuthenticatedSession(
@@ -264,6 +270,7 @@ export async function syncHighLevelCommand(
       options
     );
     database = state.database;
+    shutdown.registerCleanup(closeDatabase);
     console.log(chalk.gray(`   State: ~/.offcourse/cache/${state.key}.db`));
 
     // Create course directory
@@ -460,7 +467,7 @@ export async function syncHighLevelCommand(
     console.log(chalk.green("\n✅ Sync complete!\n"));
     console.log(chalk.gray(`   Output: ${courseDir}\n`));
   } finally {
-    database?.close();
+    closeDatabase();
     await browser.close();
   }
 }

@@ -8,6 +8,7 @@ import {
   persistCourseStructure,
   redactDownloadUrl,
   redactDownloadUrlsInText,
+  shouldPreserveRetryError,
 } from "./sync.js";
 import { CourseDatabase, LessonStatus } from "../../state/database.js";
 import type { CourseStructure } from "../../scraper/navigator.js";
@@ -39,6 +40,26 @@ describe("hasLessonsPendingDownload", () => {
     const getLessonsByStatus = vi.fn(() => []);
 
     expect(hasLessonsPendingDownload({ getLessonsByStatus })).toBe(false);
+  });
+});
+
+describe("shouldPreserveRetryError", () => {
+  it("preserves the existing error after shutdown", () => {
+    expect(shouldPreserveRetryError(new Error("page.goto failed"), false, false)).toBe(true);
+  });
+
+  it("preserves the existing error when Playwright reports a closed page", () => {
+    expect(
+      shouldPreserveRetryError(
+        new Error("Target page, context or browser has been closed"),
+        false,
+        true
+      )
+    ).toBe(true);
+  });
+
+  it("does not preserve unrelated retry failures", () => {
+    expect(shouldPreserveRetryError(new Error("network timeout"), false, true)).toBe(false);
   });
 });
 

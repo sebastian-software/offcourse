@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   isLessonSynced: vi.fn(),
   markLessonFailure: vi.fn(),
   markLessonScanReady: vi.fn(),
+  registerCleanup: vi.fn(),
   recordVideoDownloadResult: vi.fn(),
   runParallelSyncStage: vi.fn(),
   saveMarkdown: vi.fn(),
@@ -41,6 +42,7 @@ vi.mock("../../shared/shutdown.js", () => ({
   createShutdownManager: () => ({
     setup: vi.fn(),
     registerBrowser: vi.fn(),
+    registerCleanup: mocks.registerCleanup,
     shouldContinue: () => true,
     isShuttingDown: () => false,
   }),
@@ -196,6 +198,7 @@ describe("syncHighLevelCommand state tracking", () => {
       expect.objectContaining({ lessonId: 7 })
     );
     expect(mocks.recordVideoDownloadResult).toHaveBeenCalledOnce();
+    expect(mocks.registerCleanup).toHaveBeenCalledOnce();
     expect(mocks.browserClose).toHaveBeenCalledOnce();
   });
 });

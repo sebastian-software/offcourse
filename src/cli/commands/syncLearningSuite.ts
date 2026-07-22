@@ -88,6 +88,12 @@ export async function syncLearningSuiteCommand(
   let browser: Awaited<ReturnType<typeof getAuthenticatedSession>>["browser"] | undefined;
   let session: Awaited<ReturnType<typeof getAuthenticatedSession>>["session"] | undefined;
   let database: CourseDatabase | undefined;
+  const closeDatabase = () => {
+    if (database) {
+      database.close();
+      database = undefined;
+    }
+  };
 
   try {
     const result = await getAuthenticatedSession(
@@ -262,6 +268,7 @@ export async function syncLearningSuiteCommand(
       options
     );
     database = state.database;
+    shutdown.registerCleanup(closeDatabase);
     console.log(chalk.gray(`   State: ~/.offcourse/cache/${state.key}.db`));
 
     // Create course directory
@@ -490,7 +497,7 @@ export async function syncLearningSuiteCommand(
     }
     throw error;
   } finally {
-    database?.close();
+    closeDatabase();
     // Always close the browser to prevent hanging
     if (browser) {
       try {
