@@ -160,7 +160,7 @@ async function processLessons(
   tasks: LessonTask[],
   options: SyncPiccalilliOptions,
   config: { extractionConcurrency: number; videoQuality: string },
-  database: CourseDatabase,
+  getDatabase: () => CourseDatabase | undefined,
   retryLessonIds: Set<number>
 ): Promise<{ results: LessonResult[]; errors: { index: number; error: unknown }[] }> {
   const browserCookies = await context.cookies();
@@ -176,10 +176,10 @@ async function processLessons(
     processTask: async (page, task) => {
       const { lesson, moduleDir, stateId } = task;
       const syncStatus = await isLessonSynced(moduleDir, lesson.index, lesson.name);
-      const stateLesson = database.getLessonByUrl(lesson.url);
+      const stateLesson = getDatabase()?.getLessonByUrl(lesson.url);
       const retryFailed = retryLessonIds.has(stateId);
       if (syncStatus.video && stateLesson?.status !== LessonStatus.DOWNLOADED) {
-        database.markLessonDownloaded(stateId);
+        getDatabase()?.markLessonDownloaded(stateId);
       }
       const force = options.force ?? false;
       const needsContent = !options.skipContent && (force || retryFailed || !syncStatus.content);
@@ -262,9 +262,10 @@ async function processLessons(
           cookies,
           referer: content.video.referer,
         };
-        markLessonScanReady(database, stateId, videoTask);
+        const database = getDatabase();
+        if (database) markLessonScanReady(database, stateId, videoTask);
       } else if (needsVideo) {
-        database.markLessonSkipped(stateId, "No video found");
+        getDatabase()?.markLessonSkipped(stateId, "No video found");
       }
 
       return {
@@ -380,7 +381,7 @@ export async function syncPiccalilliCommand(
       lessonTasks,
       options,
       config,
-      database,
+      () => database,
       state.retryLessonIds
     );
 

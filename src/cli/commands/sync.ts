@@ -73,16 +73,9 @@ export function hasLessonsPendingDownload(db: Pick<CourseDatabase, "getLessonsBy
   return db.getLessonsByStatus(LessonStatus.VALIDATED).length > 0;
 }
 
-/** Keeps the original retry error when shutdown closes the Playwright page. */
-export function shouldPreserveRetryError(
-  error: unknown,
-  pageClosed: boolean,
-  shouldContinue: boolean
-): boolean {
-  if (!shouldContinue || pageClosed) return true;
-
-  const message = error instanceof Error ? error.message : String(error);
-  return /\b(?:browser|context|page)\b.*\b(?:closed|closing)\b/i.test(message);
+/** Keeps the original retry error when shutdown interrupts the retry. */
+export function shouldPreserveRetryError(shouldContinue: boolean): boolean {
+  return !shouldContinue;
 }
 
 /** Removes credentials and signed query data before a download URL is persisted. */
@@ -1063,11 +1056,7 @@ async function retryFailedLessons(
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      const preserveExistingError = shouldPreserveRetryError(
-        error,
-        page.isClosed(),
-        shutdown.shouldContinue()
-      );
+      const preserveExistingError = shouldPreserveRetryError(shutdown.shouldContinue());
       if (!preserveExistingError) {
         db.markLessonError(lesson.id, errorMsg, "RETRY_ERROR");
       }
@@ -1083,7 +1072,8 @@ async function retryFailedLessons(
     }
   }
 
-  progressBar.update(errorLessons.length, { status: "Complete" });
+  const interrupted = !shutdown.shouldContinue();
+  progressBar.update(results.length, { status: interrupted ? "Interrupted" : "Complete" });
   progressBar.stop();
 
   // Detailed results
