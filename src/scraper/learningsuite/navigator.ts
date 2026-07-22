@@ -1,11 +1,25 @@
-import type { BrowserContext, Page } from "playwright";
+import type { BrowserContext, Locator, Page } from "playwright";
 import { parallelProcess } from "../../shared/parallelWorker.js";
+
+const KNOWN_MODULE_STATS_PATTERN =
+  /(\d+)\s*(?:LEKTION(?:EN)?|LESSONS?)\s*\|\s*(\d+)\s*(?:MIN(?:\.|S)?|MINUTEN?|MINUTES?)/i;
+const GENERIC_MODULE_STATS_PATTERN = /(\d+)\s+\p{L}+\s*\|\s*(\d+)\s+\p{L}+/iu;
+
+/** Returns a stable local identity for a module before LearningSuite exposes its remote ID. */
+export function getLearningSuiteModuleSlug(position: number, title: string): string {
+  let hash = 2166136261;
+  for (const character of title.trim().normalize("NFKC").toLowerCase()) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16777619);
+  }
+  return `module-${position}-${(hash >>> 0).toString(36)}`;
+}
 
 export async function waitForLearningSuiteModules(page: Page): Promise<void> {
   await page
     .waitForFunction(
       () =>
-        /(\d+)\s*(?:LEKTION(?:EN)?|LESSONS?)\s*\|\s*(\d+)\s*(?:MIN(?:\.|S)?|MINUTEN?|MINUTES?)|ERSCHEINT\s*BALD|COMING\s*SOON/i.test(
+        /(\d+)\s*(?:LEKTION(?:EN)?|LESSONS?)\s*\|\s*(\d+)\s*(?:MIN(?:\.|S)?|MINUTEN?|MINUTES?)|\d+\s+\p{L}+\s*\|\s*\d+\s+\p{L}+|ERSCHEINT\s*BALD|COMING\s*SOON/iu.test(
           document.body.innerText
         ),
       undefined,
@@ -59,6 +73,8 @@ export interface LearningSuiteCourseStructure {
   tenantId: string;
   domain: string;
   courseSlug?: string;
+  /** Accessible modules that were scanned but yielded no lessons. */
+  emptyModuleTitles?: string[];
 }
 
 export interface LearningSuiteScanProgress {
@@ -112,9 +128,7 @@ export function parseLearningSuiteModulesText(text: string): ParsedLearningSuite
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
     const statsMatch =
-      /(\d+)\s*(?:LEKTION(?:EN)?|LESSONS?)\s*\|\s*(\d+)\s*(?:MIN(?:\.|S)?|MINUTEN?|MINUTES?)/i.exec(
-        line
-      );
+      KNOWN_MODULE_STATS_PATTERN.exec(line) ?? GENERIC_MODULE_STATS_PATTERN.exec(line);
     const isLocked = /ERSCHEINT\s*BALD|COMING\s*SOON/i.test(line);
 
     if (!statsMatch && !isLocked) continue;
@@ -342,8 +356,8 @@ async function scanModuleLessons(
   // Dismiss any modal dialogs
   await dismissMuiDialogs(page);
 
-  // Navigate to the module by clicking on its title text
-  const moduleTitle = page.getByText(module.title, { exact: true }).nth(titleOccurrence);
+  // Navigate to the module by clicking its title inside the module-card container.
+  const moduleTitle = await findLearningSuiteModuleTitle(page, module.title, titleOccurrence);
   await moduleTitle.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
 
   if (!(await moduleTitle.isVisible().catch(() => false))) {
@@ -403,7 +417,6 @@ async function scanModuleLessons(
 
   return {
     ...module,
-    id: moduleId,
     lessons: lessonsData.map((l, idx) => ({
       id: l.lessonId,
       title: l.title,
@@ -413,6 +426,34 @@ async function scanModuleLessons(
       isCompleted: l.isCompleted,
     })),
   };
+}
+
+/**
+ * Finds a module title inside a module-card container before applying the occurrence index.
+ * LearningSuite pages can repeat a module title in hero/continue cards elsewhere on the page.
+ */
+async function findLearningSuiteModuleTitle(
+  page: Page,
+  title: string,
+  occurrence: number
+): Promise<Locator> {
+  const exactTitle = page.getByText(title, { exact: true });
+  const cardSelectors = [
+    'a[href*="/t/"]',
+    '[data-testid*="module" i]',
+    '[class*="module" i]',
+    '[class*="card" i]',
+    "article",
+  ];
+
+  for (const selector of cardSelectors) {
+    const cards = page.locator(selector).filter({ has: exactTitle });
+    if ((await cards.count()) > occurrence) {
+      return cards.nth(occurrence).getByText(title, { exact: true }).first();
+    }
+  }
+
+  return exactTitle.nth(occurrence);
 }
 
 /**
@@ -673,6 +714,9 @@ export async function buildLearningSuiteCourseStructure(
   // Update totals
   course.moduleCount = allModules.length;
   course.lessonCount = allModules.reduce((sum, m) => sum + m.lessons.length, 0);
+  const emptyModuleTitles = scannedModules
+    .filter((module) => module.lessons.length === 0)
+    .map((module) => module.title);
 
   return {
     course,
@@ -680,6 +724,7 @@ export async function buildLearningSuiteCourseStructure(
     tenantId,
     domain,
     courseSlug,
+    emptyModuleTitles,
   };
 }
 
@@ -708,7 +753,7 @@ async function extractModulesFromCoursePage(
       : `${mod.lessonCount} Lektionen, ${mod.duration}`;
 
     modules.push({
-      id: `module-${i}`, // Will be updated when we navigate to the module
+      id: getLearningSuiteModuleSlug(i, mod.title),
       title: mod.title,
       description,
       position: i,

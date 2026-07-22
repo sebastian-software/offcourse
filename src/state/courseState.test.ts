@@ -149,4 +149,66 @@ describe("initializeCourseState", () => {
     });
     state.database.close();
   });
+
+  it("migrates legacy LearningSuite module slugs without orphaning lessons", () => {
+    directory = mkdtempSync(join(tmpdir(), "offcourse-course-state-"));
+    const sourceUrl = "https://academy.example.com/student/course/course/course-123";
+    const databasePath = join(directory, "course.db");
+    const legacy = initializeCourseState(
+      "learningsuite",
+      sourceUrl,
+      {
+        name: "Course",
+        url: sourceUrl,
+        modules: [
+          {
+            slug: "module-0",
+            name: "Module",
+            position: 0,
+            isLocked: true,
+            lessons: [],
+          },
+        ],
+      },
+      { databasePath }
+    );
+    const legacyModule = legacy.database.getModuleBySlug("module-0");
+    if (!legacyModule) throw new Error("Expected legacy module");
+    legacy.database.close();
+
+    const resumed = initializeCourseState(
+      "learningsuite",
+      sourceUrl,
+      {
+        name: "Course",
+        url: sourceUrl,
+        modules: [
+          {
+            slug: "module-0-stable",
+            name: "Module",
+            position: 0,
+            isLocked: false,
+            lessons: [
+              {
+                slug: "lesson-1",
+                name: "Lesson",
+                url: "https://academy.example.com/student/course/course/course-123/lesson-1",
+                position: 0,
+              },
+            ],
+          },
+        ],
+      },
+      { databasePath }
+    );
+
+    expect(resumed.database.getModules()).toHaveLength(1);
+    expect(resumed.database.getModuleBySlug("module-0-stable")).toMatchObject({
+      id: legacyModule.id,
+      isLocked: false,
+    });
+    expect(resumed.database.getModuleBySlug("module-0")).toBeNull();
+    expect(resumed.database.getLessons()).toHaveLength(1);
+    resumed.database.close();
+  });
 });

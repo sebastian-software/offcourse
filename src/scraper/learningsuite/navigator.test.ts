@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getLearningSuiteCourseUrl,
   getLearningSuiteLessonUrl,
+  getLearningSuiteModuleSlug,
   parseLearningSuiteLessonText,
   parseLearningSuiteModulesText,
   waitForLearningSuiteLessons,
@@ -100,6 +101,29 @@ describe("parseLearningSuiteModulesText", () => {
       { title: "Später", lessonCount: 0, duration: "", isLocked: true },
       { title: "Later", lessonCount: 0, duration: "", isLocked: true },
     ]);
+  });
+
+  it("parses module statistics from an unfamiliar locale", () => {
+    expect(
+      parseLearningSuiteModulesText(`
+        Le démarrage
+        3 LEÇONS | 12 MINUTES
+      `)
+    ).toEqual([{ title: "Le démarrage", lessonCount: 3, duration: "12 Min.", isLocked: false }]);
+  });
+});
+
+describe("getLearningSuiteModuleSlug", () => {
+  it("keeps a module identity stable for the same position and title", () => {
+    expect(getLearningSuiteModuleSlug(2, "Introduction")).toBe(
+      getLearningSuiteModuleSlug(2, "Introduction")
+    );
+    expect(getLearningSuiteModuleSlug(2, "Introduction")).not.toBe(
+      getLearningSuiteModuleSlug(3, "Introduction")
+    );
+    expect(getLearningSuiteModuleSlug(2, "Introduction")).not.toBe(
+      getLearningSuiteModuleSlug(2, "Advanced")
+    );
   });
 });
 

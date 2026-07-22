@@ -424,6 +424,17 @@ export class CourseDatabase {
     return row ? this.mapModuleRow(row) : null;
   }
 
+  /** Renames a module identity while preserving its database row and lessons. */
+  renameModuleSlug(currentSlug: string, nextSlug: string): ModuleRecord | null {
+    if (currentSlug === nextSlug) return this.getModuleBySlug(currentSlug);
+    if (this.getModuleBySlug(nextSlug)) return null;
+
+    const result = this.db
+      .prepare("UPDATE modules SET slug = ?, updated_at = datetime('now') WHERE slug = ?")
+      .run(nextSlug, currentSlug);
+    return result.changes > 0 ? this.getModuleBySlug(nextSlug) : null;
+  }
+
   private mapModuleRow(row: {
     id: number;
     slug: string;

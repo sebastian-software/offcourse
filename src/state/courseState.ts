@@ -95,6 +95,18 @@ export function initializeCourseState(
       database.updateCourseMetadata(structure.name, structure.url);
 
       for (const module of structure.modules) {
+        if (platform === "learningsuite") {
+          const existingModule = database
+            .getModules()
+            .find(
+              (candidate) =>
+                candidate.position === module.position && candidate.name === module.name
+            );
+          if (existingModule && existingModule.slug !== module.slug) {
+            database.renameModuleSlug(existingModule.slug, module.slug);
+          }
+        }
+
         const moduleRecord = database.upsertModule(
           module.slug,
           module.name,

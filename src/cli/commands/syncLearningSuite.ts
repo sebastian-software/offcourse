@@ -232,6 +232,14 @@ export async function syncLearningSuiteCommand(
       console.log(chalk.gray(`   💡 Tip: Use 'offcourse complete <url>' to unlock lessons first`));
     }
 
+    if (courseStructure.emptyModuleTitles?.length) {
+      console.log(
+        chalk.yellow(
+          `   ⚠️  No lessons found in ${courseStructure.emptyModuleTitles.length} scanned module${courseStructure.emptyModuleTitles.length === 1 ? "" : "s"}: ${courseStructure.emptyModuleTitles.join(", ")}`
+        )
+      );
+    }
+
     if (options.dryRun) {
       printCourseStructure(courseStructure);
       await browser.close();
