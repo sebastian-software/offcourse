@@ -19,7 +19,7 @@ vi.mock("./fs.js", () => ({
   removeFile: vi.fn(),
 }));
 
-import { getAuthenticatedSession } from "./auth.js";
+import { getAuthenticatedSession, performInteractiveLogin } from "./auth.js";
 
 describe("authenticated browser sessions", () => {
   beforeEach(() => {
@@ -86,5 +86,34 @@ describe("authenticated browser sessions", () => {
       session: { context: sessionContext, page: sessionPage },
       usedCachedSession: true,
     });
+  });
+
+  it("disables verifier navigation during interactive login", async () => {
+    const page = {
+      goto: vi.fn().mockResolvedValue(undefined),
+      url: vi.fn().mockReturnValue("https://courses.example.com/"),
+      waitForLoadState: vi.fn().mockResolvedValue(undefined),
+      waitForTimeout: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Page;
+    const context = {
+      newPage: vi.fn().mockResolvedValue(page),
+      storageState: vi.fn().mockResolvedValue({ cookies: [], origins: [] }),
+    } as unknown as BrowserContext;
+    const browser = {
+      newContext: vi.fn().mockResolvedValue(context),
+      close: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Browser;
+    const verifySession = vi.fn().mockResolvedValue(true);
+
+    mocks.chromiumLaunch.mockResolvedValue(browser);
+
+    await performInteractiveLogin({
+      domain: "courses.example.com",
+      loginUrl: "https://courses.example.com/",
+      isLoginPage: () => false,
+      verifySession,
+    });
+
+    expect(verifySession).toHaveBeenCalledWith(page, { allowNavigation: false });
   });
 });
