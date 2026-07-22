@@ -17,6 +17,7 @@ export {
 export {
   getCourseStateKey,
   initializeCourseState,
+  persistCourseStateStructure,
   markLessonFailure,
   markLessonScanReady,
   recordVideoDownloadResult,

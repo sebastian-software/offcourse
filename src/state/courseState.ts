@@ -35,6 +35,10 @@ export interface InitializeCourseStateOptions {
   force?: boolean;
   retryFailed?: boolean;
   databasePath?: string;
+  /** Reuse an already-open database owned by the calling command. */
+  database?: CourseDatabase | undefined;
+  /** Optional maximum number of lesson rows to persist during this refresh. */
+  persistLimit?: number | undefined;
 }
 
 export interface InitializedCourseState {
@@ -42,6 +46,7 @@ export interface InitializedCourseState {
   database: CourseDatabase;
   lessonsByUrl: Map<string, LessonRecord>;
   retryLessonIds: Set<number>;
+  newLessons?: number;
 }
 
 function safeKeyPart(value: string): string {
@@ -81,6 +86,57 @@ export function getCourseStateKey(platform: SyncPlatform, value: string): string
 }
 
 /** Opens and refreshes the shared course state for any supported platform. */
+export function persistCourseStateStructure(
+  database: CourseDatabase,
+  structure: CourseStateStructure,
+  persistLimit?: number,
+  platform?: SyncPlatform
+): number {
+  let newLessons = 0;
+
+  database.withTransaction(() => {
+    database.updateCourseMetadata(structure.name, structure.url);
+
+    outer: for (const module of structure.modules) {
+      if (platform === "learningsuite") {
+        const existingModule = database
+          .getModules()
+          .find(
+            (candidate) => candidate.position === module.position && candidate.name === module.name
+          );
+        if (existingModule && existingModule.slug !== module.slug) {
+          database.renameModuleSlug(existingModule.slug, module.slug);
+        }
+      }
+
+      const moduleRecord = database.upsertModule(
+        module.slug,
+        module.name,
+        module.position,
+        module.isLocked
+      );
+
+      for (const lesson of module.lessons) {
+        if (persistLimit !== undefined && database.getLessonCount() >= persistLimit) break outer;
+
+        const existingLesson = database.getLessonByUrl(lesson.url);
+        database.upsertLesson(
+          moduleRecord.id,
+          lesson.slug,
+          lesson.name,
+          lesson.url,
+          lesson.position,
+          lesson.isLocked
+        );
+        if (!existingLesson) newLessons++;
+      }
+    }
+  });
+
+  return newLessons;
+}
+
+/** Opens and refreshes the shared course state for any supported platform. */
 export function initializeCourseState(
   platform: SyncPlatform,
   sourceUrl: string,
@@ -88,44 +144,16 @@ export function initializeCourseState(
   options: InitializeCourseStateOptions = {}
 ): InitializedCourseState {
   const key = getCourseStateKey(platform, sourceUrl);
-  const database = new CourseDatabase(key, options.databasePath);
+  const ownsDatabase = !options.database;
+  const database = options.database ?? new CourseDatabase(key, options.databasePath);
 
   try {
-    database.withTransaction(() => {
-      database.updateCourseMetadata(structure.name, structure.url);
-
-      for (const module of structure.modules) {
-        if (platform === "learningsuite") {
-          const existingModule = database
-            .getModules()
-            .find(
-              (candidate) =>
-                candidate.position === module.position && candidate.name === module.name
-            );
-          if (existingModule && existingModule.slug !== module.slug) {
-            database.renameModuleSlug(existingModule.slug, module.slug);
-          }
-        }
-
-        const moduleRecord = database.upsertModule(
-          module.slug,
-          module.name,
-          module.position,
-          module.isLocked
-        );
-
-        for (const lesson of module.lessons) {
-          database.upsertLesson(
-            moduleRecord.id,
-            lesson.slug,
-            lesson.name,
-            lesson.url,
-            lesson.position,
-            lesson.isLocked
-          );
-        }
-      }
-    });
+    const newLessons = persistCourseStateStructure(
+      database,
+      structure,
+      options.persistLimit,
+      platform
+    );
 
     if (options.force) database.resetAllLessonsToPending();
     const retryLessonIds = new Set<number>();
@@ -141,9 +169,10 @@ export function initializeCourseState(
       database,
       lessonsByUrl: new Map(database.getLessons().map((lesson) => [lesson.url, lesson])),
       retryLessonIds,
+      newLessons,
     };
   } catch (error) {
-    database.close();
+    if (ownsDatabase) database.close();
     throw error;
   }
 }

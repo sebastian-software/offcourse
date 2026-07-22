@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   createCourseDirectory: vi.fn(),
   createModuleDirectory: vi.fn(),
   downloadResource: vi.fn(),
-  downloadVideo: vi.fn(),
+  downloadVideoTasks: vi.fn(),
   extractLesson: vi.fn(),
   formatMarkdown: vi.fn(),
   getAuthenticatedSession: vi.fn(),
@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   initializeCourseState: vi.fn(),
   isCourseUrl: vi.fn(),
   isLessonSynced: vi.fn(),
+  markLessonFailure: vi.fn(),
+  markLessonScanReady: vi.fn(),
   normalizeCourseUrl: vi.fn(),
   parallelProcess: vi.fn(),
   pathExists: vi.fn(),
@@ -64,11 +66,16 @@ vi.mock("../../config/configManager.js", () => ({
     outputDir: "/courses",
     headless: true,
     extractionConcurrency: 4,
+    concurrency: 2,
     videoQuality: "720p",
   }),
 }));
 
-vi.mock("../../downloader/index.js", () => ({ downloadVideo: mocks.downloadVideo }));
+vi.mock("../../downloader/index.js", () => ({}));
+vi.mock("../syncPipeline.js", async () => ({
+  ...(await vi.importActual<typeof import("../syncPipeline.js")>("../syncPipeline.js")),
+  downloadVideoTasks: mocks.downloadVideoTasks,
+}));
 vi.mock("../../shared/auth.js", () => ({
   getAuthenticatedSession: mocks.getAuthenticatedSession,
 }));
@@ -85,8 +92,9 @@ vi.mock("../../shared/shutdown.js", () => ({
 vi.mock("../../state/index.js", () => ({
   initializeCourseState: mocks.initializeCourseState,
   LessonStatus: { PENDING: "pending", DOWNLOADED: "downloaded" },
-  markLessonFailure: vi.fn(),
-  markLessonScanReady: vi.fn(),
+  markLessonFailure: mocks.markLessonFailure,
+  markLessonScanReady: mocks.markLessonScanReady,
+  recordVideoDownloadResult: vi.fn(),
 }));
 vi.mock("../../scraper/joshcomeau/index.js", () => ({
   buildJoshComeauCourseStructure: mocks.buildCourseStructure,
@@ -218,7 +226,11 @@ beforeEach(() => {
   mocks.rewriteLinks.mockImplementation((markdown: string) => markdown);
   mocks.formatMarkdown.mockReturnValue("# Flow Layout\n");
   mocks.downloadResource.mockResolvedValue({ success: true });
-  mocks.downloadVideo.mockResolvedValue({ success: true });
+  mocks.downloadVideoTasks.mockImplementation(async (tasks: unknown[]) => ({
+    completed: tasks.length,
+    failures: [],
+    outcomes: tasks.map((task) => ({ task, result: { success: true } })),
+  }));
   mocks.parallelProcess.mockImplementation(
     async (
       _context: BrowserContext,
@@ -277,13 +289,15 @@ describe("syncJoshComeauCommand", () => {
       "# Flow Layout\n"
     );
     expect(mocks.downloadResource).toHaveBeenCalledOnce();
-    expect(mocks.downloadVideo).toHaveBeenCalledTimes(2);
-    expect(mocks.downloadVideo).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        lessonName: "Flow Layout (video 2)",
-        outputPath: "/courses/css-for-js/01-rendering-logic/video-02.mp4",
-        preferredQuality: "1080p",
-      })
+    expect(mocks.downloadVideoTasks).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          lessonName: "Flow Layout (video 2)",
+          outputPath: "/courses/css-for-js/01-rendering-logic/video-02.mp4",
+          preferredQuality: "1080p",
+        }),
+      ]),
+      expect.objectContaining({ concurrency: 2 })
     );
     expect(mocks.registerCleanup).toHaveBeenCalledOnce();
     expect(mocks.browserClose).toHaveBeenCalledOnce();
@@ -296,7 +310,7 @@ describe("syncJoshComeauCommand", () => {
 
     expect(mocks.extractLesson).not.toHaveBeenCalled();
     expect(mocks.saveMarkdown).not.toHaveBeenCalled();
-    expect(mocks.downloadVideo).not.toHaveBeenCalled();
+    expect(mocks.downloadVideoTasks).not.toHaveBeenCalled();
     expect(mocks.browserClose).toHaveBeenCalledOnce();
   });
 
@@ -318,7 +332,46 @@ describe("syncJoshComeauCommand", () => {
 
     await syncJoshComeauCommand(courseUrl, { retryFailed: true });
 
-    expect(mocks.downloadVideo).toHaveBeenCalledTimes(2);
+    expect(mocks.downloadVideoTasks).toHaveBeenCalledOnce();
+  });
+
+  it("records an interrupted shared video queue as a lesson failure", async () => {
+    mocks.downloadVideoTasks.mockResolvedValue({ completed: 0, failures: [], outcomes: [] });
+
+    await syncJoshComeauCommand(courseUrl, {});
+
+    expect(mocks.markLessonFailure).toHaveBeenCalledWith(
+      expect.any(Object),
+      1,
+      expect.objectContaining({ message: expect.stringContaining("interrupted") }),
+      "DOWNLOAD_INTERRUPTED"
+    );
+  });
+
+  it("reconciles queued videos when shutdown is requested", async () => {
+    let continueProcessing = true;
+    mocks.shouldContinue.mockImplementation(() => continueProcessing);
+    mocks.markLessonScanReady.mockImplementation(() => {
+      continueProcessing = false;
+    });
+    mocks.downloadVideoTasks.mockImplementation(async (tasks: unknown[]) => ({
+      completed: tasks.length,
+      failures: [],
+      outcomes: tasks.map((task) => ({ task, result: { success: true } })),
+    }));
+
+    await syncJoshComeauCommand(courseUrl, {});
+
+    expect(mocks.downloadVideoTasks).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ lessonId: 1 })]),
+      expect.objectContaining({ shouldContinue: expect.any(Function) })
+    );
+    expect(mocks.markLessonFailure).toHaveBeenCalledWith(
+      expect.any(Object),
+      1,
+      expect.objectContaining({ message: expect.stringContaining("interrupted") }),
+      "DOWNLOAD_INTERRUPTED"
+    );
   });
 
   it("reports lesson failures and still closes the browser", async () => {
@@ -330,5 +383,59 @@ describe("syncJoshComeauCommand", () => {
 
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("HTTP 403"));
     expect(mocks.browserClose).toHaveBeenCalledOnce();
+  });
+
+  it("downloads successful sibling lessons before reporting extraction failures", async () => {
+    const structure = courseStructure();
+    const secondLesson = {
+      name: "Responsive Design",
+      slug: "responsive-design",
+      url: `${courseUrl}/rendering-logic/responsive-design`,
+      number: 2,
+      index: 1,
+    };
+    const firstModule = structure.modules[0];
+    if (!firstModule) throw new Error("Expected the test course to have a module");
+    firstModule.lessons.push(secondLesson);
+    mocks.buildCourseStructure.mockResolvedValue(structure);
+
+    const firstStateLesson = { id: 1, status: "pending", retryCount: 0 };
+    const secondStateLesson = { id: 2, status: "pending", retryCount: 0 };
+    const database = {
+      close: vi.fn(),
+      getLessonByUrl: vi.fn((url: string) =>
+        url.endsWith("responsive-design") ? secondStateLesson : firstStateLesson
+      ),
+      markLessonDownloaded: vi.fn(),
+      markLessonSkipped: vi.fn(),
+    };
+    mocks.initializeCourseState.mockReturnValue({
+      key: "joshcomeau-css-for-js",
+      database,
+      lessonsByUrl: new Map([
+        [`${courseUrl}/rendering-logic/flow-layout`, firstStateLesson],
+        [secondLesson.url, secondStateLesson],
+      ]),
+      retryLessonIds: new Set(),
+    });
+    mocks.extractLesson.mockImplementation(async (_page: Page, url: string) => {
+      if (url.endsWith("flow-layout")) throw new Error("Extraction failed");
+      return lessonContent();
+    });
+
+    await expect(syncJoshComeauCommand(courseUrl, {})).rejects.toThrow(
+      "1 Josh Comeau lesson(s) failed"
+    );
+
+    expect(mocks.downloadVideoTasks).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ lessonId: 2 })]),
+      expect.objectContaining({ concurrency: 2 })
+    );
+    expect(mocks.markLessonFailure).toHaveBeenCalledWith(
+      database,
+      1,
+      expect.any(Error),
+      "SYNC_ERROR"
+    );
   });
 });
