@@ -3,12 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  hasLessonsPendingDownload,
   hasLessonsPendingValidation,
   persistCourseStructure,
   redactDownloadUrl,
   redactDownloadUrlsInText,
 } from "./sync.js";
-import { CourseDatabase } from "../../state/database.js";
+import { CourseDatabase, LessonStatus } from "../../state/database.js";
 import type { CourseStructure } from "../../scraper/navigator.js";
 
 describe("hasLessonsPendingValidation", () => {
@@ -23,6 +24,21 @@ describe("hasLessonsPendingValidation", () => {
     const getLessonsToScan = vi.fn(() => []);
 
     expect(hasLessonsPendingValidation({ getLessonsToScan })).toBe(false);
+  });
+});
+
+describe("hasLessonsPendingDownload", () => {
+  it("resumes validated lessons without an HLS URL", () => {
+    const getLessonsByStatus = vi.fn(() => [{} as never]);
+
+    expect(hasLessonsPendingDownload({ getLessonsByStatus })).toBe(true);
+    expect(getLessonsByStatus).toHaveBeenCalledWith(LessonStatus.VALIDATED);
+  });
+
+  it("skips download work only when no lesson is validated", () => {
+    const getLessonsByStatus = vi.fn(() => []);
+
+    expect(hasLessonsPendingDownload({ getLessonsByStatus })).toBe(false);
   });
 });
 
