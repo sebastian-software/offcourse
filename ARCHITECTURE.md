@@ -230,7 +230,7 @@ The `parallelWorker` module provides a shared worker pool for parallel operation
 - **Progress Tracking**: Real-time aggregated progress across all workers
 - **Error Isolation**: Failed tasks don't crash other workers
 
-Used by course scanning, content extraction, and the shared video-download stage. Each stage honors its configured `concurrency` and interruption callback.
+Used by course scanning and content extraction. The shared video-download stage implements its own concurrency and interruption handling in `syncPipeline.ts`.
 
 ## Platform-Specific Details
 
