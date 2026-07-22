@@ -365,16 +365,28 @@ describe("CourseDatabase", () => {
       "https://example.com/legacy-lesson",
       0
     );
+    const destinationLesson = database.upsertLesson(
+      destinationModule.id,
+      "legacy-lesson",
+      "Current lesson",
+      "https://example.com/current-lesson",
+      0
+    );
+    database.markLessonDownloaded(legacyLesson.id, 42);
 
     const merged = database.renameModuleSlug("module-0", "module-0-stable");
 
     expect(merged).toMatchObject({ id: destinationModule.id, slug: "module-0-stable" });
     expect(database.getModuleBySlug("module-0")).toBeNull();
     expect(database.getModules()).toHaveLength(1);
-    expect(database.getLessonByUrl(legacyLesson.url)).toMatchObject({
-      id: legacyLesson.id,
-      moduleId: destinationModule.id,
-    });
+    expect(database.getLessons()).toEqual([
+      expect.objectContaining({
+        id: destinationLesson.id,
+        moduleId: destinationModule.id,
+        status: LessonStatus.DOWNLOADED,
+        videoFileSize: 42,
+      }),
+    ]);
   });
 
   it("preserves lesson state when a stable URL moves to another module", () => {
