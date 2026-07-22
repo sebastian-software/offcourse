@@ -41,4 +41,13 @@ describe("selectVimeoProgressiveUrl", () => {
       ])
     ).toBe("https://cdn.example/1080.mp4");
   });
+
+  it("skips renditions without a URL", () => {
+    expect(
+      selectVimeoProgressiveUrl([
+        { height: 1080 },
+        { height: 720, url: "https://cdn.example/720.mp4" },
+      ])
+    ).toBe("https://cdn.example/720.mp4");
+  });
 });

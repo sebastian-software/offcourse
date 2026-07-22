@@ -47,5 +47,9 @@ export function selectVimeoHlsUrl(hls: VimeoHlsConfig | null | undefined): strin
 export function selectVimeoProgressiveUrl(
   progressive: VimeoProgressiveRendition[] | null | undefined
 ): string | null {
-  return [...(progressive ?? [])].sort((a, b) => (b.height ?? 0) - (a.height ?? 0))[0]?.url ?? null;
+  return (
+    [...(progressive ?? [])]
+      .filter((rendition) => Boolean(rendition.url))
+      .sort((a, b) => (b.height ?? 0) - (a.height ?? 0))[0]?.url ?? null
+  );
 }
