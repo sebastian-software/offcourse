@@ -26,8 +26,11 @@ import {
 import {
   CourseDatabase,
   extractCommunitySlug,
+  initializeCourseState,
   isSkoolUrl,
   LessonStatus,
+  persistCourseStateStructure,
+  type CourseStateStructure,
   type LessonWithModule,
 } from "../../state/index.js";
 import {
@@ -129,40 +132,27 @@ export function persistCourseStructure(
   courseStructure: CourseStructure,
   limit?: number
 ): number {
-  let newLessons = 0;
+  return persistCourseStateStructure(db, toCourseStateStructure(courseStructure), limit);
+}
 
-  db.withTransaction(() => {
-    db.updateCourseMetadata(courseStructure.name, courseStructure.url);
-
-    for (let moduleIndex = 0; moduleIndex < courseStructure.modules.length; moduleIndex++) {
-      const module = courseStructure.modules[moduleIndex];
-      if (!module) continue;
-
-      const moduleRecord = db.upsertModule(module.slug, module.name, moduleIndex, module.isLocked);
-
-      for (let lessonIndex = 0; lessonIndex < module.lessons.length; lessonIndex++) {
-        const lesson = module.lessons[lessonIndex];
-        if (!lesson) continue;
-
-        const existingLesson = db.getLessonByUrl(lesson.url);
-        db.upsertLesson(
-          moduleRecord.id,
-          lesson.slug,
-          lesson.name,
-          lesson.url,
-          lessonIndex,
-          lesson.isLocked
-        );
-
-        if (!existingLesson) newLessons++;
-        if (limit && db.getLessonCount() >= limit) break;
-      }
-
-      if (limit && db.getLessonCount() >= limit) break;
-    }
-  });
-
-  return newLessons;
+function toCourseStateStructure(courseStructure: CourseStructure): CourseStateStructure {
+  return {
+    name: courseStructure.name,
+    url: courseStructure.url,
+    modules: courseStructure.modules.map((module, moduleIndex) => ({
+      slug: module.slug,
+      name: module.name,
+      position: moduleIndex,
+      isLocked: module.isLocked,
+      lessons: module.lessons.map((lesson, lessonIndex) => ({
+        slug: lesson.slug,
+        name: lesson.name,
+        url: lesson.url,
+        position: lessonIndex,
+        isLocked: lesson.isLocked,
+      })),
+    })),
+  };
 }
 
 /**
@@ -474,7 +464,13 @@ async function scanCourseStructure(
       );
     }
 
-    const newLessons = persistCourseStructure(db, courseStructure, options.limit);
+    const refreshedState = initializeCourseState(
+      "skool",
+      courseStructure.url,
+      toCourseStateStructure(courseStructure),
+      { database: db, persistLimit: options.limit }
+    );
+    const newLessons = refreshedState.newLessons ?? 0;
 
     const meta = db.getCourseMetadata();
     console.log();

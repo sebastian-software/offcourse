@@ -3,7 +3,7 @@ import ora from "ora";
 import { basename } from "node:path";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { loadConfig } from "../../config/configManager.js";
-import { downloadVideo } from "../../downloader/index.js";
+import type { VideoDownloadTask } from "../../downloader/index.js";
 import { getAuthenticatedSession } from "../../shared/auth.js";
 import { pathExists } from "../../shared/fs.js";
 import { createFolderName } from "../../shared/slug.js";
@@ -33,11 +33,13 @@ import {
   saveMarkdown,
 } from "../../storage/fileSystem.js";
 import { runParallelSyncStage } from "../syncPipeline.js";
+import { downloadVideoTasks } from "../syncPipeline.js";
 import {
   initializeCourseState,
   LessonStatus,
   markLessonFailure,
   markLessonScanReady,
+  recordVideoDownloadResult,
   type CourseDatabase,
   type LessonRecord,
 } from "../../state/index.js";
@@ -69,6 +71,8 @@ interface LessonResult {
   resourcesDownloaded: number;
   videosDownloaded: number;
   stateId: number;
+  videoTasks: VideoDownloadTask[];
+  expectedVideoCount: number;
 }
 
 export { isJoshComeauCourseUrl };
@@ -146,7 +150,7 @@ async function processLessons(
   mainPage: Page,
   tasks: LessonTask[],
   options: SyncJoshComeauOptions,
-  config: { extractionConcurrency: number; videoQuality: string },
+  config: { extractionConcurrency: number; concurrency: number; videoQuality: string },
   getDatabase: () => CourseDatabase | undefined,
   retryLessonIds: Set<number>
 ): Promise<{ results: LessonResult[]; errors: { index: number; error: unknown }[] }> {
@@ -177,6 +181,8 @@ async function processLessons(
           resourcesDownloaded: 0,
           videosDownloaded: 0,
           stateId,
+          videoTasks: [],
+          expectedVideoCount: 0,
         };
       }
 
@@ -185,7 +191,7 @@ async function processLessons(
         getJoshComeauVideoPath(moduleDir, lesson, index)
       );
       let resourcesDownloaded = 0;
-      let videosDownloaded = 0;
+      const videoTasks: VideoDownloadTask[] = [];
 
       if (needsContent) {
         const localResources = content.resources.map((resource) => ({
@@ -242,7 +248,7 @@ async function processLessons(
             throw new Error(`Could not resolve Vimeo stream ${index + 1} for ${lesson.name}`);
           }
 
-          const videoTask = {
+          const videoTask: VideoDownloadTask = {
             lessonId: stateId,
             lessonName:
               content.videos.length > 1 ? `${lesson.name} (video ${index + 1})` : lesson.name,
@@ -255,39 +261,82 @@ async function processLessons(
           const database = getDatabase();
           if (!database) break;
           markLessonScanReady(database, stateId, videoTask);
-          const download = await downloadVideo(videoTask);
-          if (!download.success) {
-            throw new Error(
-              `Video ${index + 1} failed: ${download.error ?? "unknown download error"}`
-            );
-          }
-          videosDownloaded++;
+          videoTasks.push(videoTask);
         }
         if (!shutdown.shouldContinue()) {
           return {
             cached: false,
             contentSaved: needsContent,
             resourcesDownloaded,
-            videosDownloaded,
+            videosDownloaded: 0,
             stateId,
+            videoTasks,
+            expectedVideoCount: needsVideo ? content.videos.length : 0,
           };
         }
         if (content.videos.length === 0) {
           getDatabase()?.markLessonSkipped(stateId, "No video found");
-        } else {
-          getDatabase()?.markLessonDownloaded(stateId);
         }
       }
 
       return {
-        cached: !needsContent && resourcesDownloaded === 0 && videosDownloaded === 0,
+        cached: !needsContent && resourcesDownloaded === 0 && videoTasks.length === 0,
         contentSaved: needsContent,
         resourcesDownloaded,
-        videosDownloaded,
+        videosDownloaded: 0,
         stateId,
+        videoTasks,
+        expectedVideoCount: needsVideo ? content.videos.length : 0,
       };
     },
   });
+}
+
+function recordJoshVideoDownloads(
+  database: CourseDatabase,
+  results: LessonResult[],
+  summary: Awaited<ReturnType<typeof downloadVideoTasks>>
+): number {
+  for (const outcome of summary.outcomes) {
+    if (outcome.error || !outcome.result?.success) {
+      recordVideoDownloadResult(database, outcome.task, outcome.result, outcome.error);
+    }
+  }
+
+  let videosDownloaded = 0;
+  for (const result of results) {
+    if (result.expectedVideoCount === 0) continue;
+
+    const outcomes = result.videoTasks.map((task) =>
+      summary.outcomes.find((outcome) => outcome.task.outputPath === task.outputPath)
+    );
+    const hasFailure = outcomes.some(
+      (outcome) => outcome !== undefined && (outcome.error ?? !outcome.result?.success)
+    );
+    if (hasFailure) continue;
+
+    if (outcomes.some((outcome) => outcome === undefined)) {
+      markLessonFailure(
+        database,
+        result.stateId,
+        new Error("Video download interrupted before all lesson videos completed"),
+        "DOWNLOAD_INTERRUPTED"
+      );
+      continue;
+    }
+
+    if (outcomes.length === 0) {
+      database.markLessonDownloaded(result.stateId);
+    } else {
+      const firstSuccess = outcomes[0];
+      if (firstSuccess?.result?.success) {
+        recordVideoDownloadResult(database, firstSuccess.task, firstSuccess.result);
+      }
+    }
+    videosDownloaded += outcomes.length;
+  }
+
+  return videosDownloaded;
 }
 
 /** Downloads a Josh Comeau course for offline access. */
@@ -397,13 +446,25 @@ export async function syncJoshComeauCommand(
       throw new Error(`${extraction.errors.length} Josh Comeau lesson(s) failed`);
     }
 
+    const videoTasks = extraction.results.flatMap((result) => result.videoTasks);
+    const downloadSummary =
+      options.skipVideos || videoTasks.length === 0
+        ? { completed: 0, failures: [], outcomes: [] }
+        : await downloadVideoTasks(videoTasks, {
+            concurrency: config.concurrency,
+            shouldContinue: shutdown.shouldContinue,
+            heading: `Downloading ${videoTasks.length} Josh Comeau videos...`,
+          });
+    const videos = currentDatabase
+      ? recordJoshVideoDownloads(currentDatabase, extraction.results, downloadSummary)
+      : 0;
+
     const contentSaved = extraction.results.filter((result) => result.contentSaved).length;
     const cached = extraction.results.filter((result) => result.cached).length;
     const resources = extraction.results.reduce(
       (sum, result) => sum + result.resourcesDownloaded,
       0
     );
-    const videos = extraction.results.reduce((sum, result) => sum + result.videosDownloaded, 0);
     console.log(chalk.green("\n✅ Josh Comeau sync complete!\n"));
     console.log(
       chalk.gray(`   Content: ${contentSaved} saved, ${resources} resources, ${cached} cached`)
