@@ -68,6 +68,11 @@ export function hasLessonsPendingValidation(db: Pick<CourseDatabase, "getLessons
   return db.getLessonsToScan().length > 0;
 }
 
+/** Phase 3 processes every validated lesson, including native videos without an HLS URL. */
+export function hasLessonsPendingDownload(db: Pick<CourseDatabase, "getLessonsByStatus">): boolean {
+  return db.getLessonsByStatus(LessonStatus.VALIDATED).length > 0;
+}
+
 /** Removes credentials and signed query data before a download URL is persisted. */
 export function redactDownloadUrl(url: string): string {
   try {
@@ -195,7 +200,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
 
   const needsScan = !hasExistingData || (initialSummary?.pending ?? 0) > 0;
   const needsValidation = hasExistingData ? hasLessonsPendingValidation(db) : true;
-  const needsDownload = hasExistingData ? db.getLessonsToDownload().length > 0 : true;
+  const needsDownload = hasExistingData ? hasLessonsPendingDownload(db) : true;
   const courseDir = await createCourseDirectory(config.outputDir, communitySlug);
 
   // Quick exit if nothing to do (and not retry-failed or dry-run)
