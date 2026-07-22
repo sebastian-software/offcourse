@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   chromiumLaunch: vi.fn(),
+  outputJson: vi.fn(),
   pathExists: vi.fn(),
   readJson: vi.fn(),
 }));
@@ -13,7 +14,7 @@ vi.mock("playwright", () => ({
 
 vi.mock("./fs.js", () => ({
   ensureDir: vi.fn(),
-  outputJson: vi.fn(),
+  outputJson: mocks.outputJson,
   pathExists: mocks.pathExists,
   readJson: mocks.readJson,
   removeFile: vi.fn(),
@@ -115,5 +116,10 @@ describe("authenticated browser sessions", () => {
     });
 
     expect(verifySession).toHaveBeenCalledWith(page, { allowNavigation: false });
+    expect(mocks.outputJson).toHaveBeenCalledWith(
+      expect.any(String),
+      { cookies: [], origins: [] },
+      { mode: 0o600, directoryMode: 0o700 }
+    );
   });
 });

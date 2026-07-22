@@ -93,6 +93,13 @@ interface ParallelStageOptions {
   processTask: (page: Page, task: unknown, index: number) => Promise<unknown>;
 }
 
+type InitializeCourseStateArgs = Parameters<
+  (typeof import("../../state/index.js"))["initializeCourseState"]
+>;
+type InitializedCourseState = ReturnType<
+  (typeof import("../../state/index.js"))["initializeCourseState"]
+>;
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -203,5 +210,42 @@ describe("syncLearningSuiteCommand state tracking", () => {
     expect(mocks.recordVideoDownloadResult).toHaveBeenCalledOnce();
     expect(mocks.registerCleanup).toHaveBeenCalledOnce();
     expect(mocks.browserClose).toHaveBeenCalledOnce();
+  });
+
+  it("tracks state through a real in-memory CourseDatabase", async () => {
+    const actualState =
+      await vi.importActual<typeof import("../../state/index.js")>("../../state/index.js");
+    let initialized: InitializedCourseState | undefined;
+    let closeDatabase: (() => void) | undefined;
+    mocks.initializeCourseState.mockImplementationOnce(
+      (
+        platform: InitializeCourseStateArgs[0],
+        sourceUrl: InitializeCourseStateArgs[1],
+        structure: InitializeCourseStateArgs[2],
+        options: InitializeCourseStateArgs[3]
+      ) => {
+        const state = actualState.initializeCourseState(platform, sourceUrl, structure, {
+          ...options,
+          databasePath: ":memory:",
+        });
+        initialized = state;
+        closeDatabase = state.database.close.bind(state.database);
+        vi.spyOn(state.database, "close").mockImplementation(() => undefined);
+        return state;
+      }
+    );
+    mocks.markLessonScanReady.mockImplementation(actualState.markLessonScanReady);
+    mocks.recordVideoDownloadResult.mockImplementation(actualState.recordVideoDownloadResult);
+
+    try {
+      await syncLearningSuiteCommand(courseUrl, {});
+
+      expect(initialized?.database.getLessonByUrl(lessonUrl)).toMatchObject({
+        status: "downloaded",
+        videoUrl: "https://cdn.example.com/video.m3u8",
+      });
+    } finally {
+      closeDatabase?.();
+    }
   });
 });
