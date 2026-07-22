@@ -33,9 +33,7 @@ export function parseHLSPlaylist(content: string, baseUrl: string): HLSQuality[]
       const width = resolution?.width;
       const height = resolution?.height;
 
-      const variantUrl = variant.uri.startsWith("http")
-        ? variant.uri
-        : new URL(variant.uri, baseUrl).href;
+      const variantUrl = resolveHlsUri(variant.uri, baseUrl);
 
       const label = height ? `${height}p` : `${Math.round(bandwidth / 1000)}k`;
 
@@ -94,7 +92,8 @@ function normalizeDuplicateHlsMediaNames(content: string): string {
 export function resolveHlsUri(uri: string, parentUrl: string): string {
   const resolved = new URL(uri, parentUrl);
   const parent = new URL(parentUrl);
-  if (!resolved.search && parent.search) {
+  const isRelativeUri = !uri.startsWith("//") && !/^[a-z][a-z\d+.-]*:/i.test(uri);
+  if (isRelativeUri && !resolved.search && parent.search) {
     resolved.search = parent.search;
   }
   return resolved.href;

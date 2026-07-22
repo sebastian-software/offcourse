@@ -91,6 +91,15 @@ describe("signed HLS URL parsing", () => {
     ).toBe("https://video.test/playlist.m3u8?signature=child");
   });
 
+  it("does not forward signed queries to absolute cross-origin URIs", () => {
+    expect(
+      resolveHlsUri(
+        "https://other-cdn.test/playlist.m3u8",
+        "https://cdn.test/master.m3u8?token=parent"
+      )
+    ).toBe("https://other-cdn.test/playlist.m3u8");
+  });
+
   it("selects the best video and its matching default audio rendition", () => {
     const playlist = `#EXTM3U
 #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio-low",DEFAULT=YES,URI="audio/low.m3u8"
@@ -188,6 +197,19 @@ https://other-cdn.com/video/720p.m3u8`;
 
     expect(result).toHaveLength(1);
     expect(result[0]!.url).toBe("https://other-cdn.com/video/720p.m3u8");
+  });
+
+  it("inherits signed query parameters for relative variants", () => {
+    const content = `#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720
+720p.m3u8`;
+
+    const result = parseHLSPlaylist(
+      content,
+      "https://cdn.example.com/video/master.m3u8?token=abc&expires=123"
+    );
+
+    expect(result[0]!.url).toBe("https://cdn.example.com/video/720p.m3u8?token=abc&expires=123");
   });
 
   it("handles playlist without resolution", () => {
