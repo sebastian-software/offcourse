@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   isCourseUrl: vi.fn(),
   isLessonSynced: vi.fn(),
   markLessonFailure: vi.fn(),
+  markLessonScanReady: vi.fn(),
   normalizeCourseUrl: vi.fn(),
   parallelProcess: vi.fn(),
   pathExists: vi.fn(),
@@ -92,7 +93,7 @@ vi.mock("../../state/index.js", () => ({
   initializeCourseState: mocks.initializeCourseState,
   LessonStatus: { PENDING: "pending", DOWNLOADED: "downloaded" },
   markLessonFailure: mocks.markLessonFailure,
-  markLessonScanReady: vi.fn(),
+  markLessonScanReady: mocks.markLessonScanReady,
   recordVideoDownloadResult: vi.fn(),
 }));
 vi.mock("../../scraper/joshcomeau/index.js", () => ({
@@ -339,6 +340,28 @@ describe("syncJoshComeauCommand", () => {
 
     await syncJoshComeauCommand(courseUrl, {});
 
+    expect(mocks.markLessonFailure).toHaveBeenCalledWith(
+      expect.any(Object),
+      1,
+      expect.objectContaining({ message: expect.stringContaining("interrupted") }),
+      "DOWNLOAD_INTERRUPTED"
+    );
+  });
+
+  it("reconciles queued videos when shutdown is requested", async () => {
+    let continueProcessing = true;
+    mocks.shouldContinue.mockImplementation(() => continueProcessing);
+    mocks.markLessonScanReady.mockImplementation(() => {
+      continueProcessing = false;
+    });
+    mocks.downloadVideoTasks.mockResolvedValue({ completed: 0, failures: [], outcomes: [] });
+
+    await syncJoshComeauCommand(courseUrl, {});
+
+    expect(mocks.downloadVideoTasks).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ lessonId: 1 })]),
+      expect.objectContaining({ shouldContinue: expect.any(Function) })
+    );
     expect(mocks.markLessonFailure).toHaveBeenCalledWith(
       expect.any(Object),
       1,

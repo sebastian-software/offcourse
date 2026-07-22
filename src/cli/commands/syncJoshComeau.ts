@@ -428,7 +428,6 @@ export async function syncJoshComeauCommand(
       () => database,
       state.retryLessonIds
     );
-    if (!shutdown.shouldContinue()) return;
     const currentDatabase = database;
     for (const extractionError of extraction.errors) {
       const lesson = lessonTasks[extractionError.index]?.lesson.name ?? "Unknown lesson";
