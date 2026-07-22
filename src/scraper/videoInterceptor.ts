@@ -2,13 +2,14 @@
  * Browser-based video URL interception - requires Playwright.
  * Excluded from coverage via vitest.config.ts.
  */
-import type { CDPSession, Page } from "playwright";
+import { errors, type CDPSession, type Page } from "playwright";
 import {
   selectVimeoHlsUrl,
   selectVimeoProgressiveUrl,
   type VimeoHlsConfig,
   type VimeoProgressiveRendition,
 } from "../downloader/shared/index.js";
+import { waitForFrame } from "./waits.js";
 
 // ============================================================================
 // Type definitions for external browser APIs
@@ -79,19 +80,12 @@ export async function captureVimeoConfig(
       await videoWrapper.click().catch(() => {});
     }
 
-    // Step 2: Wait for Vimeo iframe to appear
-    let vimeoFrame = null;
-    const startTime = Date.now();
-
-    while (!vimeoFrame && Date.now() - startTime < timeoutMs) {
-      // Try to find the iframe
-      const iframe = await page.$('iframe[src*="vimeo.com"], iframe[src*="player.vimeo"]');
-      if (iframe) {
-        vimeoFrame = await iframe.contentFrame();
-        if (vimeoFrame) break;
-      }
-      await page.waitForTimeout(500);
-    }
+    // Step 2: Wait for the Vimeo frame to attach
+    const vimeoFrame = await waitForFrame(
+      page,
+      (frame) => /(?:vimeo\.com|player\.vimeo)/i.test(frame.url()),
+      timeoutMs
+    );
 
     if (!vimeoFrame) {
       return { hlsUrl: null, progressiveUrl: null, error: "Vimeo iframe not found after waiting" };
@@ -590,25 +584,25 @@ export async function captureEncryptedHLSSegments(
     // Playwright locators pierce open Shadow DOM, unlike document.querySelector.
     const videoLocator = page.locator("video").first();
 
-    // Get video duration
+    // Get video duration after the browser has loaded metadata.
     let videoDuration = 0;
-    const startTime = Date.now();
+    if ((await videoLocator.count()) > 0) {
+      videoDuration = await videoLocator.evaluate((video, timeout) => {
+        const media = video as HTMLVideoElement;
+        if (Number.isFinite(media.duration) && media.duration > 0) return media.duration;
 
-    while (videoDuration === 0 && Date.now() - startTime < durationTimeout) {
-      try {
-        if ((await videoLocator.count()) > 0) {
-          videoDuration = await videoLocator.evaluate(
-            (video) => (video as HTMLVideoElement).duration || 0
-          );
-        }
-      } catch {
-        videoDuration = 0;
-      }
-
-      if (videoDuration === 0 || !Number.isFinite(videoDuration)) {
-        videoDuration = 0;
-        await page.waitForTimeout(500);
-      }
+        return new Promise<number>((resolve) => {
+          const timer = window.setTimeout(() => {
+            media.removeEventListener("loadedmetadata", onMetadata);
+            resolve(0);
+          }, timeout);
+          const onMetadata = () => {
+            window.clearTimeout(timer);
+            resolve(Number.isFinite(media.duration) ? media.duration : 0);
+          };
+          media.addEventListener("loadedmetadata", onMetadata, { once: true });
+        });
+      }, durationTimeout);
     }
 
     if (videoDuration === 0) {
@@ -630,25 +624,26 @@ export async function captureEncryptedHLSSegments(
 
     // Seek through video to trigger all segment requests
     for (const seekTime of seekPositions) {
+      const segmentRequest = waitForMatchingRequest(page, cdnPattern, seekDelay);
       try {
         await videoLocator.evaluate((video, time) => {
           (video as HTMLVideoElement).currentTime = time;
         }, seekTime);
+        await segmentRequest;
       } catch {
+        void segmentRequest.catch(() => {});
         break;
       }
-      await page.waitForTimeout(seekDelay);
     }
 
     // Seek back to start
+    const finalSegmentRequest = waitForMatchingRequest(page, cdnPattern, 1500);
     await videoLocator
       .evaluate((video) => {
         (video as HTMLVideoElement).currentTime = 0;
       })
       .catch(() => {});
-
-    // Give time for final segment requests
-    await page.waitForTimeout(1500);
+    await finalSegmentRequest;
 
     // Sort segments by number (e.g., video0.ts, video1.ts, ...)
     const sortedSegments = [...new Set(segmentUrls)].sort((a, b) => {
@@ -663,5 +658,13 @@ export async function captureEncryptedHLSSegments(
     };
   } finally {
     page.off("request", requestHandler);
+  }
+}
+
+async function waitForMatchingRequest(page: Page, pattern: RegExp, timeout: number): Promise<void> {
+  try {
+    await page.waitForRequest((request) => pattern.test(request.url()), { timeout });
+  } catch (error) {
+    if (!(error instanceof errors.TimeoutError)) throw error;
   }
 }

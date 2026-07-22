@@ -8,6 +8,7 @@ import { Readable } from "node:stream";
 import { convertHtmlToMarkdown } from "../extractor.js";
 import { ensureDir } from "../../shared/fs.js";
 import { selectVimeoHlsUrl, type VimeoHlsConfig } from "../../downloader/shared/index.js";
+import { waitForFrame } from "../waits.js";
 
 export interface JoshComeauResource {
   url: string;
@@ -180,9 +181,9 @@ async function resolveVimeoHlsUrl(frame: Frame): Promise<string | null> {
 }
 
 async function resolveVimeoHlsUrlForPage(page: Page, videoId: string): Promise<string | null> {
-  const timeoutAt = Date.now() + 10000;
-  do {
-    const frame = page.frames().find((candidate) => {
+  const frame = await waitForFrame(
+    page,
+    (candidate) => {
       try {
         const segments = new URL(candidate.url()).pathname.split("/").filter(Boolean);
         return segments.some(
@@ -191,11 +192,10 @@ async function resolveVimeoHlsUrlForPage(page: Page, videoId: string): Promise<s
       } catch {
         return false;
       }
-    });
-    if (frame) return resolveVimeoHlsUrl(frame);
-    await page.waitForTimeout(250);
-  } while (Date.now() < timeoutAt);
-  return null;
+    },
+    10000
+  );
+  return frame ? resolveVimeoHlsUrl(frame) : null;
 }
 
 /** Extracts lesson text, downloadable resources, and all Vimeo streams. */

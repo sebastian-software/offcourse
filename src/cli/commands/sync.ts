@@ -9,6 +9,7 @@ import { createShutdownManager } from "../../shared/shutdown.js";
 import { redactDownloadUrl, redactDownloadUrlsInText } from "../../shared/url.js";
 import { extractLessonContent, formatMarkdown, extractVideoUrl } from "../../scraper/extractor.js";
 import { buildCourseStructure, type CourseStructure } from "../../scraper/navigator.js";
+import { waitForAttachedContent } from "../../scraper/waits.js";
 import {
   createCourseDirectory,
   createModuleDirectory,
@@ -42,6 +43,8 @@ import {
 
 /** Shutdown manager instance for this command. */
 const shutdown = createShutdownManager();
+const SKOOL_VIDEO_SELECTOR =
+  'iframe[src*="loom.com"], iframe[src*="vimeo"], iframe[src*="youtube"], video';
 
 interface DownloadAttempt {
   lessonName: string;
@@ -525,17 +528,7 @@ async function validateVideos(
       await page.goto(lesson.url, { timeout: 30000 });
       await page.waitForLoadState("domcontentloaded");
       // Wait for iframes to potentially load (Skool lazy-loads video iframes)
-      try {
-        await page.waitForSelector(
-          'iframe[src*="loom.com"], iframe[src*="vimeo"], iframe[src*="youtube"], video',
-          {
-            timeout: 3000,
-          }
-        );
-      } catch {
-        // No video element appeared - might not have one, will check below
-      }
-      await page.waitForTimeout(500);
+      await waitForAttachedContent(page, SKOOL_VIDEO_SELECTOR, 3000);
 
       const { url: videoUrl, type: videoType } = await extractVideoUrl(page);
 
@@ -560,7 +553,7 @@ async function validateVideos(
         if (page.url() !== lesson.url) {
           await page.goto(lesson.url, { timeout: 30000 });
           await page.waitForLoadState("domcontentloaded");
-          await page.waitForTimeout(1000);
+          await waitForAttachedContent(page, SKOOL_VIDEO_SELECTOR, 3000);
         }
 
         const validation = await validateVideoHls(videoUrl, videoType, page, lesson.url);
@@ -946,7 +939,7 @@ async function retryFailedLessons(
     try {
       // Navigate to the lesson page
       await page.goto(lesson.url, { waitUntil: "domcontentloaded", timeout: 30000 });
-      await page.waitForTimeout(2000);
+      await waitForAttachedContent(page, SKOOL_VIDEO_SELECTOR, 3000);
 
       // Try to extract video URL
       const videoInfo = await extractVideoUrl(page);
