@@ -210,7 +210,14 @@ export async function downloadVideoTasks(
   );
 
   console.log();
-  if (failed === 0) {
+  const interrupted = processed < tasks.length;
+  if (interrupted) {
+    console.log(
+      chalk.yellow(
+        `   Download interrupted: ${completed} downloaded, ${failed} failed, ${tasks.length - processed} remaining`
+      )
+    );
+  } else if (failed === 0) {
     console.log(chalk.green(`   ✓ ${completed} videos downloaded successfully`));
   } else {
     console.log(chalk.yellow(`   Videos: ${completed} downloaded, ${failed} failed`));

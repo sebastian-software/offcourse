@@ -152,6 +152,33 @@ describe("downloadVideoTasks", () => {
 
     expect(maxActive).toBe(1);
   });
+
+  it("does not report success when shutdown interrupts the remaining queue", async () => {
+    let continueProcessing = true;
+    const consoleLog = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const downloadTask = vi.fn(async () => {
+      continueProcessing = false;
+      return { success: true };
+    });
+
+    try {
+      const result = await downloadVideoTasks(tasks, {
+        concurrency: 1,
+        shouldContinue: () => continueProcessing,
+        downloadTask,
+      });
+
+      expect(result.completed).toBe(1);
+      expect(result.outcomes).toHaveLength(1);
+      expect(downloadTask).toHaveBeenCalledOnce();
+      expect(consoleLog).toHaveBeenCalledWith(expect.stringContaining("Download interrupted"));
+      expect(consoleLog).not.toHaveBeenCalledWith(
+        expect.stringContaining("videos downloaded successfully")
+      );
+    } finally {
+      consoleLog.mockRestore();
+    }
+  });
 });
 
 describe("formatHtmlLessonMarkdown", () => {
