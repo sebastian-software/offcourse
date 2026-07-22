@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { Page } from "playwright";
 import {
+  createJoshComeauSessionVerifier,
   hasJoshComeauCourseAccess,
   isJoshComeauLoginPage,
   JOSH_COMEAU_DOMAIN,
@@ -46,5 +48,54 @@ describe("Josh Comeau auth", () => {
     };
 
     expect(hasJoshComeauCourseAccess(indicators)).toBe(expected);
+  });
+
+  it("does not navigate away during interactive login verification", async () => {
+    const goto = vi.fn().mockResolvedValue(undefined);
+    const page = {
+      context: () => ({ pages: () => [page] }),
+      evaluate: vi.fn().mockResolvedValue({
+        heading: "",
+        hasDashboardCard: false,
+        hasCurriculum: false,
+        hasUnlockedLesson: false,
+        bodyText: "",
+      }),
+      goto,
+      isClosed: vi.fn().mockReturnValue(false),
+      url: vi.fn().mockReturnValue(JOSH_COMEAU_LOGIN_URL),
+    } as unknown as Page;
+
+    await createJoshComeauSessionVerifier("https://courses.joshwcomeau.com/css-for-js")(page, {
+      allowNavigation: false,
+    });
+
+    expect(goto).not.toHaveBeenCalled();
+  });
+
+  it("navigates to the target course by default for cached-session verification", async () => {
+    const goto = vi.fn().mockResolvedValue(undefined);
+    const waitForLoadState = vi.fn().mockResolvedValue(undefined);
+    const page = {
+      context: () => ({ pages: () => [page] }),
+      evaluate: vi.fn().mockResolvedValue({
+        heading: "",
+        hasDashboardCard: false,
+        hasCurriculum: false,
+        hasUnlockedLesson: false,
+        bodyText: "",
+      }),
+      goto,
+      isClosed: vi.fn().mockReturnValue(false),
+      url: vi.fn().mockReturnValue(JOSH_COMEAU_LOGIN_URL),
+      waitForLoadState,
+    } as unknown as Page;
+
+    await createJoshComeauSessionVerifier("https://courses.joshwcomeau.com/css-for-js")(page);
+
+    expect(goto).toHaveBeenCalledWith("https://courses.joshwcomeau.com/css-for-js", {
+      timeout: 30000,
+    });
+    expect(waitForLoadState).toHaveBeenCalledWith("domcontentloaded");
   });
 });

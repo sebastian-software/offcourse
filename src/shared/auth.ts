@@ -18,6 +18,11 @@ export interface AuthSessionOptions {
   useStandardBrowserUserAgent?: boolean;
 }
 
+export interface AuthVerificationOptions {
+  /** Whether a verifier may navigate away from the page being inspected. */
+  allowNavigation?: boolean;
+}
+
 export interface AuthConfig {
   /** Domain to store session under */
   domain: string;
@@ -26,7 +31,7 @@ export interface AuthConfig {
   /** Function to check if current URL is a login page */
   isLoginPage: (url: string) => boolean;
   /** Optional: Function to verify session is valid after navigation */
-  verifySession?: (page: Page) => Promise<boolean>;
+  verifySession?: (page: Page, options?: AuthVerificationOptions) => Promise<boolean>;
   /** Login timeout in ms (default: 5 minutes) */
   loginTimeout?: number;
 }
@@ -182,7 +187,7 @@ export async function performInteractiveLogin(config: AuthConfig): Promise<AuthS
       // Optionally verify with custom function
       if (config.verifySession) {
         try {
-          loggedIn = await config.verifySession(page);
+          loggedIn = await config.verifySession(page, { allowNavigation: false });
         } catch (error) {
           if (!isTransientAuthNavigationError(error)) {
             await browser.close();

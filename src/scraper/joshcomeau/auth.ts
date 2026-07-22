@@ -1,4 +1,5 @@
 import type { Page } from "playwright";
+import type { AuthVerificationOptions } from "../../shared/auth.js";
 import { isJoshComeauCourseUrl, normalizeJoshComeauCourseUrl } from "./navigator.js";
 
 export const JOSH_COMEAU_DOMAIN = "courses.joshwcomeau.com";
@@ -48,19 +49,19 @@ async function pageHasCourseAccess(page: Page): Promise<boolean> {
  */
 export function createJoshComeauSessionVerifier(
   courseUrl?: string
-): (page: Page) => Promise<boolean> {
+): (page: Page, options?: AuthVerificationOptions) => Promise<boolean> {
   const targetUrl =
     courseUrl && isJoshComeauCourseUrl(courseUrl)
       ? normalizeJoshComeauCourseUrl(courseUrl)
       : JOSH_COMEAU_LOGIN_URL;
 
-  return async (page: Page): Promise<boolean> => {
+  return async (page: Page, options: AuthVerificationOptions = {}): Promise<boolean> => {
     const contextPages = [...page.context().pages()].reverse();
     for (const candidate of contextPages) {
       if (await pageHasCourseAccess(candidate)) return true;
     }
 
-    if (page.url() !== targetUrl) {
+    if (options.allowNavigation !== false && page.url() !== targetUrl) {
       await page.goto(targetUrl, { timeout: 30000 });
       await page.waitForLoadState("domcontentloaded");
     }
