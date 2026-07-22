@@ -1,9 +1,13 @@
 import type { BrowserContext, Locator, Page } from "playwright";
 import { parallelProcess } from "../../shared/parallelWorker.js";
 
-const KNOWN_MODULE_STATS_PATTERN =
-  /(\d+)\s*(?:LEKTION(?:EN)?|LESSONS?)\s*\|\s*(\d+)\s*(?:MIN(?:\.|S)?|MINUTEN?|MINUTES?)/i;
-const GENERIC_MODULE_STATS_PATTERN = /(\d+)\s+\p{L}+\s*\|\s*(\d+)\s+\p{L}+/iu;
+const MODULE_LESSON_WORDS =
+  "LEKTION(?:EN)?|LESSONS?|LEÇON(?:S)?|LECCIÓN(?:ES)?|LEZION(?:E|I)?|LESSEN|LIÇ(?:ÃO|ÕES)|AULAS?";
+const MODULE_DURATION_WORDS = "MIN(?:\\.|S)?|MINUTEN?|MINUTES?|MINUT(?:E|ES|I)|MINUTOS?|MINUTI";
+const MODULE_STATS_PATTERN = new RegExp(
+  `(\\d+)\\s*(?:${MODULE_LESSON_WORDS})\\s*\\|\\s*(\\d+)\\s*(?:${MODULE_DURATION_WORDS})`,
+  "iu"
+);
 
 /** Returns a stable local identity for a module before LearningSuite exposes its remote ID. */
 export function getLearningSuiteModuleSlug(position: number, title: string): string {
@@ -19,7 +23,7 @@ export async function waitForLearningSuiteModules(page: Page): Promise<void> {
   await page
     .waitForFunction(
       () =>
-        /(\d+)\s*(?:LEKTION(?:EN)?|LESSONS?)\s*\|\s*(\d+)\s*(?:MIN(?:\.|S)?|MINUTEN?|MINUTES?)|\d+\s+\p{L}+\s*\|\s*\d+\s+\p{L}+|ERSCHEINT\s*BALD|COMING\s*SOON/iu.test(
+        /(?:\d+)\s*(?:LEKTION(?:EN)?|LESSONS?|LEÇON(?:S)?|LECCIÓN(?:ES)?|LEZION(?:E|I)?|LESSEN|LIÇ(?:ÃO|ÕES)|AULAS?)\s*\|\s*(?:\d+)\s*(?:MIN(?:\.|S)?|MINUTEN?|MINUTES?|MINUT(?:E|ES|I)|MINUTOS?|MINUTI)|ERSCHEINT\s*BALD|COMING\s*SOON/iu.test(
           document.body.innerText
         ),
       undefined,
@@ -56,6 +60,7 @@ export interface LearningSuiteModule {
   description: string | null;
   position: number;
   isLocked: boolean;
+  scanStatus?: "ok" | "empty" | "failed";
 }
 
 export interface LearningSuiteLesson {
@@ -75,6 +80,8 @@ export interface LearningSuiteCourseStructure {
   courseSlug?: string;
   /** Accessible modules that were scanned but yielded no lessons. */
   emptyModuleTitles?: string[];
+  /** Accessible modules whose title lookup or navigation failed. */
+  failedModuleTitles?: string[];
 }
 
 export interface LearningSuiteScanProgress {
@@ -127,8 +134,7 @@ export function parseLearningSuiteModulesText(text: string): ParsedLearningSuite
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
-    const statsMatch =
-      KNOWN_MODULE_STATS_PATTERN.exec(line) ?? GENERIC_MODULE_STATS_PATTERN.exec(line);
+    const statsMatch = MODULE_STATS_PATTERN.exec(line);
     const isLocked = /ERSCHEINT\s*BALD|COMING\s*SOON/i.test(line);
 
     if (!statsMatch && !isLocked) continue;
@@ -362,7 +368,7 @@ async function scanModuleLessons(
 
   if (!(await moduleTitle.isVisible().catch(() => false))) {
     console.warn(`Skipping LearningSuite module "${module.title}": title is not visible`);
-    return module; // Return unchanged if not visible
+    return { ...module, scanStatus: "failed" };
   }
 
   // Dismiss any modal dialogs that might block the click
@@ -375,6 +381,10 @@ async function scanModuleLessons(
   const currentUrl = page.url();
   const moduleIdMatch = /\/t\/([^/]+)/.exec(currentUrl);
   const moduleId = moduleIdMatch?.[1] ?? module.id;
+  if (!moduleIdMatch) {
+    console.warn(`Skipping LearningSuite module "${module.title}": navigation failed`);
+    return { ...module, scanStatus: "failed" };
+  }
 
   // Extract lessons directly from the module page
   const lessonCandidates = await page.evaluate((cId) => {
@@ -417,6 +427,7 @@ async function scanModuleLessons(
 
   return {
     ...module,
+    scanStatus: lessonsData.length === 0 ? "empty" : "ok",
     lessons: lessonsData.map((l, idx) => ({
       id: l.lessonId,
       title: l.title,
@@ -440,10 +451,10 @@ async function findLearningSuiteModuleTitle(
   const exactTitle = page.getByText(title, { exact: true });
   const cardSelectors = [
     'a[href*="/t/"]',
-    '[data-testid*="module" i]',
-    '[class*="module" i]',
-    '[class*="card" i]',
-    "article",
+    '[data-testid*="module" i]:not(:has([data-testid*="module" i]))',
+    '[class*="module" i]:not(:has([class*="module" i]))',
+    '[class*="card" i]:not(:has([class*="card" i]))',
+    "article:not(:has(article))",
   ];
 
   for (const selector of cardSelectors) {
@@ -715,7 +726,10 @@ export async function buildLearningSuiteCourseStructure(
   course.moduleCount = allModules.length;
   course.lessonCount = allModules.reduce((sum, m) => sum + m.lessons.length, 0);
   const emptyModuleTitles = scannedModules
-    .filter((module) => module.lessons.length === 0)
+    .filter((module) => module.scanStatus === "empty")
+    .map((module) => module.title);
+  const failedModuleTitles = scannedModules
+    .filter((module) => module.scanStatus === "failed")
     .map((module) => module.title);
 
   return {
@@ -725,6 +739,7 @@ export async function buildLearningSuiteCourseStructure(
     domain,
     courseSlug,
     emptyModuleTitles,
+    failedModuleTitles,
   };
 }
 

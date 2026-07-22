@@ -427,7 +427,25 @@ export class CourseDatabase {
   /** Renames a module identity while preserving its database row and lessons. */
   renameModuleSlug(currentSlug: string, nextSlug: string): ModuleRecord | null {
     if (currentSlug === nextSlug) return this.getModuleBySlug(currentSlug);
-    if (this.getModuleBySlug(nextSlug)) return null;
+
+    const currentModule = this.getModuleBySlug(currentSlug);
+    if (!currentModule) return null;
+
+    const existingModule = this.getModuleBySlug(nextSlug);
+    if (existingModule) {
+      this.db
+        .prepare(
+          `DELETE FROM lessons
+           WHERE module_id = ?
+             AND slug IN (SELECT slug FROM lessons WHERE module_id = ?)`
+        )
+        .run(currentModule.id, existingModule.id);
+      this.db
+        .prepare("UPDATE lessons SET module_id = ? WHERE module_id = ?")
+        .run(existingModule.id, currentModule.id);
+      this.db.prepare("DELETE FROM modules WHERE id = ?").run(currentModule.id);
+      return existingModule;
+    }
 
     const result = this.db
       .prepare("UPDATE modules SET slug = ?, updated_at = datetime('now') WHERE slug = ?")

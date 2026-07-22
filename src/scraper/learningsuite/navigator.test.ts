@@ -111,6 +111,10 @@ describe("parseLearningSuiteModulesText", () => {
       `)
     ).toEqual([{ title: "Le démarrage", lessonCount: 3, duration: "12 Min.", isLocked: false }]);
   });
+
+  it("does not treat unrelated numeric text as module statistics", () => {
+    expect(parseLearningSuiteModulesText("Overview\n3 chapters | 12 exercises")).toEqual([]);
+  });
 });
 
 describe("getLearningSuiteModuleSlug", () => {

@@ -239,6 +239,13 @@ export async function syncLearningSuiteCommand(
         )
       );
     }
+    if (courseStructure.failedModuleTitles?.length) {
+      console.log(
+        chalk.red(
+          `   ❌ Failed to scan ${courseStructure.failedModuleTitles.length} module${courseStructure.failedModuleTitles.length === 1 ? "" : "s"}: ${courseStructure.failedModuleTitles.join(", ")}`
+        )
+      );
+    }
 
     if (options.dryRun) {
       printCourseStructure(courseStructure);

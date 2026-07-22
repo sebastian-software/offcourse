@@ -354,6 +354,29 @@ describe("CourseDatabase", () => {
     });
   });
 
+  it("merges a colliding module slug without orphaning legacy lessons", () => {
+    const database = createDatabase();
+    const legacyModule = database.upsertModule("module-0", "Module", 0, true);
+    const destinationModule = database.upsertModule("module-0-stable", "Module", 0);
+    const legacyLesson = database.upsertLesson(
+      legacyModule.id,
+      "legacy-lesson",
+      "Legacy lesson",
+      "https://example.com/legacy-lesson",
+      0
+    );
+
+    const merged = database.renameModuleSlug("module-0", "module-0-stable");
+
+    expect(merged).toMatchObject({ id: destinationModule.id, slug: "module-0-stable" });
+    expect(database.getModuleBySlug("module-0")).toBeNull();
+    expect(database.getModules()).toHaveLength(1);
+    expect(database.getLessonByUrl(legacyLesson.url)).toMatchObject({
+      id: legacyLesson.id,
+      moduleId: destinationModule.id,
+    });
+  });
+
   it("preserves lesson state when a stable URL moves to another module", () => {
     const database = createDatabase();
     const originalModule = database.upsertModule("module-1", "Original module", 0);
