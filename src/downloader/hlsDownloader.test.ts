@@ -91,6 +91,15 @@ describe("signed HLS URL parsing", () => {
     ).toBe("https://video.test/playlist.m3u8?signature=child");
   });
 
+  it("does not forward signed queries to absolute cross-origin URIs", () => {
+    expect(
+      resolveHlsUri(
+        "https://other-cdn.test/playlist.m3u8",
+        "https://cdn.test/master.m3u8?token=parent"
+      )
+    ).toBe("https://other-cdn.test/playlist.m3u8");
+  });
+
   it("selects the best video and its matching default audio rendition", () => {
     const playlist = `#EXTM3U
 #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio-low",DEFAULT=YES,URI="audio/low.m3u8"
