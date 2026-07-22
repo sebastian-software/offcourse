@@ -20,7 +20,7 @@ export async function waitForAttachedContent(
 }
 
 /**
- * Returns an already attached frame or waits for a matching frame to attach.
+ * Returns an already matching frame or waits for a matching frame to attach or navigate.
  * A missing frame is a normal best-effort result; browser failures still surface.
  */
 export async function waitForFrame(
@@ -32,7 +32,10 @@ export async function waitForFrame(
   if (attachedFrame) return attachedFrame;
 
   try {
-    return await page.waitForEvent("frameattached", { predicate, timeout });
+    return await Promise.race([
+      page.waitForEvent("frameattached", { predicate, timeout }),
+      page.waitForEvent("framenavigated", { predicate, timeout }),
+    ]);
   } catch (error: unknown) {
     if (error instanceof errors.TimeoutError) return null;
     throw error;

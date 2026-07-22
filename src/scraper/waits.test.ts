@@ -52,5 +52,9 @@ describe("scraper content waits", () => {
       "frameattached",
       expect.objectContaining({ predicate: expect.any(Function), timeout: 4321 })
     );
+    expect(waitForEvent).toHaveBeenCalledWith(
+      "framenavigated",
+      expect.objectContaining({ predicate: expect.any(Function), timeout: 4321 })
+    );
   });
 });
