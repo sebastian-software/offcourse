@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "node",
+  "include-component-in-tag": false,
+  "last-release-sha": "f1622d928a0a3a88df1542aeea0e42dcbaee12e7",
+  "packages": {
+    ".": {
+      "component": "offcourse",
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}
