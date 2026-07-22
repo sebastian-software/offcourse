@@ -147,7 +147,7 @@ async function processLessons(
   tasks: LessonTask[],
   options: SyncJoshComeauOptions,
   config: { extractionConcurrency: number; videoQuality: string },
-  database: CourseDatabase,
+  getDatabase: () => CourseDatabase | undefined,
   retryLessonIds: Set<number>
 ): Promise<{ results: LessonResult[]; errors: { index: number; error: unknown }[] }> {
   return runParallelSyncStage({
@@ -160,7 +160,7 @@ async function processLessons(
     processTask: async (page, task) => {
       const { lesson, moduleDir, stateId } = task;
       const syncStatus = await isLessonSynced(moduleDir, lesson.index, lesson.name);
-      const stateLesson = database.getLessonByUrl(lesson.url);
+      const stateLesson = getDatabase()?.getLessonByUrl(lesson.url);
       const retryFailed = retryLessonIds.has(stateId);
       const needsContent =
         !options.skipContent && ((options.force ?? false) || retryFailed || !syncStatus.content);
@@ -232,6 +232,8 @@ async function processLessons(
 
       if (needsVideo) {
         for (const [index, video] of content.videos.entries()) {
+          if (!shutdown.shouldContinue()) break;
+
           const outputPath = videoPaths[index];
           if (!outputPath || (!options.force && !retryFailed && (await pathExists(outputPath)))) {
             continue;
@@ -250,6 +252,8 @@ async function processLessons(
             preferredQuality: options.quality ?? config.videoQuality,
             referer: video.referer,
           } as const;
+          const database = getDatabase();
+          if (!database) break;
           markLessonScanReady(database, stateId, videoTask);
           const download = await downloadVideo(videoTask);
           if (!download.success) {
@@ -259,10 +263,19 @@ async function processLessons(
           }
           videosDownloaded++;
         }
+        if (!shutdown.shouldContinue()) {
+          return {
+            cached: false,
+            contentSaved: needsContent,
+            resourcesDownloaded,
+            videosDownloaded,
+            stateId,
+          };
+        }
         if (content.videos.length === 0) {
-          database.markLessonSkipped(stateId, "No video found");
+          getDatabase()?.markLessonSkipped(stateId, "No video found");
         } else {
-          database.markLessonDownloaded(stateId);
+          getDatabase()?.markLessonDownloaded(stateId);
         }
       }
 
@@ -294,6 +307,12 @@ export async function syncJoshComeauCommand(
   const authSpinner = ora("Connecting to Josh Comeau Courses...").start();
   let browser: Browser | undefined;
   let database: CourseDatabase | undefined;
+  const closeDatabase = () => {
+    if (database) {
+      database.close();
+      database = undefined;
+    }
+  };
 
   try {
     const session = await createAuthenticatedCourseSession(courseUrl, useHeadless);
@@ -335,6 +354,7 @@ export async function syncJoshComeauCommand(
       options
     );
     database = state.database;
+    shutdown.registerCleanup(closeDatabase);
     console.log(chalk.gray(`   State: ~/.offcourse/cache/${state.key}.db`));
 
     const courseDir = await createCourseDirectory(config.outputDir, structure.name);
@@ -356,9 +376,11 @@ export async function syncJoshComeauCommand(
       lessonTasks,
       options,
       config,
-      database,
+      () => database,
       state.retryLessonIds
     );
+    if (!shutdown.shouldContinue()) return;
+    const currentDatabase = database;
     for (const extractionError of extraction.errors) {
       const lesson = lessonTasks[extractionError.index]?.lesson.name ?? "Unknown lesson";
       const message =
@@ -366,8 +388,8 @@ export async function syncJoshComeauCommand(
           ? extractionError.error.message
           : String(extractionError.error);
       const lessonTask = lessonTasks[extractionError.index];
-      if (lessonTask) {
-        markLessonFailure(database, lessonTask.stateId, extractionError.error, "SYNC_ERROR");
+      if (lessonTask && currentDatabase) {
+        markLessonFailure(currentDatabase, lessonTask.stateId, extractionError.error, "SYNC_ERROR");
       }
       console.error(chalk.red(`   ${lesson}: ${message}`));
     }
@@ -389,7 +411,7 @@ export async function syncJoshComeauCommand(
     if (!options.skipVideos) console.log(chalk.gray(`   Videos: ${videos} downloaded`));
     console.log(chalk.gray(`   Output: ${courseDir}\n`));
   } finally {
-    database?.close();
+    closeDatabase();
     if (browser) await browser.close();
   }
 }

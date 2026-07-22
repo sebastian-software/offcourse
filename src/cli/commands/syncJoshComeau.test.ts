@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   progressStop: vi.fn(),
   progressUpdate: vi.fn(),
   registerBrowser: vi.fn(),
+  registerCleanup: vi.fn(),
   rewriteLinks: vi.fn(),
   saveMarkdown: vi.fn(),
   setupShutdown: vi.fn(),
@@ -77,6 +78,7 @@ vi.mock("../../shared/shutdown.js", () => ({
   createShutdownManager: () => ({
     setup: mocks.setupShutdown,
     registerBrowser: mocks.registerBrowser,
+    registerCleanup: mocks.registerCleanup,
     shouldContinue: mocks.shouldContinue,
   }),
 }));
@@ -283,6 +285,7 @@ describe("syncJoshComeauCommand", () => {
         preferredQuality: "1080p",
       })
     );
+    expect(mocks.registerCleanup).toHaveBeenCalledOnce();
     expect(mocks.browserClose).toHaveBeenCalledOnce();
   });
 

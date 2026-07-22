@@ -160,7 +160,7 @@ async function processLessons(
   tasks: LessonTask[],
   options: SyncPiccalilliOptions,
   config: { extractionConcurrency: number; videoQuality: string },
-  database: CourseDatabase,
+  getDatabase: () => CourseDatabase | undefined,
   retryLessonIds: Set<number>
 ): Promise<{ results: LessonResult[]; errors: { index: number; error: unknown }[] }> {
   const browserCookies = await context.cookies();
@@ -176,10 +176,10 @@ async function processLessons(
     processTask: async (page, task) => {
       const { lesson, moduleDir, stateId } = task;
       const syncStatus = await isLessonSynced(moduleDir, lesson.index, lesson.name);
-      const stateLesson = database.getLessonByUrl(lesson.url);
+      const stateLesson = getDatabase()?.getLessonByUrl(lesson.url);
       const retryFailed = retryLessonIds.has(stateId);
       if (syncStatus.video && stateLesson?.status !== LessonStatus.DOWNLOADED) {
-        database.markLessonDownloaded(stateId);
+        getDatabase()?.markLessonDownloaded(stateId);
       }
       const force = options.force ?? false;
       const needsContent = !options.skipContent && (force || retryFailed || !syncStatus.content);
@@ -262,9 +262,10 @@ async function processLessons(
           cookies,
           referer: content.video.referer,
         };
-        markLessonScanReady(database, stateId, videoTask);
+        const database = getDatabase();
+        if (database) markLessonScanReady(database, stateId, videoTask);
       } else if (needsVideo) {
-        database.markLessonSkipped(stateId, "No video found");
+        getDatabase()?.markLessonSkipped(stateId, "No video found");
       }
 
       return {
@@ -311,6 +312,12 @@ export async function syncPiccalilliCommand(
   const needsAuthentication = selectedLessons.some((lesson) => !lesson.isFree);
   let browser: Browser | undefined = publicSession.browser;
   let database: CourseDatabase | undefined;
+  const closeDatabase = () => {
+    if (database) {
+      database.close();
+      database = undefined;
+    }
+  };
 
   try {
     let session: { browser: Browser; context: BrowserContext; page: Page } = publicSession;
@@ -352,6 +359,7 @@ export async function syncPiccalilliCommand(
       options
     );
     database = state.database;
+    shutdown.registerCleanup(closeDatabase);
     console.log(chalk.gray(`   State: ~/.offcourse/cache/${state.key}.db`));
 
     const courseDir = await createCourseDirectory(config.outputDir, structure.name);
@@ -373,7 +381,7 @@ export async function syncPiccalilliCommand(
       lessonTasks,
       options,
       config,
-      database,
+      () => database,
       state.retryLessonIds
     );
 
@@ -407,13 +415,22 @@ export async function syncPiccalilliCommand(
         extractionError.error instanceof Error
           ? extractionError.error.message
           : String(extractionError.error);
-      if (lessonTask) {
-        markLessonFailure(database, lessonTask.stateId, extractionError.error, "EXTRACTION_ERROR");
+      const currentDatabase = database;
+      if (lessonTask && currentDatabase) {
+        markLessonFailure(
+          currentDatabase,
+          lessonTask.stateId,
+          extractionError.error,
+          "EXTRACTION_ERROR"
+        );
       }
       console.error(chalk.red(`   ${lesson}: ${message}`));
     }
-    for (const outcome of downloads.outcomes) {
-      recordVideoDownloadResult(database, outcome.task, outcome.result, outcome.error);
+    const currentDatabase = database;
+    if (currentDatabase) {
+      for (const outcome of downloads.outcomes) {
+        recordVideoDownloadResult(currentDatabase, outcome.task, outcome.result, outcome.error);
+      }
     }
 
     const failureCount = extraction.errors.length + downloads.failures.length;
@@ -427,7 +444,7 @@ export async function syncPiccalilliCommand(
     }
     console.log(chalk.gray(`   Output: ${courseDir}\n`));
   } finally {
-    database?.close();
+    closeDatabase();
     if (browser) await browser.close();
   }
 }

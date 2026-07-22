@@ -8,6 +8,7 @@ import {
   persistCourseStructure,
   redactDownloadUrl,
   redactDownloadUrlsInText,
+  shouldPreserveRetryError,
 } from "./sync.js";
 import { CourseDatabase, LessonStatus } from "../../state/database.js";
 import type { CourseStructure } from "../../scraper/navigator.js";
@@ -39,6 +40,26 @@ describe("hasLessonsPendingDownload", () => {
     const getLessonsByStatus = vi.fn(() => []);
 
     expect(hasLessonsPendingDownload({ getLessonsByStatus })).toBe(false);
+  });
+});
+
+describe("shouldPreserveRetryError", () => {
+  it("preserves the existing error when shutdown closes the page", () => {
+    expect(
+      shouldPreserveRetryError(
+        new Error("Target page, context or browser has been closed"),
+        true,
+        true
+      )
+    ).toBe(true);
+  });
+
+  it("records a new error for an unexpected page closure", () => {
+    expect(shouldPreserveRetryError(new Error("page has been closed"), true, false)).toBe(false);
+  });
+
+  it("records unrelated errors even during shutdown", () => {
+    expect(shouldPreserveRetryError(new Error("network timeout"), false, true)).toBe(false);
   });
 });
 
