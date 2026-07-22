@@ -177,7 +177,11 @@ async function processLessons(
       const stateLesson = getDatabase()?.getLessonByUrl(lesson.url);
       const retryFailed = retryLessonIds.has(stateId);
       const needsContent =
-        !options.skipContent && ((options.force ?? false) || retryFailed || !syncStatus.content);
+        !options.skipContent &&
+        ((options.force ?? false) ||
+          retryFailed ||
+          stateLesson?.status === LessonStatus.ERROR ||
+          !syncStatus.content);
       const needsVideo =
         !options.skipVideos &&
         ((options.force ?? false) ||
@@ -519,12 +523,20 @@ export async function syncJoshComeauCommand(
             shouldContinue: shutdown.shouldContinue,
             heading: `Downloading ${videoTasks.length} Josh Comeau videos...`,
           });
+    await saveJoshComeauLessonMarkdown(extraction.results, downloadSummary);
     const videos = currentDatabase
       ? recordJoshVideoDownloads(currentDatabase, extraction.results, downloadSummary)
       : 0;
-    await saveJoshComeauLessonMarkdown(extraction.results, downloadSummary);
     for (const result of extraction.results) {
       for (const resourceError of result.resourceErrors) {
+        if (currentDatabase) {
+          markLessonFailure(
+            currentDatabase,
+            result.stateId,
+            resourceError,
+            "RESOURCE_DOWNLOAD_FAILED"
+          );
+        }
         console.error(chalk.yellow(`   ${result.lessonName}: ${resourceError}`));
       }
     }

@@ -91,7 +91,7 @@ vi.mock("../../shared/shutdown.js", () => ({
 }));
 vi.mock("../../state/index.js", () => ({
   initializeCourseState: mocks.initializeCourseState,
-  LessonStatus: { PENDING: "pending", DOWNLOADED: "downloaded" },
+  LessonStatus: { ERROR: "error", PENDING: "pending", DOWNLOADED: "downloaded" },
   markLessonFailure: mocks.markLessonFailure,
   markLessonScanReady: mocks.markLessonScanReady,
   recordVideoDownloadResult: vi.fn(),
@@ -380,6 +380,12 @@ describe("syncJoshComeauCommand", () => {
     await expect(syncJoshComeauCommand(courseUrl, { skipVideos: true })).resolves.toBeUndefined();
 
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("HTTP 403"));
+    expect(mocks.markLessonFailure).toHaveBeenCalledWith(
+      expect.any(Object),
+      1,
+      "Resource flow.zip failed: HTTP 403",
+      "RESOURCE_DOWNLOAD_FAILED"
+    );
     expect(mocks.browserClose).toHaveBeenCalledOnce();
   });
 
