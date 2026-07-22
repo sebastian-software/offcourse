@@ -66,6 +66,42 @@ describe("fileSystem", () => {
       await expect(pathExists(outputPath)).resolves.toBe(false);
       await expect(pathExists(`${outputPath}.tmp`)).resolves.toBe(false);
     });
+
+    it("coalesces concurrent downloads for the same attachment", async () => {
+      const directory = await mkdtemp(join(tmpdir(), "offcourse-files-"));
+      tempDirectories.push(directory);
+      const outputPath = join(directory, "attachment.pdf");
+      let releaseResponse: () => void = () => {};
+      const responseReady = new Promise<void>((resolve) => {
+        releaseResponse = resolve;
+      });
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("complete"));
+          controller.close();
+        },
+      });
+      const responsePromise = (async () => {
+        await responseReady;
+        return new Response(body);
+      })();
+      const getSpy = vi
+        .spyOn(http, "get")
+        .mockReturnValue(responsePromise as ReturnType<typeof http.get>);
+
+      const resultsPromise = Promise.all([
+        downloadFile("https://example.com/attachment.pdf", outputPath),
+        downloadFile("https://example.com/attachment.pdf", outputPath),
+      ]);
+      await vi.waitFor(() => {
+        expect(getSpy).toHaveBeenCalledTimes(1);
+      });
+      releaseResponse();
+
+      await expect(resultsPromise).resolves.toEqual([{ success: true }, { success: true }]);
+      expect(getSpy).toHaveBeenCalledTimes(1);
+      await expect(readFile(outputPath, "utf8")).resolves.toBe("complete");
+    });
   });
 
   describe("getLessonBasename", () => {
