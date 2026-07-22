@@ -121,4 +121,28 @@ describe("fetchWithRetry", () => {
       fetchWithRetry("https://video.example/stalled", {}, { retries: 0, timeoutMs: 5 })
     ).rejects.toBeDefined();
   });
+
+  it("can time out response headers without aborting a slow response body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        const body = new ReadableStream<Uint8Array>({
+          async start(controller) {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+            controller.enqueue(new TextEncoder().encode("body"));
+            controller.close();
+          },
+        });
+        return new Response(body, { status: 200 });
+      })
+    );
+
+    const response = await fetchWithRetry(
+      "https://video.example/slow-body",
+      {},
+      { retries: 0, timeoutMs: 5, timeoutMode: "headers" }
+    );
+
+    await expect(response.text()).resolves.toBe("body");
+  });
 });

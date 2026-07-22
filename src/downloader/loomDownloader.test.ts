@@ -3,6 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+interface SegmentDownloadResult {
+  success: boolean;
+  error?: string;
+}
+
 const sharedMocks = vi.hoisted(() => ({
   checkFfmpeg: vi.fn<() => Promise<boolean>>(),
   downloadSegmentsToFile:
@@ -11,7 +16,7 @@ const sharedMocks = vi.hoisted(() => ({
         segments: string[],
         outputPath: string,
         options?: { onProgress?: (current: number, total: number) => void }
-      ) => Promise<boolean>
+      ) => Promise<SegmentDownloadResult>
     >(),
   getSegmentUrls: vi.fn<(playlistUrl: string) => Promise<string[]>>(),
   mergeVideoAudio:
@@ -82,7 +87,7 @@ describe("downloadLoomVideo", () => {
     sharedMocks.getSegmentUrls
       .mockResolvedValueOnce(["https://cdn.example/video-1.ts"])
       .mockResolvedValueOnce([]);
-    sharedMocks.downloadSegmentsToFile.mockResolvedValue(true);
+    sharedMocks.downloadSegmentsToFile.mockResolvedValue({ success: true });
 
     const outputPath = join(testDir, "video.ts");
     const result = await downloadLoomVideo(
@@ -107,16 +112,20 @@ describe("downloadLoomVideo", () => {
     sharedMocks.downloadSegmentsToFile
       .mockImplementationOnce(async (_segments, path) => {
         writeFileSync(path, "video");
-        return true;
+        return { success: true };
       })
-      .mockResolvedValueOnce(false);
+      .mockResolvedValueOnce({ success: false, error: "audio segment failed" });
 
     const result = await downloadLoomVideo(
       "https://luna.loom.com/example/mediaplaylist-video-bitrate1000.m3u8",
       join(testDir, "video.ts")
     );
 
-    expect(result).toMatchObject({ success: false, errorCode: "DOWNLOAD_FAILED" });
+    expect(result).toMatchObject({
+      success: false,
+      errorCode: "DOWNLOAD_FAILED",
+      details: "audio segment failed; Audio had 1 segments",
+    });
     const tempVideoPath = sharedMocks.downloadSegmentsToFile.mock.calls[0]?.[1];
     expect(tempVideoPath).toBeTypeOf("string");
     if (!tempVideoPath) throw new Error("Expected a video temp path");
@@ -129,7 +138,7 @@ describe("downloadLoomVideo", () => {
       .mockResolvedValueOnce(["https://cdn.example/audio-1.ts"]);
     sharedMocks.downloadSegmentsToFile.mockImplementationOnce(async (_segments, path) => {
       writeFileSync(path, "partial video");
-      return false;
+      return { success: false, error: "video segment failed" };
     });
 
     const result = await downloadLoomVideo(
@@ -137,7 +146,11 @@ describe("downloadLoomVideo", () => {
       join(testDir, "video.ts")
     );
 
-    expect(result).toMatchObject({ success: false, errorCode: "DOWNLOAD_FAILED" });
+    expect(result).toMatchObject({
+      success: false,
+      errorCode: "DOWNLOAD_FAILED",
+      details: "video segment failed; Video had 1 segments",
+    });
     const tempVideoPath = sharedMocks.downloadSegmentsToFile.mock.calls[0]?.[1];
     if (!tempVideoPath) throw new Error("Expected a video temp path");
     expect(existsSync(tempVideoPath)).toBe(false);
@@ -150,7 +163,7 @@ describe("downloadLoomVideo", () => {
       .mockResolvedValueOnce(["https://cdn.example/audio-1.ts"]);
     sharedMocks.downloadSegmentsToFile.mockImplementation(async (_segments, path) => {
       writeFileSync(path, "segment data");
-      return true;
+      return { success: true };
     });
     sharedMocks.mergeVideoAudio.mockRejectedValue(new Error("ffmpeg crashed"));
 

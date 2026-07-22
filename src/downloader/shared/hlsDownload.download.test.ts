@@ -32,7 +32,7 @@ describe("downloadSegmentsToFile", () => {
       { onProgress }
     );
 
-    expect(result).toBe(true);
+    expect(result).toEqual({ success: true });
     expect(await readFile(outputPath, "utf8")).toBe("segment-onesegment-two");
     expect(existsSync(`${outputPath}.tmp`)).toBe(false);
     expect(onProgress.mock.calls).toEqual([
@@ -56,7 +56,7 @@ describe("downloadSegmentsToFile", () => {
       outputPath
     );
 
-    expect(result).toBe(false);
+    expect(result).toMatchObject({ success: false });
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(existsSync(outputPath)).toBe(false);
     expect(existsSync(`${outputPath}.tmp`)).toBe(false);
@@ -73,7 +73,10 @@ describe("downloadSegmentsToFile", () => {
 
     const result = await downloadSegmentsToFile(["https://cdn.example.com/1.ts"], outputPath);
 
-    expect(result).toBe(false);
+    expect(result).toEqual({
+      success: false,
+      error: "Failed to download segment 0: HTTP 403",
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(existsSync(outputPath)).toBe(false);
     expect(existsSync(`${outputPath}.tmp`)).toBe(false);
@@ -88,7 +91,10 @@ describe("downloadSegmentsToFile", () => {
 
     const result = await downloadSegmentsToFile(["https://cdn.example.com/1.ts"], outputPath);
 
-    expect(result).toBe(false);
+    expect(result).toEqual({
+      success: false,
+      error: "Failed to download segment 0: empty response body",
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(existsSync(outputPath)).toBe(false);
     expect(existsSync(`${outputPath}.tmp`)).toBe(false);
@@ -112,7 +118,7 @@ describe("downloadSegmentsToFile", () => {
 
     const result = await downloadSegmentsToFile(["https://cdn.example.com/1.ts"], outputPath);
 
-    expect(result).toBe(true);
+    expect(result).toEqual({ success: true });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(await readFile(outputPath, "utf8")).toBe("complete-segment");
   });

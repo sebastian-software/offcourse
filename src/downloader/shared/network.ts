@@ -6,6 +6,7 @@ const DEFAULT_RETRIES = 2;
 
 export interface FetchWithRetryOptions {
   timeoutMs?: number | undefined;
+  timeoutMode?: "total" | "headers" | undefined;
   retries?: number | undefined;
   retryDelayMs?: number | undefined;
 }
@@ -84,21 +85,30 @@ export async function fetchWithRetry(
 ): Promise<Response> {
   const retries = options.retries ?? DEFAULT_RETRIES;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutMode = options.timeoutMode ?? "total";
   const retryDelayMs = options.retryDelayMs ?? 250;
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
-    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const headerTimeoutController = timeoutMode === "headers" ? new AbortController() : undefined;
+    const headerTimeout = headerTimeoutController
+      ? setTimeout(() => {
+          headerTimeoutController.abort();
+        }, timeoutMs)
+      : undefined;
+    const timeoutSignal = headerTimeoutController?.signal ?? AbortSignal.timeout(timeoutMs);
     const signal = init.signal ? AbortSignal.any([init.signal, timeoutSignal]) : timeoutSignal;
 
     try {
       const response = await fetch(input, { ...init, signal });
+      if (headerTimeout) clearTimeout(headerTimeout);
       if (!RETRYABLE_STATUS_CODES.has(response.status) || attempt === retries) {
         return response;
       }
       await response.body?.cancel().catch(() => undefined);
       lastError = new Error(`Transient HTTP ${response.status}`);
     } catch (error) {
+      if (headerTimeout) clearTimeout(headerTimeout);
       lastError = error;
       if (init.signal?.aborted || attempt === retries) throw error;
     }

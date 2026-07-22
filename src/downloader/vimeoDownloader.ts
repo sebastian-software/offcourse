@@ -440,7 +440,7 @@ async function downloadHlsVideo(
 
       try {
         const totalSegments = videoSegments.length + audioSegments.length;
-        const videoSuccess = await downloadSegmentsToFile(videoSegments, tempVideoPath, {
+        const videoResult = await downloadSegmentsToFile(videoSegments, tempVideoPath, {
           headers,
           onProgress: (current) => {
             onProgress?.({
@@ -451,15 +451,16 @@ async function downloadHlsVideo(
             });
           },
         });
-        if (!videoSuccess) {
+        if (!videoResult.success) {
           return {
             success: false,
             error: "Failed to download Vimeo video segments",
             errorCode: "DOWNLOAD_FAILED",
+            details: videoResult.error,
           };
         }
 
-        const audioSuccess = await downloadSegmentsToFile(audioSegments, tempAudioPath, {
+        const audioResult = await downloadSegmentsToFile(audioSegments, tempAudioPath, {
           headers,
           onProgress: (current) => {
             const completed = videoSegments.length + current;
@@ -471,11 +472,12 @@ async function downloadHlsVideo(
             });
           },
         });
-        if (!audioSuccess) {
+        if (!audioResult.success) {
           return {
             success: false,
             error: "Failed to download Vimeo audio segments",
             errorCode: "DOWNLOAD_FAILED",
+            details: audioResult.error,
           };
         }
 
@@ -512,7 +514,7 @@ async function downloadHlsVideo(
       }
     }
 
-    const success = await downloadSegmentsToFile(videoSegments, outputPath, {
+    const result = await downloadSegmentsToFile(videoSegments, outputPath, {
       headers,
       onProgress: (curr, total) => {
         onProgress?.({
@@ -524,11 +526,12 @@ async function downloadHlsVideo(
       },
     });
 
-    if (!success) {
+    if (!result.success) {
       return {
         success: false,
         error: "Failed to download video segments",
         errorCode: "DOWNLOAD_FAILED",
+        details: result.error,
       };
     }
 

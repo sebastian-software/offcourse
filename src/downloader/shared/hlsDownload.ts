@@ -240,6 +240,11 @@ export async function getSegmentUrls(
  * Downloads HLS segments and writes them to a file.
  * Used when ffmpeg is not available or not needed.
  */
+export interface SegmentDownloadResult {
+  success: boolean;
+  error?: string | undefined;
+}
+
 export async function downloadSegmentsToFile(
   segments: string[],
   outputPath: string,
@@ -247,7 +252,7 @@ export async function downloadSegmentsToFile(
     onProgress?: ((current: number, total: number) => void) | undefined;
     headers?: RequestHeaders | undefined;
   } = {}
-): Promise<boolean> {
+): Promise<SegmentDownloadResult> {
   const { onProgress, headers } = options;
   const tempPath = `${outputPath}.tmp`;
   let fileHandle: fs.promises.FileHandle | undefined;
@@ -296,11 +301,14 @@ export async function downloadSegmentsToFile(
     fileHandle = undefined;
 
     fs.renameSync(tempPath, outputPath);
-    return true;
-  } catch {
+    return { success: true };
+  } catch (error) {
     await fileHandle?.close().catch(() => undefined);
     await fs.promises.rm(tempPath, { force: true }).catch(() => undefined);
-    return false;
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 

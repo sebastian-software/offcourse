@@ -368,7 +368,7 @@ export async function downloadLoomVideo(
           const totalSegments = videoSegments.length + audioSegments.length;
           let completed = 0;
 
-          const videoSuccess = await downloadSegmentsToFile(videoSegments, tempVideoPath, {
+          const videoResult = await downloadSegmentsToFile(videoSegments, tempVideoPath, {
             onProgress: (curr) => {
               completed = curr;
               onProgress?.({
@@ -380,16 +380,18 @@ export async function downloadLoomVideo(
             },
           });
 
-          if (!videoSuccess) {
+          if (!videoResult.success) {
             return {
               success: false,
               error: "Failed to download video segments",
               errorCode: "DOWNLOAD_FAILED",
-              details: `Video had ${videoSegments.length} segments`,
+              details: [videoResult.error, `Video had ${videoSegments.length} segments`]
+                .filter(Boolean)
+                .join("; "),
             };
           }
 
-          const audioSuccess = await downloadSegmentsToFile(audioSegments, tempAudioPath, {
+          const audioResult = await downloadSegmentsToFile(audioSegments, tempAudioPath, {
             onProgress: (curr) => {
               completed = videoSegments.length + curr;
               onProgress?.({
@@ -401,12 +403,14 @@ export async function downloadLoomVideo(
             },
           });
 
-          if (!audioSuccess) {
+          if (!audioResult.success) {
             return {
               success: false,
               error: "Failed to download audio segments",
               errorCode: "DOWNLOAD_FAILED",
-              details: `Audio had ${audioSegments.length} segments`,
+              details: [audioResult.error, `Audio had ${audioSegments.length} segments`]
+                .filter(Boolean)
+                .join("; "),
             };
           }
 
@@ -447,7 +451,7 @@ export async function downloadLoomVideo(
     }
   }
 
-  const success = await downloadSegmentsToFile(videoSegments, outputPath, {
+  const result = await downloadSegmentsToFile(videoSegments, outputPath, {
     onProgress: (curr, total) => {
       onProgress?.({
         percent: (curr / total) * 100,
@@ -458,12 +462,14 @@ export async function downloadLoomVideo(
     },
   });
 
-  if (!success) {
+  if (!result.success) {
     return {
       success: false,
       error: "Failed to download video segments",
       errorCode: "DOWNLOAD_FAILED",
-      details: `Video had ${videoSegments.length} segments`,
+      details: [result.error, `Video had ${videoSegments.length} segments`]
+        .filter(Boolean)
+        .join("; "),
     };
   }
 
