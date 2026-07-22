@@ -17,6 +17,23 @@ export const LessonStatus = {
 
 export type LessonStatusType = (typeof LessonStatus)[keyof typeof LessonStatus];
 
+function lessonStatusPriority(status: string): number {
+  switch (status) {
+    case LessonStatus.DOWNLOADED:
+      return 5;
+    case LessonStatus.VALIDATED:
+      return 4;
+    case LessonStatus.SCANNED:
+      return 3;
+    case LessonStatus.SKIPPED:
+      return 2;
+    case LessonStatus.ERROR:
+      return 1;
+    default:
+      return 0;
+  }
+}
+
 /**
  * Video types supported by the tool.
  */
@@ -422,6 +439,126 @@ export class CourseDatabase {
         }
       | undefined;
     return row ? this.mapModuleRow(row) : null;
+  }
+
+  /** Renames a module identity while preserving its database row and lessons. */
+  renameModuleSlug(currentSlug: string, nextSlug: string): ModuleRecord | null {
+    if (currentSlug === nextSlug) return this.getModuleBySlug(currentSlug);
+
+    const currentModule = this.getModuleBySlug(currentSlug);
+    if (!currentModule) return null;
+
+    const existingModule = this.getModuleBySlug(nextSlug);
+    if (existingModule) {
+      const collisions = this.db
+        .prepare(
+          `SELECT
+             source.id AS source_id,
+             source.status AS source_status,
+             source.video_type AS source_video_type,
+             source.video_url AS source_video_url,
+             source.hls_url AS source_hls_url,
+             source.error_message AS source_error_message,
+             source.error_code AS source_error_code,
+             source.retry_count AS source_retry_count,
+             source.last_scanned_at AS source_last_scanned_at,
+             source.last_downloaded_at AS source_last_downloaded_at,
+             source.video_file_size AS source_video_file_size,
+             target.id AS target_id,
+             target.status AS target_status,
+             target.video_type AS target_video_type,
+             target.video_url AS target_video_url,
+             target.hls_url AS target_hls_url,
+             target.error_message AS target_error_message,
+             target.error_code AS target_error_code,
+             target.retry_count AS target_retry_count,
+             target.last_scanned_at AS target_last_scanned_at,
+             target.last_downloaded_at AS target_last_downloaded_at,
+             target.video_file_size AS target_video_file_size
+           FROM lessons AS source
+           JOIN lessons AS target
+             ON target.module_id = ? AND target.slug = source.slug
+           WHERE source.module_id = ?`
+        )
+        .all(existingModule.id, currentModule.id) as LessonSlugCollisionRow[];
+
+      const updateLessonState = this.db.prepare(`
+        UPDATE lessons SET
+          status = ?,
+          video_type = ?,
+          video_url = ?,
+          hls_url = ?,
+          error_message = ?,
+          error_code = ?,
+          retry_count = ?,
+          last_scanned_at = ?,
+          last_downloaded_at = ?,
+          video_file_size = ?,
+          updated_at = datetime('now')
+        WHERE id = ?
+      `);
+      const deleteLesson = this.db.prepare("DELETE FROM lessons WHERE id = ?");
+
+      for (const collision of collisions) {
+        const sourceIsMoreComplete =
+          lessonStatusPriority(collision.source_status) >
+            lessonStatusPriority(collision.target_status) ||
+          (collision.source_status === collision.target_status &&
+            (collision.source_last_downloaded_at ?? "") >
+              (collision.target_last_downloaded_at ?? ""));
+        const selected = sourceIsMoreComplete
+          ? {
+              status: collision.source_status,
+              videoType: collision.source_video_type,
+              videoUrl: collision.source_video_url,
+              hlsUrl: collision.source_hls_url,
+              errorMessage: collision.source_error_message,
+              errorCode: collision.source_error_code,
+              retryCount: collision.source_retry_count,
+              lastScannedAt: collision.source_last_scanned_at,
+              lastDownloadedAt: collision.source_last_downloaded_at,
+              videoFileSize: collision.source_video_file_size,
+            }
+          : {
+              status: collision.target_status,
+              videoType: collision.target_video_type,
+              videoUrl: collision.target_video_url,
+              hlsUrl: collision.target_hls_url,
+              errorMessage: collision.target_error_message,
+              errorCode: collision.target_error_code,
+              retryCount: collision.target_retry_count,
+              lastScannedAt: collision.target_last_scanned_at,
+              lastDownloadedAt: collision.target_last_downloaded_at,
+              videoFileSize: collision.target_video_file_size,
+            };
+
+        updateLessonState.run(
+          selected.status,
+          selected.videoType,
+          selected.videoUrl,
+          selected.hlsUrl,
+          selected.errorMessage,
+          selected.errorCode,
+          Math.max(collision.source_retry_count, collision.target_retry_count),
+          selected.lastScannedAt,
+          selected.lastDownloadedAt,
+          selected.videoFileSize,
+          collision.target_id
+        );
+        deleteLesson.run(collision.source_id);
+      }
+
+      this.db
+        .prepare("UPDATE lessons SET module_id = ? WHERE module_id = ?")
+        .run(existingModule.id, currentModule.id);
+      this.db.prepare("DELETE FROM modules WHERE id = ?").run(currentModule.id);
+      return existingModule;
+    }
+
+    const result = this.db
+      .prepare("UPDATE modules SET slug = ?, updated_at = datetime('now') WHERE slug = ?")
+      .run(nextSlug, currentSlug);
+    return result.changes > 0 ? this.getModuleBySlug(nextSlug) : null;
   }
 
   private mapModuleRow(row: {
@@ -895,6 +1032,31 @@ interface RawLessonRow {
   video_file_size: number | null;
   created_at: string;
   updated_at: string;
+}
+
+interface LessonSlugCollisionRow {
+  source_id: number;
+  source_status: string;
+  source_video_type: string | null;
+  source_video_url: string | null;
+  source_hls_url: string | null;
+  source_error_message: string | null;
+  source_error_code: string | null;
+  source_retry_count: number;
+  source_last_scanned_at: string | null;
+  source_last_downloaded_at: string | null;
+  source_video_file_size: number | null;
+  target_id: number;
+  target_status: string;
+  target_video_type: string | null;
+  target_video_url: string | null;
+  target_hls_url: string | null;
+  target_error_message: string | null;
+  target_error_code: string | null;
+  target_retry_count: number;
+  target_last_scanned_at: string | null;
+  target_last_downloaded_at: string | null;
+  target_video_file_size: number | null;
 }
 
 /**

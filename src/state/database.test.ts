@@ -354,6 +354,41 @@ describe("CourseDatabase", () => {
     });
   });
 
+  it("merges a colliding module slug without orphaning legacy lessons", () => {
+    const database = createDatabase();
+    const legacyModule = database.upsertModule("module-0", "Module", 0, true);
+    const destinationModule = database.upsertModule("module-0-stable", "Module", 0);
+    const legacyLesson = database.upsertLesson(
+      legacyModule.id,
+      "legacy-lesson",
+      "Legacy lesson",
+      "https://example.com/legacy-lesson",
+      0
+    );
+    const destinationLesson = database.upsertLesson(
+      destinationModule.id,
+      "legacy-lesson",
+      "Current lesson",
+      "https://example.com/current-lesson",
+      0
+    );
+    database.markLessonDownloaded(legacyLesson.id, 42);
+
+    const merged = database.renameModuleSlug("module-0", "module-0-stable");
+
+    expect(merged).toMatchObject({ id: destinationModule.id, slug: "module-0-stable" });
+    expect(database.getModuleBySlug("module-0")).toBeNull();
+    expect(database.getModules()).toHaveLength(1);
+    expect(database.getLessons()).toEqual([
+      expect.objectContaining({
+        id: destinationLesson.id,
+        moduleId: destinationModule.id,
+        status: LessonStatus.DOWNLOADED,
+        videoFileSize: 42,
+      }),
+    ]);
+  });
+
   it("preserves lesson state when a stable URL moves to another module", () => {
     const database = createDatabase();
     const originalModule = database.upsertModule("module-1", "Original module", 0);
