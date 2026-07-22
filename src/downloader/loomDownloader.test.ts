@@ -83,6 +83,38 @@ describe("downloadLoomVideo", () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
+  it("parses the master playlist when the direct audio URL pattern does not match", async () => {
+    sharedMocks.parseHlsMasterPlaylist.mockResolvedValue({
+      videoUrl: "https://cdn.example/video/playlist.m3u8",
+      audioUrl: "https://cdn.example/audio/playlist.m3u8",
+    });
+    sharedMocks.getSegmentUrls
+      .mockResolvedValueOnce(["https://cdn.example/video-1.ts"])
+      .mockResolvedValueOnce(["https://cdn.example/audio-1.ts"]);
+    sharedMocks.downloadSegmentsToFile.mockResolvedValue({ success: true });
+    sharedMocks.mergeVideoAudio.mockResolvedValue(true);
+
+    const outputPath = join(testDir, "video.mp4");
+    const result = await downloadLoomVideo(
+      "https://luna.loom.com/example/mediaplaylist-video-720.m3u8",
+      outputPath
+    );
+
+    expect(result).toEqual({ success: true });
+    expect(sharedMocks.parseHlsMasterPlaylist).toHaveBeenCalledWith(
+      "https://luna.loom.com/example/mediaplaylist-video-720.m3u8"
+    );
+    expect(sharedMocks.getSegmentUrls).toHaveBeenNthCalledWith(
+      1,
+      "https://cdn.example/video/playlist.m3u8"
+    );
+    expect(sharedMocks.getSegmentUrls).toHaveBeenNthCalledWith(
+      2,
+      "https://cdn.example/audio/playlist.m3u8"
+    );
+    expect(sharedMocks.mergeVideoAudio).toHaveBeenCalledOnce();
+  });
+
   it("falls back to a video-only download when the audio playlist is empty", async () => {
     sharedMocks.getSegmentUrls
       .mockResolvedValueOnce(["https://cdn.example/video-1.ts"])

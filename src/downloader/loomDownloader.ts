@@ -291,8 +291,14 @@ export async function downloadLoomVideo(
     hlsUrl = urlOrId;
 
     if (hlsUrl.includes("mediaplaylist-video-")) {
-      videoUrl = hlsUrl;
-      audioUrl = hlsUrl.replace(/mediaplaylist-video-bitrate\d+\.m3u8/, "mediaplaylist-audio.m3u8");
+      const derivedAudioUrl = hlsUrl.replace(
+        /mediaplaylist-video-bitrate\d+\.m3u8/,
+        "mediaplaylist-audio.m3u8"
+      );
+      if (derivedAudioUrl !== hlsUrl) {
+        videoUrl = hlsUrl;
+        audioUrl = derivedAudioUrl;
+      }
     } else if (hlsUrl.includes("mediaplaylist-audio")) {
       hlsUrl = hlsUrl.replace(/mediaplaylist-audio\.m3u8/, "playlist.m3u8");
     }
