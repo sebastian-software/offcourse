@@ -62,7 +62,9 @@ const sharedMocks = vi.hoisted(() => ({
   ),
   selectVimeoProgressiveUrl: vi.fn(
     (progressive: { height?: number; url?: string }[] | null | undefined) =>
-      [...(progressive ?? [])].sort((a, b) => (b.height ?? 0) - (a.height ?? 0))[0]?.url ?? null
+      [...(progressive ?? [])]
+        .filter((rendition) => Boolean(rendition.url))
+        .sort((a, b) => (b.height ?? 0) - (a.height ?? 0))[0]?.url ?? null
   ),
 }));
 

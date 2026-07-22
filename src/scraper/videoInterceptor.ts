@@ -144,8 +144,8 @@ export async function captureVimeoConfig(
         const result = {
           hlsUrl: null as string | null,
           progressiveUrl: null as string | null,
-          hlsConfig: null as VimeoHlsConfig | null,
-          progressiveRenditions: null as VimeoProgressiveRendition[] | null,
+          hlsConfigs: [] as VimeoHlsConfig[],
+          progressiveRenditions: [] as VimeoProgressiveRendition[],
           debug: [] as string[],
         };
 
@@ -204,9 +204,9 @@ export async function captureVimeoConfig(
             for (const files of configPaths) {
               if (!files) continue;
 
-              if (files.hls?.cdns) result.hlsConfig = files.hls;
-              if (files.progressive?.length) result.progressiveRenditions = files.progressive;
-              if (result.hlsConfig || result.progressiveRenditions) break;
+              if (files.hls?.cdns) result.hlsConfigs.push(files.hls);
+              if (files.progressive?.length)
+                result.progressiveRenditions.push(...files.progressive);
             }
           } catch (e) {
             result.debug.push(
@@ -235,7 +235,13 @@ export async function captureVimeoConfig(
         return result;
       });
 
-      hlsUrl = urls.hlsUrl ?? selectVimeoHlsUrl(urls.hlsConfig);
+      hlsUrl = urls.hlsUrl;
+      if (!hlsUrl) {
+        for (const hlsConfig of urls.hlsConfigs) {
+          hlsUrl = selectVimeoHlsUrl(hlsConfig);
+          if (hlsUrl) break;
+        }
+      }
       progressiveUrl = urls.progressiveUrl ?? selectVimeoProgressiveUrl(urls.progressiveRenditions);
 
       if (!hlsUrl && !progressiveUrl) {
