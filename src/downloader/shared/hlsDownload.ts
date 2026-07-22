@@ -33,9 +33,7 @@ export function parseHLSPlaylist(content: string, baseUrl: string): HLSQuality[]
       const width = resolution?.width;
       const height = resolution?.height;
 
-      const variantUrl = variant.uri.startsWith("http")
-        ? variant.uri
-        : new URL(variant.uri, baseUrl).href;
+      const variantUrl = resolveHlsUri(variant.uri, baseUrl);
 
       const label = height ? `${height}p` : `${Math.round(bandwidth / 1000)}k`;
 

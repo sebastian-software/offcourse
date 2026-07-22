@@ -190,6 +190,19 @@ https://other-cdn.com/video/720p.m3u8`;
     expect(result[0]!.url).toBe("https://other-cdn.com/video/720p.m3u8");
   });
 
+  it("inherits signed query parameters for relative variants", () => {
+    const content = `#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720
+720p.m3u8`;
+
+    const result = parseHLSPlaylist(
+      content,
+      "https://cdn.example.com/video/master.m3u8?token=abc&expires=123"
+    );
+
+    expect(result[0]!.url).toBe("https://cdn.example.com/video/720p.m3u8?token=abc&expires=123");
+  });
+
   it("handles playlist without resolution", () => {
     const content = `#EXTM3U
 #EXT-X-STREAM-INF:BANDWIDTH=500000
