@@ -34,7 +34,8 @@ interface VimeoHlsConfig {
 
 const JOSH_COMEAU_LESSON_ROOT_SELECTOR =
   '[data-test="unlocked-content"], [class*="LessonContent__Wrapper"]';
-const JOSH_COMEAU_HYDRATED_ASSET_SELECTOR = 'iframe[src*="player.vimeo.com/video/"], a[download]';
+const JOSH_COMEAU_VIDEO_SELECTOR = 'iframe[src*="player.vimeo.com/video/"]';
+const JOSH_COMEAU_RESOURCE_SELECTOR = "a[download]";
 
 export function chooseVimeoHlsUrl(hls: VimeoHlsConfig | null | undefined): string | null {
   if (!hls?.cdns) return null;
@@ -263,13 +264,23 @@ export async function extractJoshComeauLesson(
     }, JOSH_COMEAU_LESSON_ROOT_SELECTOR);
 
   let extracted = await evaluateLesson();
-  if (extracted.embedUrls.length === 0 && extracted.resourceUrls.length === 0) {
-    await page
-      .waitForSelector(JOSH_COMEAU_HYDRATED_ASSET_SELECTOR, {
-        state: "attached",
-        timeout: 3000,
-      })
-      .catch(() => {});
+  const hydrationWaits: Promise<unknown>[] = [];
+  if (extracted.embedUrls.length === 0) {
+    hydrationWaits.push(
+      page
+        .waitForSelector(JOSH_COMEAU_VIDEO_SELECTOR, { state: "attached", timeout: 3000 })
+        .catch(() => {})
+    );
+  }
+  if (extracted.resourceUrls.length === 0) {
+    hydrationWaits.push(
+      page
+        .waitForSelector(JOSH_COMEAU_RESOURCE_SELECTOR, { state: "attached", timeout: 3000 })
+        .catch(() => {})
+    );
+  }
+  if (hydrationWaits.length > 0) {
+    await Promise.all(hydrationWaits);
     extracted = await evaluateLesson();
   }
 

@@ -151,7 +151,11 @@ describe("Josh Comeau extractor", () => {
     const content = await extractJoshComeauLesson(page, lessonUrl);
 
     expect(waitForSelector).toHaveBeenCalledWith(
-      expect.stringContaining('iframe[src*="player.vimeo.com/video/"]'),
+      'iframe[src*="player.vimeo.com/video/"]',
+      expect.objectContaining({ timeout: 3000 })
+    );
+    expect(waitForSelector).toHaveBeenCalledWith(
+      "a[download]",
       expect.objectContaining({ timeout: 3000 })
     );
     expect(evaluate).toHaveBeenCalledTimes(2);
