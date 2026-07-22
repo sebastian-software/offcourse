@@ -1,4 +1,5 @@
 import { createWriteStream } from "node:fs";
+import { rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -175,6 +176,7 @@ export async function downloadFile(
   }
 
   await ensureDir(join(outputPath, ".."));
+  const tempPath = `${outputPath}.tmp`;
 
   try {
     const response = await http.get(url);
@@ -184,11 +186,13 @@ export async function downloadFile(
       return { success: false, error: "No response body" };
     }
 
-    const fileStream = createWriteStream(outputPath);
+    const fileStream = createWriteStream(tempPath);
     await pipeline(Readable.fromWeb(body as import("stream/web").ReadableStream), fileStream);
+    await rename(tempPath, outputPath);
 
     return { success: true };
   } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => undefined);
     return { success: false, error: String(error) };
   }
 }

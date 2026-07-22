@@ -1,14 +1,17 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  downloadFile,
   getLessonBasename,
   getVideoPath,
   getMarkdownPath,
   getDownloadFilePath,
   isLessonSynced,
 } from "./fileSystem.js";
+import { http } from "../shared/http.js";
+import { pathExists } from "../shared/fs.js";
 
 /** Normalize path to POSIX format for cross-platform test assertions */
 const toPosix = (p: string) => p.replace(/\\/g, "/");
@@ -17,9 +20,52 @@ describe("fileSystem", () => {
   const tempDirectories: string[] = [];
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await Promise.all(
       tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))
     );
+  });
+
+  describe("downloadFile", () => {
+    it("publishes the attachment only after the download completes", async () => {
+      const directory = await mkdtemp(join(tmpdir(), "offcourse-files-"));
+      tempDirectories.push(directory);
+      const outputPath = join(directory, "attachment.pdf");
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("complete"));
+          controller.close();
+        },
+      });
+      vi.spyOn(http, "get").mockResolvedValue(new Response(body));
+
+      await expect(downloadFile("https://example.com/attachment.pdf", outputPath)).resolves.toEqual(
+        {
+          success: true,
+        }
+      );
+      await expect(readFile(outputPath, "utf8")).resolves.toBe("complete");
+      await expect(pathExists(`${outputPath}.tmp`)).resolves.toBe(false);
+    });
+
+    it("removes an incomplete temporary attachment after a stream failure", async () => {
+      const directory = await mkdtemp(join(tmpdir(), "offcourse-files-"));
+      tempDirectories.push(directory);
+      const outputPath = join(directory, "attachment.pdf");
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("partial"));
+          controller.error(new Error("stream failed"));
+        },
+      });
+      vi.spyOn(http, "get").mockResolvedValue(new Response(body));
+
+      const result = await downloadFile("https://example.com/attachment.pdf", outputPath);
+
+      expect(result.success).toBe(false);
+      await expect(pathExists(outputPath)).resolves.toBe(false);
+      await expect(pathExists(`${outputPath}.tmp`)).resolves.toBe(false);
+    });
   });
 
   describe("getLessonBasename", () => {
