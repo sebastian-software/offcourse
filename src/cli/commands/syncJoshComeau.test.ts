@@ -354,7 +354,11 @@ describe("syncJoshComeauCommand", () => {
     mocks.markLessonScanReady.mockImplementation(() => {
       continueProcessing = false;
     });
-    mocks.downloadVideoTasks.mockResolvedValue({ completed: 0, failures: [], outcomes: [] });
+    mocks.downloadVideoTasks.mockImplementation(async (tasks: unknown[]) => ({
+      completed: tasks.length,
+      failures: [],
+      outcomes: tasks.map((task) => ({ task, result: { success: true } })),
+    }));
 
     await syncJoshComeauCommand(courseUrl, {});
 

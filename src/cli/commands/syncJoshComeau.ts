@@ -192,6 +192,7 @@ async function processLessons(
       );
       let resourcesDownloaded = 0;
       const videoTasks: VideoDownloadTask[] = [];
+      let expectedVideoCount = 0;
 
       if (needsContent) {
         const localResources = content.resources.map((resource) => ({
@@ -238,12 +239,12 @@ async function processLessons(
 
       if (needsVideo) {
         for (const [index, video] of content.videos.entries()) {
-          if (!shutdown.shouldContinue()) break;
-
           const outputPath = videoPaths[index];
           if (!outputPath || (!options.force && !retryFailed && (await pathExists(outputPath)))) {
             continue;
           }
+          expectedVideoCount++;
+          if (!shutdown.shouldContinue()) break;
           if (!video.hlsUrl) {
             throw new Error(`Could not resolve Vimeo stream ${index + 1} for ${lesson.name}`);
           }
@@ -271,7 +272,7 @@ async function processLessons(
             videosDownloaded: 0,
             stateId,
             videoTasks,
-            expectedVideoCount: needsVideo ? content.videos.length : 0,
+            expectedVideoCount,
           };
         }
         if (content.videos.length === 0) {
@@ -286,7 +287,7 @@ async function processLessons(
         videosDownloaded: 0,
         stateId,
         videoTasks,
-        expectedVideoCount: needsVideo ? content.videos.length : 0,
+        expectedVideoCount,
       };
     },
   });
@@ -315,7 +316,10 @@ function recordJoshVideoDownloads(
     );
     if (hasFailure) continue;
 
-    if (outcomes.some((outcome) => outcome === undefined)) {
+    if (
+      result.videoTasks.length !== result.expectedVideoCount ||
+      outcomes.some((outcome) => outcome === undefined)
+    ) {
       markLessonFailure(
         database,
         result.stateId,
