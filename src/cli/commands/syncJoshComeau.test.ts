@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   progressUpdate: vi.fn(),
   registerBrowser: vi.fn(),
   registerCleanup: vi.fn(),
+  recordDownloadedVideo: vi.fn(),
   rewriteLinks: vi.fn(),
   saveMarkdown: vi.fn(),
   setupShutdown: vi.fn(),
@@ -218,6 +219,7 @@ beforeEach(() => {
       getLessonByUrl: vi.fn(() => stateLesson),
       markLessonDownloaded: vi.fn(),
       markLessonSkipped: vi.fn(),
+      recordDownloadedVideo: mocks.recordDownloadedVideo,
     },
     lessonsByUrl: new Map([[`${courseUrl}/rendering-logic/flow-layout`, stateLesson]]),
     retryLessonIds: new Set(),
@@ -300,6 +302,7 @@ describe("syncJoshComeauCommand", () => {
       expect.objectContaining({ concurrency: 2 })
     );
     expect(mocks.registerCleanup).toHaveBeenCalledOnce();
+    expect(mocks.recordDownloadedVideo).toHaveBeenCalledTimes(2);
     expect(mocks.browserClose).toHaveBeenCalledOnce();
   });
 
@@ -323,6 +326,7 @@ describe("syncJoshComeauCommand", () => {
         getLessonByUrl: vi.fn(() => stateLesson),
         markLessonDownloaded: vi.fn(),
         markLessonSkipped: vi.fn(),
+        recordDownloadedVideo: vi.fn(),
       },
       lessonsByUrl: new Map([[`${courseUrl}/rendering-logic/flow-layout`, stateLesson]]),
       retryLessonIds: new Set([1]),
@@ -430,6 +434,7 @@ describe("syncJoshComeauCommand", () => {
       ),
       markLessonDownloaded: vi.fn(),
       markLessonSkipped: vi.fn(),
+      recordDownloadedVideo: vi.fn(),
     };
     mocks.initializeCourseState.mockReturnValue({
       key: "joshcomeau-css-for-js",

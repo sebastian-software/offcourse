@@ -26,6 +26,8 @@ npx offcourse sync <course-url>
 ```
 
 Requires Node.js 22+ and [ffmpeg](https://ffmpeg.org/) for HLS videos.
+Optional transcription requires the native
+[Cuttledoc CLI](https://github.com/sebastian-software/cuttledoc) on `PATH`.
 
 ## Supported Platforms
 
@@ -47,6 +49,7 @@ offcourse sync <url>
 offcourse sync <url> --skip-videos      # Text only
 offcourse sync <url> --dry-run          # Preview
 offcourse sync <url> --limit 5          # Test with 5 lessons
+offcourse sync <url> --transcribe       # Download, then transcribe with Cuttledoc
 
 # Skool login with community access verification
 offcourse login https://www.skool.com/<community>/classroom
@@ -68,7 +71,37 @@ offcourse config set outputDir ~/Courses  # Default: current directory
 offcourse config set videoQuality 720p    # Default: highest
 offcourse config set concurrency 3        # Parallel downloads (1-5, default: 2)
 offcourse config set extractionConcurrency 6  # Browser tabs (1-8, default: 4)
+offcourse config set cuttledocPath /usr/local/bin/cuttledoc
+offcourse config set transcriptionLanguage de
+offcourse config set transcriptionBackend auto
+offcourse config set transcriptionEnhancement local
 ```
+
+## Transcription
+
+Offcourse integrates Cuttledoc through its native CLI instead of embedding a platform-specific
+Node module. This keeps course extraction independent from speech engines and lets both tools be
+installed and released separately.
+
+```bash
+# Verify the native dependency
+cuttledoc --version
+
+# Transcribe new downloads and retry unfinished jobs from earlier runs
+offcourse sync <course-url> --transcribe
+
+# Override the configured language, backend, or enhancement for one run
+offcourse sync <course-url> --transcribe \
+  --transcription-language en \
+  --transcription-backend auto \
+  --transcription-enhancement off
+```
+
+Transcription is opt-in and sequential by default to keep model memory bounded. For every video,
+Offcourse writes `<video-stem>.transcript.json` with Cuttledoc's complete machine-readable result
+and `<video-stem>.transcript.md` for reading. SQLite stores the Cuttledoc version, selected settings,
+durations, attempts, and errors. Repeating `--transcribe` skips completed videos and retries only
+unfinished work. `--force --transcribe` regenerates completed transcripts.
 
 ## Performance
 
@@ -79,6 +112,16 @@ Course scanning and content extraction use `extractionConcurrency` browser tabs 
 ### ffmpeg is missing
 
 Video downloads that use HLS require ffmpeg. Confirm it is available with `ffmpeg -version`; if the command is missing, install ffmpeg with your operating system's package manager and retry the sync.
+
+### Cuttledoc is missing
+
+Transcription is the only feature that requires Cuttledoc. Install a native release from the
+[Cuttledoc repository](https://github.com/sebastian-software/cuttledoc), verify it with
+`cuttledoc --version`, or configure an explicit executable:
+
+```bash
+offcourse config set cuttledocPath /absolute/path/to/cuttledoc
+```
 
 ### Playwright cannot find Chromium
 

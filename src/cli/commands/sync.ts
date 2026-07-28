@@ -14,6 +14,7 @@ import {
   createCourseDirectory,
   createModuleDirectory,
   downloadFile,
+  findLessonVideoPath,
   getDownloadFilePath,
   getMarkdownPath,
   getVideoPath,
@@ -38,8 +39,10 @@ import {
 import {
   createSyncProgressBar,
   downloadVideoTasks,
+  runRequestedTranscription,
   runParallelSyncStage,
 } from "../syncPipeline.js";
+import type { TranscriptionCliOptions } from "../../transcription/index.js";
 
 /** Shutdown manager instance for this command. */
 const shutdown = createShutdownManager();
@@ -57,7 +60,7 @@ interface DownloadAttempt {
   timestamp: string;
 }
 
-export interface SyncOptions {
+export interface SyncOptions extends TranscriptionCliOptions {
   skipVideos?: boolean;
   skipContent?: boolean;
   dryRun?: boolean;
@@ -208,6 +211,9 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
   const needsValidation = hasExistingData ? hasLessonsPendingValidation(db) : true;
   const needsDownload = hasExistingData ? hasLessonsPendingDownload(db) : true;
   const courseDir = await createCourseDirectory(config.outputDir, communitySlug);
+  if (options.transcribe) {
+    await registerKnownDownloadedVideos(db, courseDir);
+  }
 
   // Quick exit if nothing to do (and not retry-failed or dry-run)
   if (
@@ -218,6 +224,9 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
     !options.dryRun &&
     !options.retryFailed
   ) {
+    if (options.transcribe) {
+      await runRequestedTranscription(db, config, options, shutdown.shouldContinue);
+    }
     console.log(chalk.green("\n✅ Already complete! Nothing to do.\n"));
     printStatusSummary(db);
     console.log(chalk.gray(`   Output: ${courseDir}\n`));
@@ -346,6 +355,10 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
 
       // Get new download tasks
       videoTasks = await buildDownloadTasksFromDb(db, courseDir);
+    }
+
+    if (options.transcribe) {
+      await runRequestedTranscription(db, config, options, shutdown.shouldContinue);
     }
 
     // Summary
@@ -685,6 +698,10 @@ async function extractContentAndQueueVideos(
 
     try {
       const syncStatus = await isLessonSynced(moduleDir, lesson.position, lesson.name);
+      if (syncStatus.video) {
+        const videoPath = await findLessonVideoPath(moduleDir, lesson.position, lesson.name);
+        if (videoPath) db.recordDownloadedVideo(lesson.id, videoPath);
+      }
 
       // Check if content already exists
       if (!options.skipContent && !syncStatus.content) {
@@ -781,6 +798,7 @@ async function downloadVideos(
         if (result.success) {
           const fileSize = await getFileSize(task.outputPath);
           db.markLessonDownloaded(task.lessonId, fileSize ?? undefined);
+          db.recordDownloadedVideo(task.lessonId, task.outputPath, fileSize ?? undefined);
         } else {
           db.markLessonError(task.lessonId, result.error ?? "Download failed", result.errorCode);
         }
@@ -854,6 +872,8 @@ async function buildDownloadTasksFromDb(
     if (syncStatus.video) {
       // File exists on disk but DB not updated - fix DB state
       db.markLessonDownloaded(lesson.id);
+      const videoPath = await findLessonVideoPath(moduleDir, lesson.position, lesson.name);
+      if (videoPath) db.recordDownloadedVideo(lesson.id, videoPath);
       alreadyOnDisk++;
       continue;
     }
@@ -1033,6 +1053,7 @@ async function retryFailedLessons(
       if (downloadResult.success) {
         const fileSize = await getFileSize(outputPath);
         db.markLessonDownloaded(lesson.id, fileSize ?? undefined);
+        db.recordDownloadedVideo(lesson.id, outputPath, fileSize ?? undefined);
         results.push({
           lesson,
           success: true,
@@ -1104,6 +1125,21 @@ async function retryFailedLessons(
   }
 
   printStatusSummary(db);
+}
+
+async function registerKnownDownloadedVideos(db: CourseDatabase, courseDir: string): Promise<void> {
+  for (const lesson of db.getLessonsByStatus(LessonStatus.DOWNLOADED)) {
+    const moduleDir = await createModuleDirectory(
+      courseDir,
+      lesson.modulePosition,
+      lesson.moduleName
+    );
+    const videoPath = await findLessonVideoPath(moduleDir, lesson.position, lesson.name);
+    if (videoPath) {
+      const fileSize = await getFileSize(videoPath);
+      db.recordDownloadedVideo(lesson.id, videoPath, fileSize ?? undefined);
+    }
+  }
 }
 
 /**

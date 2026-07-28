@@ -33,8 +33,12 @@ import {
   isLessonSynced,
   saveMarkdown,
 } from "../../storage/fileSystem.js";
-import { runParallelSyncStage } from "../syncPipeline.js";
-import { downloadVideoTasks } from "../syncPipeline.js";
+import {
+  downloadVideoTasks,
+  runParallelSyncStage,
+  runRequestedTranscription,
+} from "../syncPipeline.js";
+import type { TranscriptionCliOptions } from "../../transcription/index.js";
 import {
   initializeCourseState,
   LessonStatus,
@@ -47,7 +51,7 @@ import {
 
 const shutdown = createShutdownManager();
 
-export interface SyncJoshComeauOptions {
+export interface SyncJoshComeauOptions extends TranscriptionCliOptions {
   skipVideos?: boolean;
   skipContent?: boolean;
   dryRun?: boolean;
@@ -184,7 +188,8 @@ async function processLessons(
           !syncStatus.content);
       const needsVideo =
         !options.skipVideos &&
-        ((options.force ?? false) ||
+        (options.transcribe === true ||
+          (options.force ?? false) ||
           retryFailed ||
           stateLesson?.status !== LessonStatus.DOWNLOADED);
 
@@ -253,8 +258,10 @@ async function processLessons(
       if (needsVideo) {
         for (const [index, video] of content.videos.entries()) {
           const outputPath = videoPaths[index];
-          if (!outputPath || (!options.force && !retryFailed && (await pathExists(outputPath)))) {
-            if (outputPath) localVideoFilenames[index] = basename(outputPath);
+          if (!outputPath) continue;
+          if (!options.force && !retryFailed && (await pathExists(outputPath))) {
+            localVideoFilenames[index] = basename(outputPath);
+            getDatabase()?.recordDownloadedVideo(stateId, outputPath);
             continue;
           }
           expectedVideoCount++;
@@ -365,6 +372,8 @@ function recordJoshVideoDownloads(
   for (const outcome of summary.outcomes) {
     if (outcome.error || !outcome.result?.success) {
       recordVideoDownloadResult(database, outcome.task, outcome.result, outcome.error);
+    } else {
+      database.recordDownloadedVideo(outcome.task.lessonId, outcome.task.outputPath);
     }
   }
 
@@ -398,14 +407,7 @@ function recordJoshVideoDownloads(
       continue;
     }
 
-    if (outcomes.length === 0) {
-      database.markLessonDownloaded(result.stateId);
-    } else {
-      const firstSuccess = outcomes[0];
-      if (firstSuccess?.result?.success) {
-        recordVideoDownloadResult(database, firstSuccess.task, firstSuccess.result);
-      }
-    }
+    database.markLessonDownloaded(result.stateId);
     videosDownloaded += outcomes.length;
   }
 
@@ -539,6 +541,10 @@ export async function syncJoshComeauCommand(
         }
         console.error(chalk.yellow(`   ${result.lessonName}: ${resourceError}`));
       }
+    }
+
+    if (options.transcribe && currentDatabase) {
+      await runRequestedTranscription(currentDatabase, config, options, shutdown.shouldContinue);
     }
 
     if (extraction.errors.length > 0) {

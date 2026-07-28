@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   downloadResource: vi.fn(),
   downloadVideoTasks: vi.fn(),
   extractLesson: vi.fn(),
+  findLessonVideoPath: vi.fn(),
   formatMarkdown: vi.fn(),
   getDownloadFilePath: vi.fn(),
   getVideoPath: vi.fn(),
@@ -102,6 +103,7 @@ vi.mock("../../scraper/piccalilli/index.js", () => ({
 vi.mock("../../storage/fileSystem.js", () => ({
   createCourseDirectory: mocks.createCourseDirectory,
   createModuleDirectory: mocks.createModuleDirectory,
+  findLessonVideoPath: mocks.findLessonVideoPath,
   getDownloadFilePath: mocks.getDownloadFilePath,
   getVideoPath: mocks.getVideoPath,
   isLessonSynced: mocks.isLessonSynced,

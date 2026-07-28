@@ -22,6 +22,7 @@ import { waitForAttachedContent } from "../../scraper/waits.js";
 import {
   createCourseDirectory,
   createModuleDirectory,
+  findLessonVideoPath,
   getDownloadFilePath,
   getVideoPath,
   saveMarkdown,
@@ -32,8 +33,10 @@ import {
   createSyncProgressBar,
   downloadVideoTasks,
   formatHtmlLessonMarkdown,
+  runRequestedTranscription,
   runParallelSyncStage,
 } from "../syncPipeline.js";
+import type { TranscriptionCliOptions } from "../../transcription/index.js";
 import {
   initializeCourseState,
   LessonStatus,
@@ -46,7 +49,7 @@ import {
 /** Shutdown manager instance for this command. */
 const shutdown = createShutdownManager();
 
-export interface SyncLearningSuiteOptions {
+export interface SyncLearningSuiteOptions extends TranscriptionCliOptions {
   skipVideos?: boolean;
   skipContent?: boolean;
   dryRun?: boolean;
@@ -369,8 +372,12 @@ export async function syncLearningSuiteCommand(
         const syncStatus = await isLessonSynced(moduleDir, lessonIndex, lesson.title);
         const stateLesson = database?.getLessonByUrl(lessonUrl);
         const retryFailed = state.retryLessonIds.has(stateId);
-        if (syncStatus.video && stateLesson?.status !== LessonStatus.DOWNLOADED) {
-          database?.markLessonDownloaded(stateId);
+        if (syncStatus.video) {
+          if (stateLesson?.status !== LessonStatus.DOWNLOADED) {
+            database?.markLessonDownloaded(stateId);
+          }
+          const videoPath = await findLessonVideoPath(moduleDir, lessonIndex, lesson.title);
+          if (videoPath) database?.recordDownloadedVideo(stateId, videoPath);
         }
         const needsContent =
           !options.skipContent && (options.force === true || retryFailed || !syncStatus.content);
@@ -501,6 +508,10 @@ export async function syncLearningSuiteCommand(
           recordVideoDownloadResult(database, outcome.task, outcome.result, outcome.error);
         }
       }
+    }
+
+    if (options.transcribe && database) {
+      await runRequestedTranscription(database, config, options, shutdown.shouldContinue);
     }
 
     console.log(chalk.green("\n✅ Sync complete!\n"));

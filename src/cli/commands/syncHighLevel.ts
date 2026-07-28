@@ -19,6 +19,7 @@ import {
 import {
   createCourseDirectory,
   createModuleDirectory,
+  findLessonVideoPath,
   getDownloadFilePath,
   getVideoPath,
   saveMarkdown,
@@ -30,8 +31,10 @@ import {
   createSyncProgressBar,
   downloadVideoTasks,
   formatHtmlLessonMarkdown,
+  runRequestedTranscription,
   runParallelSyncStage,
 } from "../syncPipeline.js";
+import type { TranscriptionCliOptions } from "../../transcription/index.js";
 import {
   initializeCourseState,
   LessonStatus,
@@ -44,7 +47,7 @@ import {
 /** Shutdown manager instance for this command. */
 const shutdown = createShutdownManager();
 
-export interface SyncHighLevelOptions {
+export interface SyncHighLevelOptions extends TranscriptionCliOptions {
   skipVideos?: boolean;
   skipContent?: boolean;
   dryRun?: boolean;
@@ -348,8 +351,12 @@ export async function syncHighLevelCommand(
         const syncStatus = await isLessonSynced(moduleDir, postIndex, post.title);
         const stateLesson = database?.getLessonByUrl(postUrl);
         const retryFailed = state.retryLessonIds.has(stateId);
-        if (syncStatus.video && stateLesson?.status !== LessonStatus.DOWNLOADED) {
-          database?.markLessonDownloaded(stateId);
+        if (syncStatus.video) {
+          if (stateLesson?.status !== LessonStatus.DOWNLOADED) {
+            database?.markLessonDownloaded(stateId);
+          }
+          const videoPath = await findLessonVideoPath(moduleDir, postIndex, post.title);
+          if (videoPath) database?.recordDownloadedVideo(stateId, videoPath);
         }
         const needsContent =
           !options.skipContent && (options.force === true || retryFailed || !syncStatus.content);
@@ -462,6 +469,10 @@ export async function syncHighLevelCommand(
           recordVideoDownloadResult(database, outcome.task, outcome.result, outcome.error);
         }
       }
+    }
+
+    if (options.transcribe && database) {
+      await runRequestedTranscription(database, config, options, shutdown.shouldContinue);
     }
 
     console.log(chalk.green("\n✅ Sync complete!\n"));

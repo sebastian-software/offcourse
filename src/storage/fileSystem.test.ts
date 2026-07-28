@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   downloadFile,
+  findLessonVideoPath,
   getLessonBasename,
   getVideoPath,
   getMarkdownPath,
@@ -126,6 +127,17 @@ describe("fileSystem", () => {
     it("handles nested paths", () => {
       const path = getVideoPath("/home/user/Downloads/courses/test", 5, "Lesson Six");
       expect(toPosix(path)).toBe("/home/user/Downloads/courses/test/06-lesson-six.mp4");
+    });
+  });
+
+  describe("findLessonVideoPath", () => {
+    it("returns the retained file after a lesson position changes", async () => {
+      const directory = await mkdtemp(join(tmpdir(), "offcourse-files-"));
+      tempDirectories.push(directory);
+      const retainedPath = join(directory, "01-welcome.mp4");
+      await writeFile(retainedPath, "video");
+
+      await expect(findLessonVideoPath(directory, 4, "Welcome")).resolves.toBe(retainedPath);
     });
   });
 

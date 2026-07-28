@@ -40,6 +40,31 @@ export function getVideoPath(moduleDir: string, lessonIndex: number, lessonName:
 }
 
 /**
+ * Resolves a downloaded lesson video, including files retained after lesson reordering.
+ */
+export async function findLessonVideoPath(
+  moduleDir: string,
+  lessonIndex: number,
+  lessonName: string
+): Promise<string | null> {
+  const exactPath = getVideoPath(moduleDir, lessonIndex, lessonName);
+  if (await pathExists(exactPath)) return exactPath;
+
+  let files: string[];
+  try {
+    files = await readdir(moduleDir);
+  } catch {
+    return null;
+  }
+
+  const lessonSlug = slugify(lessonName);
+  if (!lessonSlug) return null;
+  const expected = `${lessonSlug}.mp4`;
+  const matches = files.filter((file) => file.replace(/^\d+-/, "") === expected);
+  return matches.length === 1 && matches[0] ? join(moduleDir, matches[0]) : null;
+}
+
+/**
  * Gets the markdown file path for a lesson.
  * Markdown files are stored directly in the module directory with lesson name.
  */
@@ -144,10 +169,11 @@ export async function isLessonSynced(
   lessonIndex: number,
   lessonName: string
 ): Promise<{ video: boolean; content: boolean }> {
-  const [exactVideo, exactContent] = await Promise.all([
-    pathExists(getVideoPath(moduleDir, lessonIndex, lessonName)),
+  const [videoPath, exactContent] = await Promise.all([
+    findLessonVideoPath(moduleDir, lessonIndex, lessonName),
     pathExists(getMarkdownPath(moduleDir, lessonIndex, lessonName)),
   ]);
+  const exactVideo = videoPath !== null;
 
   if (exactVideo && exactContent) return { video: true, content: true };
 

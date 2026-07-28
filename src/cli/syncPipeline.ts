@@ -7,7 +7,14 @@ import {
   type ProgressCallback,
   type VideoDownloadTask,
 } from "../downloader/index.js";
+import type { Config } from "../config/schema.js";
 import { parallelProcess, type ParallelWorkerResult } from "../shared/parallelWorker.js";
+import type { CourseDatabase } from "../state/index.js";
+import {
+  transcribeCourseVideos,
+  type CourseTranscriptionSummary,
+  type TranscriptionCliOptions,
+} from "../transcription/index.js";
 
 const PROGRESS_FORMAT = "   {bar} {percentage}% | {value}/{total} | {status}";
 
@@ -112,6 +119,70 @@ export interface DownloadVideoTasksOptions {
   shouldContinue?: () => boolean;
   heading?: string;
   downloadTask?: (task: VideoDownloadTask, onProgress: ProgressCallback) => Promise<DownloadResult>;
+}
+
+export interface RequestedTranscriptionOptions extends TranscriptionCliOptions {
+  force?: boolean;
+}
+
+/**
+ * Runs the optional, provider-independent Cuttledoc stage after video downloads.
+ */
+export async function runRequestedTranscription(
+  database: CourseDatabase,
+  config: Config,
+  options: RequestedTranscriptionOptions,
+  shouldContinue: () => boolean = () => true
+): Promise<CourseTranscriptionSummary | null> {
+  if (!options.transcribe) return null;
+
+  console.log(chalk.blue("\n🎙️ Transcribing course videos...\n"));
+  const summary = await transcribeCourseVideos(database, config, {
+    ...options,
+    shouldContinue,
+    onProgress: ({ phase, candidate, completed, total, error }) => {
+      const position = `${completed}/${total}`;
+      if (phase === "starting") {
+        console.log(chalk.gray(`   [${position}] ${truncateSyncLabel(candidate.lessonName)}`));
+      } else if (phase === "completed") {
+        console.log(chalk.green(`   ✓ ${truncateSyncLabel(candidate.lessonName)}`));
+      } else {
+        console.error(
+          chalk.red(`   ✗ ${truncateSyncLabel(candidate.lessonName)}: ${error ?? "Failed"}`)
+        );
+      }
+    },
+  });
+
+  if (summary.attempted === 0) {
+    console.log(chalk.gray("   No pending videos to transcribe"));
+    return summary;
+  }
+
+  console.log(
+    chalk.gray(
+      `   Cuttledoc ${summary.cuttledocVersion ?? "unknown"}: ${summary.completed}/${summary.attempted} completed in ${formatElapsed(summary.wallDurationMs)}`
+    )
+  );
+  if (summary.estimatedProcessOverheadMs > 0) {
+    console.log(
+      chalk.gray(
+        `   Process startup overhead: ~${formatElapsed(summary.estimatedProcessOverheadMs)}`
+      )
+    );
+  }
+  if (summary.failures.length > 0) {
+    throw new Error(
+      `${summary.failures.length} transcription(s) failed; rerun with --transcribe to retry`
+    );
+  }
+
+  return summary;
+}
+
+function formatElapsed(durationMs: number): string {
+  if (durationMs < 1000) return `${Math.round(durationMs)} ms`;
+  return `${(durationMs / 1000).toFixed(1)} s`;
 }
 
 /**

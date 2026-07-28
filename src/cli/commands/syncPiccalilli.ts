@@ -27,12 +27,18 @@ import {
 import {
   createCourseDirectory,
   createModuleDirectory,
+  findLessonVideoPath,
   getDownloadFilePath,
   getVideoPath,
   isLessonSynced,
   saveMarkdown,
 } from "../../storage/fileSystem.js";
-import { downloadVideoTasks, runParallelSyncStage } from "../syncPipeline.js";
+import {
+  downloadVideoTasks,
+  runParallelSyncStage,
+  runRequestedTranscription,
+} from "../syncPipeline.js";
+import type { TranscriptionCliOptions } from "../../transcription/index.js";
 import {
   initializeCourseState,
   LessonStatus,
@@ -45,7 +51,7 @@ import {
 
 const shutdown = createShutdownManager();
 
-export interface SyncPiccalilliOptions {
+export interface SyncPiccalilliOptions extends TranscriptionCliOptions {
   skipVideos?: boolean;
   skipContent?: boolean;
   dryRun?: boolean;
@@ -178,8 +184,12 @@ async function processLessons(
       const syncStatus = await isLessonSynced(moduleDir, lesson.index, lesson.name);
       const stateLesson = getDatabase()?.getLessonByUrl(lesson.url);
       const retryFailed = retryLessonIds.has(stateId);
-      if (syncStatus.video && stateLesson?.status !== LessonStatus.DOWNLOADED) {
-        getDatabase()?.markLessonDownloaded(stateId);
+      if (syncStatus.video) {
+        if (stateLesson?.status !== LessonStatus.DOWNLOADED) {
+          getDatabase()?.markLessonDownloaded(stateId);
+        }
+        const videoPath = await findLessonVideoPath(moduleDir, lesson.index, lesson.name);
+        if (videoPath) getDatabase()?.recordDownloadedVideo(stateId, videoPath);
       }
       const force = options.force ?? false;
       const needsContent = !options.skipContent && (force || retryFailed || !syncStatus.content);
@@ -430,6 +440,9 @@ export async function syncPiccalilliCommand(
     if (currentDatabase) {
       for (const outcome of downloads.outcomes) {
         recordVideoDownloadResult(currentDatabase, outcome.task, outcome.result, outcome.error);
+      }
+      if (options.transcribe) {
+        await runRequestedTranscription(currentDatabase, config, options, shutdown.shouldContinue);
       }
     }
 
