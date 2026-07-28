@@ -169,6 +169,13 @@ describe("CourseDatabase", () => {
         (column) => column.name
       )
     ).toContain("retry_count");
+    expect(
+      (
+        raw.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as {
+          name: string;
+        }[]
+      ).map((table) => table.name)
+    ).toEqual(expect.arrayContaining(["downloaded_videos", "transcriptions"]));
     const indexes = raw.prepare("PRAGMA index_list(lessons)").all() as {
       name: string;
       unique: number;
@@ -231,6 +238,13 @@ describe("CourseDatabase", () => {
     );
 
     expect(columns).toEqual(expect.arrayContaining(["is_locked", "retry_count"]));
+    expect(
+      (
+        raw.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as {
+          name: string;
+        }[]
+      ).map((table) => table.name)
+    ).toEqual(expect.arrayContaining(["downloaded_videos", "transcriptions"]));
     expect(indexes).toEqual(expect.arrayContaining(["idx_lessons_url", "idx_lessons_url_unique"]));
     expect(raw.pragma("user_version", { simple: true })).toBe(DATABASE_SCHEMA_VERSION);
 
@@ -528,6 +542,105 @@ describe("CourseDatabase", () => {
     database.resetRetryCount(retryable.id);
     expect(database.getLessonByUrl(retryable.url)?.retryCount).toBe(0);
     expect(database.incrementRetryCount(999_999)).toBe(0);
+  });
+
+  it("persists downloaded videos and retryable transcription state", () => {
+    const database = createDatabase();
+    const lesson = addLesson(database);
+    database.markLessonDownloaded(lesson.id, 1234);
+    const video = database.recordDownloadedVideo(lesson.id, "/courses/lesson.mp4", 1234);
+
+    expect(database.getDownloadedVideos()).toEqual([
+      expect.objectContaining({
+        id: video.id,
+        lessonId: lesson.id,
+        path: "/courses/lesson.mp4",
+        fileSize: 1234,
+      }),
+    ]);
+    expect(database.getTranscriptionCandidates(4)).toEqual([
+      expect.objectContaining({
+        videoId: video.id,
+        lessonId: lesson.id,
+        lessonName: "Lesson 1",
+        moduleName: "Module 1",
+        videoPath: "/courses/lesson.mp4",
+        status: null,
+        attemptCount: 0,
+      }),
+    ]);
+
+    database.markTranscriptionStarted(video.id, {
+      language: "de-DE",
+      backend: "apple-speech",
+      enhancement: "off",
+      cuttledocVersion: "0.1.0",
+    });
+    expect(database.getTranscription(video.id)).toMatchObject({
+      status: "running",
+      attemptCount: 1,
+      language: "de-DE",
+      backend: "apple-speech",
+      cuttledocVersion: "0.1.0",
+    });
+
+    database.markTranscriptionError(video.id, "BACKEND_UNAVAILABLE", "Backend unavailable");
+    expect(database.getTranscriptionCandidates(4)[0]).toMatchObject({
+      videoId: video.id,
+      status: "error",
+      attemptCount: 1,
+    });
+
+    database.markTranscriptionStarted(video.id, {
+      language: "de-DE",
+      backend: "apple-speech",
+      enhancement: "local",
+      cuttledocVersion: "0.1.1",
+    });
+    database.markTranscriptionCompleted(video.id, {
+      jsonPath: "/courses/lesson.transcript.json",
+      markdownPath: "/courses/lesson.transcript.md",
+      wallDurationMs: 1500,
+      mediaDurationMs: 12_500,
+      processingDurationMs: 900,
+    });
+
+    expect(database.getTranscription(video.id)).toMatchObject({
+      status: "completed",
+      attemptCount: 2,
+      enhancement: "local",
+      cuttledocVersion: "0.1.1",
+      jsonPath: "/courses/lesson.transcript.json",
+      markdownPath: "/courses/lesson.transcript.md",
+      wallDurationMs: 1500,
+      mediaDurationMs: 12_500,
+      processingDurationMs: 900,
+      errorCode: null,
+      errorMessage: null,
+    });
+    expect(database.getTranscriptionCandidates(4)).toEqual([]);
+    expect(database.getTranscriptionCandidates(4, true)).toHaveLength(1);
+  });
+
+  it("stops retrying transcriptions after the configured attempt limit", () => {
+    const database = createDatabase();
+    const lesson = addLesson(database);
+    database.markLessonDownloaded(lesson.id);
+    const video = database.recordDownloadedVideo(lesson.id, "/courses/lesson.mp4");
+    const start = {
+      language: "auto",
+      backend: "auto",
+      enhancement: "off",
+      cuttledocVersion: "0.1.0",
+    };
+
+    database.markTranscriptionStarted(video.id, start);
+    database.markTranscriptionError(video.id, "TRANSCRIPTION_FAILED", "first");
+    database.markTranscriptionStarted(video.id, start);
+    database.markTranscriptionError(video.id, "TRANSCRIPTION_FAILED", "second");
+
+    expect(database.getTranscriptionCandidates(2)).toEqual([]);
+    expect(database.getTranscriptionCandidates(3)).toHaveLength(1);
   });
 
   it("supports error, skip, retry queueing, and force-reset state transitions", () => {

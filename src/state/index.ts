@@ -1,16 +1,23 @@
 export {
   CourseDatabase,
   LessonStatus,
+  TranscriptionStatus,
   VideoType,
   extractCommunitySlug,
   isSkoolUrl,
   getDbDir,
   getDbPath,
   type CourseMetadata,
+  type DownloadedVideoRecord,
   type LessonRecord,
   type LessonStatusType,
   type LessonWithModule,
   type ModuleRecord,
+  type TranscriptionCandidate,
+  type TranscriptionCompletion,
+  type TranscriptionRecord,
+  type TranscriptionStart,
+  type TranscriptionStatusType,
   type VideoTypeValue,
 } from "./database.js";
 

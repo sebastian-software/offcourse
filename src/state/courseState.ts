@@ -230,6 +230,7 @@ export function recordVideoDownloadResult(
 ): void {
   if (result?.success) {
     database.markLessonDownloaded(task.lessonId);
+    database.recordDownloadedVideo(task.lessonId, task.outputPath);
     return;
   }
 

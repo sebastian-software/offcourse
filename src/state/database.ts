@@ -16,6 +16,15 @@ export const LessonStatus = {
 
 export type LessonStatusType = (typeof LessonStatus)[keyof typeof LessonStatus];
 
+export const TranscriptionStatus = {
+  RUNNING: "running",
+  COMPLETED: "completed",
+  ERROR: "error",
+} as const;
+
+export type TranscriptionStatusType =
+  (typeof TranscriptionStatus)[keyof typeof TranscriptionStatus];
+
 function lessonStatusPriority(status: string): number {
   switch (status) {
     case LessonStatus.DOWNLOADED:
@@ -48,7 +57,7 @@ export const VideoType = {
 export type VideoTypeValue = (typeof VideoType)[keyof typeof VideoType];
 
 /** Current SQLite schema version stored in PRAGMA user_version. */
-export const DATABASE_SCHEMA_VERSION = 4;
+export const DATABASE_SCHEMA_VERSION = 5;
 
 /**
  * Module record from database.
@@ -106,6 +115,60 @@ export interface CourseMetadata {
   lastSyncAt: string | null;
   totalModules: number;
   totalLessons: number;
+}
+
+export interface DownloadedVideoRecord {
+  id: number;
+  lessonId: number;
+  path: string;
+  fileSize: number | null;
+  downloadedAt: string;
+  updatedAt: string;
+}
+
+export interface TranscriptionRecord {
+  videoId: number;
+  status: TranscriptionStatusType;
+  jsonPath: string | null;
+  markdownPath: string | null;
+  language: string;
+  backend: string;
+  enhancement: string;
+  cuttledocVersion: string;
+  attemptCount: number;
+  wallDurationMs: number | null;
+  mediaDurationMs: number | null;
+  processingDurationMs: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+}
+
+export interface TranscriptionCandidate {
+  videoId: number;
+  lessonId: number;
+  lessonName: string;
+  moduleName: string;
+  videoPath: string;
+  status: TranscriptionStatusType | null;
+  attemptCount: number;
+}
+
+export interface TranscriptionStart {
+  language: string;
+  backend: string;
+  enhancement: string;
+  cuttledocVersion: string;
+}
+
+export interface TranscriptionCompletion {
+  jsonPath: string;
+  markdownPath: string;
+  wallDurationMs: number;
+  mediaDurationMs: number;
+  processingDurationMs: number;
 }
 
 /**
@@ -210,6 +273,38 @@ export class CourseDatabase {
         UNIQUE(module_id, slug)
       );
 
+      CREATE TABLE IF NOT EXISTS downloaded_videos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        lesson_id INTEGER NOT NULL,
+        path TEXT NOT NULL,
+        file_size INTEGER,
+        downloaded_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (lesson_id) REFERENCES lessons(id),
+        UNIQUE(lesson_id, path)
+      );
+
+      CREATE TABLE IF NOT EXISTS transcriptions (
+        video_id INTEGER PRIMARY KEY,
+        status TEXT NOT NULL,
+        json_path TEXT,
+        markdown_path TEXT,
+        language TEXT NOT NULL,
+        backend TEXT NOT NULL,
+        enhancement TEXT NOT NULL,
+        cuttledoc_version TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        wall_duration_ms REAL,
+        media_duration_ms REAL,
+        processing_duration_ms REAL,
+        error_code TEXT,
+        error_message TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        completed_at TEXT,
+        FOREIGN KEY (video_id) REFERENCES downloaded_videos(id)
+      );
+
     `);
 
     // Run migrations for existing databases
@@ -297,6 +392,44 @@ export class CourseDatabase {
           `);
         },
       },
+      {
+        version: 5,
+        up: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS downloaded_videos (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              lesson_id INTEGER NOT NULL,
+              path TEXT NOT NULL,
+              file_size INTEGER,
+              downloaded_at TEXT DEFAULT (datetime('now')),
+              updated_at TEXT DEFAULT (datetime('now')),
+              FOREIGN KEY (lesson_id) REFERENCES lessons(id),
+              UNIQUE(lesson_id, path)
+            );
+
+            CREATE TABLE IF NOT EXISTS transcriptions (
+              video_id INTEGER PRIMARY KEY,
+              status TEXT NOT NULL,
+              json_path TEXT,
+              markdown_path TEXT,
+              language TEXT NOT NULL,
+              backend TEXT NOT NULL,
+              enhancement TEXT NOT NULL,
+              cuttledoc_version TEXT NOT NULL,
+              attempt_count INTEGER NOT NULL DEFAULT 0,
+              wall_duration_ms REAL,
+              media_duration_ms REAL,
+              processing_duration_ms REAL,
+              error_code TEXT,
+              error_message TEXT,
+              created_at TEXT DEFAULT (datetime('now')),
+              updated_at TEXT DEFAULT (datetime('now')),
+              completed_at TEXT,
+              FOREIGN KEY (video_id) REFERENCES downloaded_videos(id)
+            );
+          `);
+        },
+      },
     ];
 
     // Keep each schema change and its version stamp atomic so a failed migration
@@ -317,6 +450,10 @@ export class CourseDatabase {
       CREATE INDEX IF NOT EXISTS idx_lessons_status ON lessons(status);
       CREATE INDEX IF NOT EXISTS idx_lessons_module ON lessons(module_id);
       CREATE INDEX IF NOT EXISTS idx_lessons_locked ON lessons(is_locked);
+      CREATE INDEX IF NOT EXISTS idx_downloaded_videos_lesson
+        ON downloaded_videos(lesson_id);
+      CREATE INDEX IF NOT EXISTS idx_transcriptions_status
+        ON transcriptions(status);
     `);
   }
 
@@ -704,6 +841,153 @@ export class CourseDatabase {
     stmt.run(fileSize ?? null, lessonId);
   }
 
+  /** Record the stable local path for one downloaded lesson video. */
+  recordDownloadedVideo(lessonId: number, path: string, fileSize?: number): DownloadedVideoRecord {
+    const row = this.db
+      .prepare(
+        `INSERT INTO downloaded_videos (
+           lesson_id, path, file_size, downloaded_at, updated_at
+         )
+         VALUES (?, ?, ?, datetime('now'), datetime('now'))
+         ON CONFLICT(lesson_id, path) DO UPDATE SET
+           file_size = excluded.file_size,
+           downloaded_at = datetime('now'),
+           updated_at = datetime('now')
+         RETURNING *`
+      )
+      .get(lessonId, path, fileSize ?? null) as RawDownloadedVideoRow;
+    return this.mapDownloadedVideoRow(row);
+  }
+
+  getDownloadedVideos(): DownloadedVideoRecord[] {
+    const rows = this.db
+      .prepare("SELECT * FROM downloaded_videos ORDER BY lesson_id, id")
+      .all() as RawDownloadedVideoRow[];
+    return rows.map((row) => this.mapDownloadedVideoRow(row));
+  }
+
+  getTranscriptionCandidates(
+    maxAttempts: number,
+    includeCompleted = false
+  ): TranscriptionCandidate[] {
+    const rows = this.db
+      .prepare(
+        `SELECT
+           video.id AS video_id,
+           lesson.id AS lesson_id,
+           lesson.name AS lesson_name,
+           module.name AS module_name,
+           video.path AS video_path,
+           transcription.status AS transcription_status,
+           COALESCE(transcription.attempt_count, 0) AS attempt_count
+         FROM downloaded_videos AS video
+         JOIN lessons AS lesson ON lesson.id = video.lesson_id
+         JOIN modules AS module ON module.id = lesson.module_id
+         LEFT JOIN transcriptions AS transcription ON transcription.video_id = video.id
+         WHERE lesson.status = 'downloaded'
+           AND (
+             ? = 1
+             OR transcription.video_id IS NULL
+             OR (
+               transcription.status IN ('running', 'error')
+               AND transcription.attempt_count < ?
+             )
+           )
+         ORDER BY module.position, lesson.position, video.id`
+      )
+      .all(includeCompleted ? 1 : 0, maxAttempts) as RawTranscriptionCandidateRow[];
+    return rows.map((row) => ({
+      videoId: row.video_id,
+      lessonId: row.lesson_id,
+      lessonName: row.lesson_name,
+      moduleName: row.module_name,
+      videoPath: row.video_path,
+      status: row.transcription_status as TranscriptionStatusType | null,
+      attemptCount: row.attempt_count,
+    }));
+  }
+
+  markTranscriptionStarted(videoId: number, start: TranscriptionStart): void {
+    this.db
+      .prepare(
+        `INSERT INTO transcriptions (
+           video_id,
+           status,
+           language,
+           backend,
+           enhancement,
+           cuttledoc_version,
+           attempt_count,
+           created_at,
+           updated_at
+         )
+         VALUES (?, 'running', ?, ?, ?, ?, 1, datetime('now'), datetime('now'))
+         ON CONFLICT(video_id) DO UPDATE SET
+           status = 'running',
+           json_path = NULL,
+           markdown_path = NULL,
+           language = excluded.language,
+           backend = excluded.backend,
+           enhancement = excluded.enhancement,
+           cuttledoc_version = excluded.cuttledoc_version,
+           attempt_count = transcriptions.attempt_count + 1,
+           wall_duration_ms = NULL,
+           media_duration_ms = NULL,
+           processing_duration_ms = NULL,
+           error_code = NULL,
+           error_message = NULL,
+           updated_at = datetime('now'),
+           completed_at = NULL`
+      )
+      .run(videoId, start.language, start.backend, start.enhancement, start.cuttledocVersion);
+  }
+
+  markTranscriptionCompleted(videoId: number, completion: TranscriptionCompletion): void {
+    this.db
+      .prepare(
+        `UPDATE transcriptions SET
+           status = 'completed',
+           json_path = ?,
+           markdown_path = ?,
+           wall_duration_ms = ?,
+           media_duration_ms = ?,
+           processing_duration_ms = ?,
+           error_code = NULL,
+           error_message = NULL,
+           updated_at = datetime('now'),
+           completed_at = datetime('now')
+         WHERE video_id = ?`
+      )
+      .run(
+        completion.jsonPath,
+        completion.markdownPath,
+        completion.wallDurationMs,
+        completion.mediaDurationMs,
+        completion.processingDurationMs,
+        videoId
+      );
+  }
+
+  markTranscriptionError(videoId: number, errorCode: string, errorMessage: string): void {
+    this.db
+      .prepare(
+        `UPDATE transcriptions SET
+           status = 'error',
+           error_code = ?,
+           error_message = ?,
+           updated_at = datetime('now'),
+           completed_at = NULL
+         WHERE video_id = ?`
+      )
+      .run(errorCode, errorMessage, videoId);
+  }
+
+  getTranscription(videoId: number): TranscriptionRecord | null {
+    const row = this.db.prepare("SELECT * FROM transcriptions WHERE video_id = ?").get(videoId) as
+      RawTranscriptionRow | undefined;
+    return row ? this.mapTranscriptionRow(row) : null;
+  }
+
   /**
    * Mark lesson as error.
    */
@@ -1010,6 +1294,39 @@ export class CourseDatabase {
       updatedAt: row.updated_at,
     };
   }
+
+  private mapDownloadedVideoRow(row: RawDownloadedVideoRow): DownloadedVideoRecord {
+    return {
+      id: row.id,
+      lessonId: row.lesson_id,
+      path: row.path,
+      fileSize: row.file_size,
+      downloadedAt: row.downloaded_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private mapTranscriptionRow(row: RawTranscriptionRow): TranscriptionRecord {
+    return {
+      videoId: row.video_id,
+      status: row.status as TranscriptionStatusType,
+      jsonPath: row.json_path,
+      markdownPath: row.markdown_path,
+      language: row.language,
+      backend: row.backend,
+      enhancement: row.enhancement,
+      cuttledocVersion: row.cuttledoc_version,
+      attemptCount: row.attempt_count,
+      wallDurationMs: row.wall_duration_ms,
+      mediaDurationMs: row.media_duration_ms,
+      processingDurationMs: row.processing_duration_ms,
+      errorCode: row.error_code,
+      errorMessage: row.error_message,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      completedAt: row.completed_at,
+    };
+  }
 }
 
 /**
@@ -1069,4 +1386,43 @@ interface RawLessonWithModuleRow extends RawLessonRow {
   module_name: string;
   module_slug: string;
   module_position: number;
+}
+
+interface RawDownloadedVideoRow {
+  id: number;
+  lesson_id: number;
+  path: string;
+  file_size: number | null;
+  downloaded_at: string;
+  updated_at: string;
+}
+
+interface RawTranscriptionCandidateRow {
+  video_id: number;
+  lesson_id: number;
+  lesson_name: string;
+  module_name: string;
+  video_path: string;
+  transcription_status: string | null;
+  attempt_count: number;
+}
+
+interface RawTranscriptionRow {
+  video_id: number;
+  status: string;
+  json_path: string | null;
+  markdown_path: string | null;
+  language: string;
+  backend: string;
+  enhancement: string;
+  cuttledoc_version: string;
+  attempt_count: number;
+  wall_duration_ms: number | null;
+  media_duration_ms: number | null;
+  processing_duration_ms: number | null;
+  error_code: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
 }
