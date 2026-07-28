@@ -88,6 +88,11 @@ program
   .option("--visible", "Show browser window (default: headless)")
   .option("-q, --quality <quality>", "Preferred video quality (e.g., 720p, 1080p)")
   .option("--course-name <name>", "Override detected course name")
+  .option("--transcribe", "Transcribe downloaded videos with the Cuttledoc CLI")
+  .option("--cuttledoc-path <path>", "Cuttledoc executable (default: config or PATH)")
+  .option("--transcription-language <tag>", "Transcription language tag (default: auto)")
+  .option("--transcription-backend <id>", "Cuttledoc backend (default: auto)")
+  .option("--transcription-enhancement <mode>", "Transcript enhancement: off, local, or gemini")
   .action(
     wrapAction(
       async (

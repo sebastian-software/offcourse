@@ -23,6 +23,10 @@ export const configSchema = z.object({
   extractionConcurrency: z.number().int().min(1).max(8).default(4),
   retryAttempts: z.number().int().min(0).max(10).default(3),
   headless: z.boolean().default(true),
+  cuttledocPath: z.string().trim().min(1).default("cuttledoc"),
+  transcriptionLanguage: z.string().trim().min(1).default("auto"),
+  transcriptionBackend: z.string().trim().min(1).default("auto"),
+  transcriptionEnhancement: z.enum(["off", "local", "gemini"]).default("off"),
 });
 
 export type Config = z.infer<typeof configSchema>;

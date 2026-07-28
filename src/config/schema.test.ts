@@ -11,6 +11,10 @@ describe("configSchema", () => {
       extractionConcurrency: 4,
       retryAttempts: 3,
       headless: true,
+      cuttledocPath: "cuttledoc",
+      transcriptionLanguage: "auto",
+      transcriptionBackend: "auto",
+      transcriptionEnhancement: "off",
     });
   });
 
@@ -22,6 +26,10 @@ describe("configSchema", () => {
       extractionConcurrency: 6,
       retryAttempts: 5,
       headless: false,
+      cuttledocPath: "/opt/cuttledoc/bin/cuttledoc",
+      transcriptionLanguage: "de-DE",
+      transcriptionBackend: "apple-speech",
+      transcriptionEnhancement: "local" as const,
     };
     const result = configSchema.parse(input);
     expect(result).toEqual(input);
@@ -44,6 +52,13 @@ describe("configSchema", () => {
   it("rejects retry attempts outside valid range", () => {
     expect(() => configSchema.parse({ retryAttempts: -1 })).toThrow();
     expect(() => configSchema.parse({ retryAttempts: 11 })).toThrow();
+  });
+
+  it("rejects empty Cuttledoc process configuration", () => {
+    expect(() => configSchema.parse({ cuttledocPath: " " })).toThrow();
+    expect(() => configSchema.parse({ transcriptionLanguage: "" })).toThrow();
+    expect(() => configSchema.parse({ transcriptionBackend: " " })).toThrow();
+    expect(() => configSchema.parse({ transcriptionEnhancement: "automatic" })).toThrow();
   });
 
   it("accepts all valid video quality values", () => {
