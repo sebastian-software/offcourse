@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.6.0](https://github.com/sebastian-software/offcourse/compare/v1.5.1...v1.6.0) (2026-09-21)
+
+
+### Features
+
+* add cuttledoc process boundary ([0de8e86](https://github.com/sebastian-software/offcourse/commit/0de8e86de3213102a6f5903b50bc7464e65d37b1))
+* automatically fill missing video transcripts during sync ([#133](https://github.com/sebastian-software/offcourse/issues/133)) ([4ca2192](https://github.com/sebastian-software/offcourse/commit/4ca21929298c9ec97d8d06f68342aef34691c8cf))
+* persist course transcriptions ([8858544](https://github.com/sebastian-software/offcourse/commit/88585449f7363fa61d56dab88af39b12f705bb7d))
+* transcribe synced course videos ([c49f227](https://github.com/sebastian-software/offcourse/commit/c49f227edfcc4971fccdf1a11c1b39e3e0ec3f1d))
+
+
+### Bug Fixes
+
+* **deps:** update dependency lint-staged to v17.2.0 ([#128](https://github.com/sebastian-software/offcourse/issues/128)) ([49ff2c6](https://github.com/sebastian-software/offcourse/commit/49ff2c61487de69b71489f20cd12eb338e98b4b5))
+* **deps:** update dependency prettier to v3.9.6 ([#127](https://github.com/sebastian-software/offcourse/issues/127)) ([5d5bf27](https://github.com/sebastian-software/offcourse/commit/5d5bf27f6d54878b173bd15d79cd4d37b5650c99))
+* **deps:** update eslint monorepo to v10.8.0 ([#129](https://github.com/sebastian-software/offcourse/issues/129)) ([0d97d3e](https://github.com/sebastian-software/offcourse/commit/0d97d3e0b141ecc58aabb49fbc04dd8e99c7aefb))
+* **deps:** update pnpm to v11.17.0 ([#126](https://github.com/sebastian-software/offcourse/issues/126)) ([3f2cd5d](https://github.com/sebastian-software/offcourse/commit/3f2cd5d0cede4e3521c66e52e1165c4b4093d39b))
+* **deps:** update typescript-eslint monorepo to v8.65.0 ([#131](https://github.com/sebastian-software/offcourse/issues/131)) ([ecec1b6](https://github.com/sebastian-software/offcourse/commit/ecec1b69188ffdac78a57ba9a6c2fd05314c4d0d))
+
 ## [1.5.1](https://github.com/sebastian-software/offcourse/compare/v1.5.0...v1.5.1) (2026-07-22)
 
 ### Bug Fixes
