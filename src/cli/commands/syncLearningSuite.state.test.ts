@@ -69,6 +69,7 @@ vi.mock("../../storage/fileSystem.js", () => ({
   saveMarkdown: mocks.saveMarkdown,
 }));
 vi.mock("../syncPipeline.js", () => ({
+  runRequestedTranscription: vi.fn().mockResolvedValue(null),
   createSyncProgressBar: vi.fn(),
   downloadVideoTasks: mocks.downloadVideoTasks,
   formatHtmlLessonMarkdown: vi.fn(() => "# Lesson\n"),

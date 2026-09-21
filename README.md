@@ -26,8 +26,8 @@ npx offcourse sync <course-url>
 ```
 
 Requires Node.js 22+ and [ffmpeg](https://ffmpeg.org/) for HLS videos.
-Optional transcription requires the native
-[Cuttledoc CLI](https://github.com/sebastian-software/cuttledoc) on `PATH`.
+Video transcription is enabled by default and requires the native
+[Cuttledoc CLI](https://github.com/sebastian-software/cuttledoc) on `PATH`. Use `--no-transcribe` to download without transcription.
 
 ## Supported Platforms
 
@@ -46,10 +46,12 @@ Optional transcription requires the native
 offcourse sync <url>
 
 # Sync with options
-offcourse sync <url> --skip-videos      # Text only
+offcourse sync <url> --skip-videos      # Skip downloading videos
 offcourse sync <url> --dry-run          # Preview
 offcourse sync <url> --limit 5          # Test with 5 lessons
-offcourse sync <url> --transcribe       # Download, then transcribe with Cuttledoc
+offcourse sync <url>                    # Download, then transcribe with Cuttledoc
+offcourse sync <url> --no-transcribe    # Download without transcription
+offcourse enrich ~/Courses            # Add missing transcripts to existing downloads
 
 # Skool login with community access verification
 offcourse login https://www.skool.com/<community>/classroom
@@ -88,20 +90,53 @@ installed and released separately.
 cuttledoc --version
 
 # Transcribe new downloads and retry unfinished jobs from earlier runs
-offcourse sync <course-url> --transcribe
+offcourse sync <course-url>
 
 # Override the configured language, backend, or enhancement for one run
-offcourse sync <course-url> --transcribe \
+offcourse sync <course-url> \
   --transcription-language en \
   --transcription-backend auto \
   --transcription-enhancement off
 ```
 
-Transcription is opt-in and sequential by default to keep model memory bounded. For every video,
+Transcription runs automatically after downloads and is sequential to keep model memory bounded.
+Use `--no-transcribe` to disable it for a sync; `--dry-run` never transcribes.
+`--skip-videos` only skips downloads: existing local videos can still be transcribed. For every video,
 Offcourse writes `<video-stem>.transcript.json` with Cuttledoc's complete machine-readable result
 and `<video-stem>.transcript.md` for reading. SQLite stores the Cuttledoc version, selected settings,
-durations, attempts, and errors. Repeating `--transcribe` skips completed videos and retries only
-unfinished work. `--force --transcribe` regenerates completed transcripts.
+durations, attempts, and errors. Repeating `sync` skips videos with complete transcript files and retries unfinished work up to the
+configured attempt limit. Missing Markdown is restored from valid JSON without running Cuttledoc.
+`sync --force` also regenerates transcripts; use `enrich --force` to regenerate only transcripts.
+
+### Enrich existing downloads
+
+```bash
+# Recursively add missing transcripts without a browser, login, or course database
+offcourse enrich ~/Courses
+
+# Use the configured outputDir (current directory by default)
+offcourse enrich
+
+# Preview missing transcripts without writing files or requiring Cuttledoc
+offcourse enrich ~/Courses --dry-run
+
+# Use a known course language
+offcourse enrich ~/Courses --transcription-language de
+
+# Explicitly replace existing transcripts
+offcourse enrich ~/Courses --force
+```
+
+Enrichment discovers MP4, M4V, MOV, MKV, WebM, AVI, MPEG, and MPG files in nested directories.
+Hidden entries and symbolic links are skipped. Existing valid JSON and nonempty Markdown files
+are left alone. Missing Markdown is rebuilt from JSON; missing or invalid JSON triggers
+transcription while preserving any existing nonempty Markdown, including manual edits.
+Video files and course notes are not changed. Files with the same stem in one directory are
+reported as a conflict before any output is written.
+
+Each video failure is reported while the remaining videos continue. Run the command again to
+retry missing transcripts, including jobs that exhausted the sync attempt limit. Completed files
+are skipped, so interruption does not require restarting the whole archive.
 
 ## Performance
 
@@ -115,13 +150,20 @@ Video downloads that use HLS require ffmpeg. Confirm it is available with `ffmpe
 
 ### Cuttledoc is missing
 
-Transcription is the only feature that requires Cuttledoc. Install a native release from the
+Transcription is the only feature that requires Cuttledoc. It requires the native v3 CLI; the
+older v1/v2 npm releases are not compatible. Follow the native CLI setup instructions in the
 [Cuttledoc repository](https://github.com/sebastian-software/cuttledoc), verify it with
 `cuttledoc --version`, or configure an explicit executable:
 
 ```bash
 offcourse config set cuttledocPath /absolute/path/to/cuttledoc
 ```
+
+If Cuttledoc is missing, downloaded videos remain on disk. Use `sync --no-transcribe` to
+continue downloading and `enrich <directory>` after setting up Cuttledoc to fill in transcripts.
+Local recognition currently requires Apple Silicon with macOS 26+, FFmpeg, and the selected
+backend’s speech assets or model. The default backend selection stays local; no hosted backend
+is enabled automatically.
 
 ### Playwright cannot find Chromium
 

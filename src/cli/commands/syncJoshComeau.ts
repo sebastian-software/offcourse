@@ -188,7 +188,7 @@ async function processLessons(
           !syncStatus.content);
       const needsVideo =
         !options.skipVideos &&
-        (options.transcribe === true ||
+        (options.transcribe !== false ||
           (options.force ?? false) ||
           retryFailed ||
           stateLesson?.status !== LessonStatus.DOWNLOADED);
@@ -543,7 +543,7 @@ export async function syncJoshComeauCommand(
       }
     }
 
-    if (options.transcribe && currentDatabase) {
+    if (options.transcribe !== false && !options.dryRun && currentDatabase) {
       await runRequestedTranscription(currentDatabase, config, options, shutdown.shouldContinue);
     }
 

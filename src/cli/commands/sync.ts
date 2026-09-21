@@ -211,7 +211,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
   const needsValidation = hasExistingData ? hasLessonsPendingValidation(db) : true;
   const needsDownload = hasExistingData ? hasLessonsPendingDownload(db) : true;
   const courseDir = await createCourseDirectory(config.outputDir, communitySlug);
-  if (options.transcribe) {
+  if (options.transcribe !== false && !options.dryRun) {
     await registerKnownDownloadedVideos(db, courseDir);
   }
 
@@ -224,7 +224,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
     !options.dryRun &&
     !options.retryFailed
   ) {
-    if (options.transcribe) {
+    if (options.transcribe !== false && !options.dryRun) {
       await runRequestedTranscription(db, config, options, shutdown.shouldContinue);
     }
     console.log(chalk.green("\n✅ Already complete! Nothing to do.\n"));
@@ -357,7 +357,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
       videoTasks = await buildDownloadTasksFromDb(db, courseDir);
     }
 
-    if (options.transcribe) {
+    if (options.transcribe !== false && !options.dryRun) {
       await runRequestedTranscription(db, config, options, shutdown.shouldContinue);
     }
 

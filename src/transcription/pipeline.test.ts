@@ -148,6 +148,30 @@ describe("course transcription pipeline", () => {
     });
   });
 
+  it("repairs deleted outputs even when the database says completed", async () => {
+    const video = addDownloadedVideo();
+    const process = vi
+      .fn<CuttledocProcessRunner>()
+      .mockResolvedValueOnce(versionOutput)
+      .mockResolvedValueOnce(transcriptionOutput);
+    await transcribeCourseVideos(database, configSchema.parse({}), { runner: process });
+    const paths = transcriptOutputPaths(video.path);
+    await rm(paths.markdownPath);
+    process.mockClear();
+    await transcribeCourseVideos(database, configSchema.parse({}), { runner: process });
+    expect(await readFile(paths.markdownPath, "utf8")).toContain("Corrected transcript.");
+    expect(process).not.toHaveBeenCalled();
+    await rm(paths.jsonPath);
+    await rm(paths.markdownPath);
+    process.mockResolvedValueOnce(versionOutput).mockResolvedValueOnce(transcriptionOutput);
+    await transcribeCourseVideos(database, configSchema.parse({}), { runner: process });
+    expect(database.getTranscription(video.id)).toMatchObject({
+      status: "completed",
+      attemptCount: 2,
+    });
+    expect(process).toHaveBeenCalledTimes(2);
+  });
+
   it("does not inspect Cuttledoc when there is no pending work", async () => {
     const runner = vi.fn<CuttledocProcessRunner>();
     const summary = await transcribeCourseVideos(database, configSchema.parse({}), {

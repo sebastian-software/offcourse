@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   browserClose: vi.fn(),
+  runRequestedTranscription: vi.fn(),
   buildCourseStructure: vi.fn(),
   createCourseDirectory: vi.fn(),
   createModuleDirectory: vi.fn(),
@@ -75,6 +76,7 @@ vi.mock("../../config/configManager.js", () => ({
 vi.mock("../../downloader/index.js", () => ({}));
 vi.mock("../syncPipeline.js", async () => ({
   ...(await vi.importActual<typeof import("../syncPipeline.js")>("../syncPipeline.js")),
+  runRequestedTranscription: mocks.runRequestedTranscription,
   downloadVideoTasks: mocks.downloadVideoTasks,
 }));
 vi.mock("../../shared/auth.js", () => ({
@@ -304,6 +306,14 @@ describe("syncJoshComeauCommand", () => {
     expect(mocks.registerCleanup).toHaveBeenCalledOnce();
     expect(mocks.recordDownloadedVideo).toHaveBeenCalledTimes(2);
     expect(mocks.browserClose).toHaveBeenCalledOnce();
+  });
+
+  it("transcribes by default and honors the opt-out", async () => {
+    await syncJoshComeauCommand(courseUrl, {});
+    expect(mocks.runRequestedTranscription).toHaveBeenCalledOnce();
+    mocks.runRequestedTranscription.mockClear();
+    await syncJoshComeauCommand(courseUrl, { transcribe: false });
+    expect(mocks.runRequestedTranscription).not.toHaveBeenCalled();
   });
 
   it("uses the cached fast path when content exists and videos are skipped", async () => {

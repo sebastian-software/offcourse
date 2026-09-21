@@ -441,7 +441,7 @@ export async function syncPiccalilliCommand(
       for (const outcome of downloads.outcomes) {
         recordVideoDownloadResult(currentDatabase, outcome.task, outcome.result, outcome.error);
       }
-      if (options.transcribe) {
+      if (options.transcribe !== false && !options.dryRun) {
         await runRequestedTranscription(currentDatabase, config, options, shutdown.shouldContinue);
       }
     }
