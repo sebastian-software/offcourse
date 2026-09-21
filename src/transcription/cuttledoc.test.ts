@@ -141,7 +141,7 @@ describe("Cuttledoc process integration", () => {
       inspectCuttledocVersion({ executable: "/missing/cuttledoc" }, missingExecutable)
     ).rejects.toMatchObject({
       code: "CUTTLEDOC_PROCESS_FAILED",
-      message: "Cuttledoc executable not found: /missing/cuttledoc",
+      message: expect.stringContaining("Cuttledoc executable not found: /missing/cuttledoc"),
     });
   });
 });

@@ -28,6 +28,7 @@ import {
 import {
   createCourseDirectory,
   createModuleDirectory,
+  findLessonVideoPaths,
   getDownloadFilePath,
   getVideoPath,
   isLessonSynced,
@@ -180,6 +181,11 @@ async function processLessons(
       const syncStatus = await isLessonSynced(moduleDir, lesson.index, lesson.name);
       const stateLesson = getDatabase()?.getLessonByUrl(lesson.url);
       const retryFailed = retryLessonIds.has(stateId);
+      if (options.transcribe !== false) {
+        const localVideos = await findLessonVideoPaths(moduleDir, lesson.index, lesson.name);
+        for (const videoPath of localVideos)
+          getDatabase()?.recordDownloadedVideo(stateId, videoPath);
+      }
       const needsContent =
         !options.skipContent &&
         ((options.force ?? false) ||
@@ -188,9 +194,9 @@ async function processLessons(
           !syncStatus.content);
       const needsVideo =
         !options.skipVideos &&
-        (options.transcribe === true ||
-          (options.force ?? false) ||
+        ((options.force ?? false) ||
           retryFailed ||
+          !syncStatus.video ||
           stateLesson?.status !== LessonStatus.DOWNLOADED);
 
       if (!needsContent && !needsVideo) {
@@ -543,7 +549,7 @@ export async function syncJoshComeauCommand(
       }
     }
 
-    if (options.transcribe && currentDatabase) {
+    if (options.transcribe !== false && !options.dryRun && currentDatabase) {
       await runRequestedTranscription(currentDatabase, config, options, shutdown.shouldContinue);
     }
 

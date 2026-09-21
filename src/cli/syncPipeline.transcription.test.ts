@@ -38,9 +38,18 @@ describe("runRequestedTranscription", () => {
     vi.restoreAllMocks();
   });
 
-  it("does nothing unless transcription was requested", async () => {
-    await expect(runRequestedTranscription(database, config, {})).resolves.toBeNull();
-    expect(mocks.transcribeCourseVideos).not.toHaveBeenCalled();
+  it.each([{ transcribe: false }, { dryRun: true }])(
+    "skips transcription for %j",
+    async (options) => {
+      await expect(runRequestedTranscription(database, config, options)).resolves.toBeNull();
+      expect(mocks.transcribeCourseVideos).not.toHaveBeenCalled();
+    }
+  );
+
+  it("transcribes by default without an opt-in flag", async () => {
+    mocks.transcribeCourseVideos.mockResolvedValue({ attempted: 0, failures: [] });
+    await runRequestedTranscription(database, config, {});
+    expect(mocks.transcribeCourseVideos).toHaveBeenCalledOnce();
   });
 
   it("forwards CLI overrides and returns the completed summary", async () => {
@@ -104,7 +113,7 @@ describe("runRequestedTranscription", () => {
     });
 
     await expect(runRequestedTranscription(database, config, { transcribe: true })).rejects.toThrow(
-      "rerun with --transcribe to retry"
+      "rerun sync to retry missing transcripts"
     );
   });
 });

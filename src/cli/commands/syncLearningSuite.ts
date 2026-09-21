@@ -510,7 +510,7 @@ export async function syncLearningSuiteCommand(
       }
     }
 
-    if (options.transcribe && database) {
+    if (options.transcribe !== false && !options.dryRun && database) {
       await runRequestedTranscription(database, config, options, shutdown.shouldContinue);
     }
 

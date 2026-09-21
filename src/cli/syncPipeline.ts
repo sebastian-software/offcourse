@@ -122,11 +122,12 @@ export interface DownloadVideoTasksOptions {
 }
 
 export interface RequestedTranscriptionOptions extends TranscriptionCliOptions {
+  dryRun?: boolean;
   force?: boolean;
 }
 
 /**
- * Runs the optional, provider-independent Cuttledoc stage after video downloads.
+ * Runs the default-on, provider-independent Cuttledoc stage after video downloads.
  */
 export async function runRequestedTranscription(
   database: CourseDatabase,
@@ -134,7 +135,7 @@ export async function runRequestedTranscription(
   options: RequestedTranscriptionOptions,
   shouldContinue: () => boolean = () => true
 ): Promise<CourseTranscriptionSummary | null> {
-  if (!options.transcribe) return null;
+  if (options.transcribe === false || options.dryRun || !shouldContinue()) return null;
 
   console.log(chalk.blue("\n🎙️ Transcribing course videos...\n"));
   const summary = await transcribeCourseVideos(database, config, {
@@ -154,14 +155,14 @@ export async function runRequestedTranscription(
     },
   });
 
-  if (summary.attempted === 0) {
+  if (summary.attempted === 0 && summary.failures.length === 0) {
     console.log(chalk.gray("   No pending videos to transcribe"));
     return summary;
   }
 
   console.log(
     chalk.gray(
-      `   Cuttledoc ${summary.cuttledocVersion ?? "unknown"}: ${summary.completed}/${summary.attempted} completed in ${formatElapsed(summary.wallDurationMs)}`
+      `   ${summary.cuttledocVersion ? `Cuttledoc ${summary.cuttledocVersion}` : "Transcripts"}: ${summary.completed}/${summary.attempted} completed in ${formatElapsed(summary.wallDurationMs)}`
     )
   );
   if (summary.estimatedProcessOverheadMs > 0) {
@@ -173,7 +174,7 @@ export async function runRequestedTranscription(
   }
   if (summary.failures.length > 0) {
     throw new Error(
-      `${summary.failures.length} transcription(s) failed; rerun with --transcribe to retry`
+      `${summary.failures.length} transcription(s) failed; rerun sync to retry missing transcripts`
     );
   }
 

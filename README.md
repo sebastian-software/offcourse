@@ -26,8 +26,8 @@ npx offcourse sync <course-url>
 ```
 
 Requires Node.js 22+ and [ffmpeg](https://ffmpeg.org/) for HLS videos.
-Optional transcription requires the native
-[Cuttledoc CLI](https://github.com/sebastian-software/cuttledoc) on `PATH`.
+Video transcription is enabled by default and requires the native
+[Cuttledoc CLI](https://github.com/sebastian-software/cuttledoc) on `PATH`. Use `--no-transcribe` to download without transcription.
 
 ## Supported Platforms
 
@@ -46,10 +46,11 @@ Optional transcription requires the native
 offcourse sync <url>
 
 # Sync with options
-offcourse sync <url> --skip-videos      # Text only
+offcourse sync <url> --skip-videos      # Skip downloading videos
 offcourse sync <url> --dry-run          # Preview
 offcourse sync <url> --limit 5          # Test with 5 lessons
-offcourse sync <url> --transcribe       # Download, then transcribe with Cuttledoc
+offcourse sync <url>                    # Download, then transcribe with Cuttledoc
+offcourse sync <url> --no-transcribe    # Download without transcription
 
 # Skool login with community access verification
 offcourse login https://www.skool.com/<community>/classroom
@@ -88,20 +89,32 @@ installed and released separately.
 cuttledoc --version
 
 # Transcribe new downloads and retry unfinished jobs from earlier runs
-offcourse sync <course-url> --transcribe
+offcourse sync <course-url>
 
 # Override the configured language, backend, or enhancement for one run
-offcourse sync <course-url> --transcribe \
+offcourse sync <course-url> \
   --transcription-language en \
   --transcription-backend auto \
   --transcription-enhancement off
 ```
 
-Transcription is opt-in and sequential by default to keep model memory bounded. For every video,
+Transcription runs automatically after downloads and is sequential to keep model memory bounded.
+Use `--no-transcribe` to disable it for a sync; `--dry-run` never transcribes.
+`--skip-videos` only skips downloads: existing local videos can still be transcribed. For every video,
 Offcourse writes `<video-stem>.transcript.json` with Cuttledoc's complete machine-readable result
 and `<video-stem>.transcript.md` for reading. SQLite stores the Cuttledoc version, selected settings,
-durations, attempts, and errors. Repeating `--transcribe` skips completed videos and retries only
-unfinished work. `--force --transcribe` regenerates completed transcripts.
+durations, attempts, and errors.
+
+Repeat the same `offcourse sync <course-url>` command to fill in missing transcripts for existing
+downloads. Downloaded videos are reused. Complete transcript files are skipped, even when there
+is no transcription record in SQLite. Missing Markdown is restored from valid JSON without
+running Cuttledoc. Missing or invalid JSON triggers transcription while preserving any existing
+nonempty Markdown, including manual edits. The files are checked even when SQLite marks the
+transcription as completed.
+
+Each sync attempts every unfinished video once and continues after individual transcription
+failures. A subsequent sync retries missing transcripts regardless of previous attempt counts.
+`sync --force` explicitly regenerates transcripts as well as refreshing course content.
 
 ## Performance
 
@@ -115,13 +128,21 @@ Video downloads that use HLS require ffmpeg. Confirm it is available with `ffmpe
 
 ### Cuttledoc is missing
 
-Transcription is the only feature that requires Cuttledoc. Install a native release from the
+Transcription is the only feature that requires Cuttledoc. It requires the native v3 CLI; the
+older v1/v2 npm releases are not compatible. Follow the native CLI setup instructions in the
 [Cuttledoc repository](https://github.com/sebastian-software/cuttledoc), verify it with
 `cuttledoc --version`, or configure an explicit executable:
 
 ```bash
 offcourse config set cuttledocPath /absolute/path/to/cuttledoc
 ```
+
+If Cuttledoc is missing, downloaded videos remain on disk. Use `sync --no-transcribe` to
+continue downloading, then repeat `sync <course-url>` after setting up Cuttledoc to fill in
+missing transcripts.
+Local recognition currently requires Apple Silicon with macOS 26+, FFmpeg, and the selected
+backend’s speech assets or model. The default backend selection stays local; no hosted backend
+is enabled automatically.
 
 ### Playwright cannot find Chromium
 

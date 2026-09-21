@@ -15,6 +15,7 @@ type InitializedCourseState = ReturnType<
 
 const mocks = vi.hoisted(() => ({
   browserClose: vi.fn(),
+  runRequestedTranscription: vi.fn(),
   buildCourseStructure: vi.fn(),
   createCourseDirectory: vi.fn(),
   createModuleDirectory: vi.fn(),
@@ -110,6 +111,7 @@ vi.mock("../../storage/fileSystem.js", () => ({
   saveMarkdown: mocks.saveMarkdown,
 }));
 vi.mock("../syncPipeline.js", () => ({
+  runRequestedTranscription: mocks.runRequestedTranscription,
   downloadVideoTasks: mocks.downloadVideoTasks,
   runParallelSyncStage: mocks.runParallelSyncStage,
 }));

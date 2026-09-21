@@ -1,6 +1,10 @@
-import { basename, dirname, extname, join } from "node:path";
+import {
+  inspectTranscriptOutputs,
+  transcriptOutputPaths,
+  writeTranscriptMarkdown,
+  writeTranscriptOutputs,
+} from "./outputs.js";
 import type { Config } from "../config/schema.js";
-import { outputFile } from "../shared/fs.js";
 import type { CourseDatabase, TranscriptionCandidate } from "../state/index.js";
 import {
   CuttledocCliError,
@@ -45,10 +49,7 @@ export interface CourseTranscriptionSummary {
   estimatedProcessOverheadMs: number;
 }
 
-export interface TranscriptOutputPaths {
-  jsonPath: string;
-  markdownPath: string;
-}
+export { transcriptOutputPaths, type TranscriptOutputPaths } from "./outputs.js";
 
 export async function transcribeCourseVideos(
   database: CourseDatabase,
@@ -56,8 +57,9 @@ export async function transcribeCourseVideos(
   cli: CourseTranscriptionOptions
 ): Promise<CourseTranscriptionSummary> {
   const processOptions = resolveCuttledocProcessOptions(config, cli);
-  const maxAttempts = config.retryAttempts + 1;
-  const candidates = database.getTranscriptionCandidates(maxAttempts, cli.force ?? false);
+  // Files determine what is missing. Each explicit sync retries unfinished videos once,
+  // including jobs whose historical attempt count exceeded the old retry limit.
+  const candidates = database.getTranscriptionCandidates(config.retryAttempts + 1, true);
   const summary: CourseTranscriptionSummary = {
     attempted: 0,
     completed: 0,
@@ -68,7 +70,56 @@ export async function transcribeCourseVideos(
     processingDurationMs: 0,
     estimatedProcessOverheadMs: 0,
   };
-  if (candidates.length === 0) return summary;
+  const shouldContinue = cli.shouldContinue ?? (() => true);
+  const pending: { candidate: TranscriptionCandidate; replaceMarkdown: boolean }[] = [];
+  for (const candidate of candidates) {
+    if (!shouldContinue()) return summary;
+    try {
+      const existing = await inspectTranscriptOutputs(candidate.videoPath);
+      if (!cli.force && existing.result) {
+        if (!existing.hasMarkdown) {
+          await writeTranscriptMarkdown(
+            transcriptOutputPaths(candidate.videoPath).markdownPath,
+            candidate.lessonName,
+            existing.result.text
+          );
+          summary.attempted++;
+          summary.completed++;
+          cli.onProgress?.({
+            phase: "completed",
+            candidate,
+            completed: summary.completed,
+            total: candidates.length,
+          });
+        } else {
+          summary.skipped++;
+        }
+        // Recover state after a previous run wrote JSON but failed before completing the job.
+        if (candidate.status !== null && candidate.status !== "completed") {
+          database.markTranscriptionCompleted(candidate.videoId, {
+            ...transcriptOutputPaths(candidate.videoPath),
+            wallDurationMs: database.getTranscription(candidate.videoId)?.wallDurationMs ?? 0,
+            mediaDurationMs: existing.result.media_duration_ms,
+            processingDurationMs: existing.result.processing_duration_ms,
+          });
+        }
+        continue;
+      }
+      pending.push({ candidate, replaceMarkdown: Boolean(cli.force) || !existing.hasMarkdown });
+    } catch (error) {
+      const failure = transcriptionFailure(candidate, error);
+      summary.attempted++;
+      summary.failures.push(failure);
+      cli.onProgress?.({
+        phase: "error",
+        candidate,
+        completed: summary.completed,
+        total: candidates.length,
+        error: failure.message,
+      });
+    }
+  }
+  if (pending.length === 0) return summary;
 
   const runner = cli.runner;
   const cuttledocVersion = await inspectCuttledocVersion(
@@ -76,11 +127,9 @@ export async function transcribeCourseVideos(
     runner
   );
   summary.cuttledocVersion = cuttledocVersion;
-  const shouldContinue = cli.shouldContinue ?? (() => true);
-
-  for (const candidate of candidates) {
+  for (const [index, { candidate, replaceMarkdown }] of pending.entries()) {
     if (!shouldContinue()) {
-      summary.skipped += candidates.length - summary.attempted;
+      summary.skipped += pending.length - index;
       break;
     }
 
@@ -101,7 +150,12 @@ export async function transcribeCourseVideos(
     try {
       const run = await transcribeWithCuttledoc(candidate.videoPath, processOptions, runner);
       const outputPaths = transcriptOutputPaths(candidate.videoPath);
-      await writeTranscriptOutputs(outputPaths, candidate.lessonName, run.result);
+      await writeTranscriptOutputs(
+        candidate.videoPath,
+        candidate.lessonName,
+        run.result,
+        replaceMarkdown
+      );
       database.markTranscriptionCompleted(candidate.videoId, {
         ...outputPaths,
         wallDurationMs: run.wallDurationMs,
@@ -137,30 +191,6 @@ export async function transcribeCourseVideos(
   }
 
   return summary;
-}
-
-export function transcriptOutputPaths(videoPath: string): TranscriptOutputPaths {
-  const extension = extname(videoPath);
-  const stem = basename(videoPath, extension) || basename(videoPath);
-  const directory = dirname(videoPath);
-  return {
-    jsonPath: join(directory, `${stem}.transcript.json`),
-    markdownPath: join(directory, `${stem}.transcript.md`),
-  };
-}
-
-async function writeTranscriptOutputs(
-  paths: TranscriptOutputPaths,
-  lessonName: string,
-  result: {
-    text: string;
-    [key: string]: unknown;
-  }
-): Promise<void> {
-  await outputFile(paths.jsonPath, `${JSON.stringify(result, null, 2)}\n`);
-  const text = result.text.trim();
-  const markdown = [`# ${lessonName}`, "", text, ""].join("\n");
-  await outputFile(paths.markdownPath, markdown);
 }
 
 function transcriptionFailure(

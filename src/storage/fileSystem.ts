@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { rename, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { expandPath, getSyncStatePath } from "../config/paths.js";
@@ -62,6 +62,35 @@ export async function findLessonVideoPath(
   const expected = `${lessonSlug}.mp4`;
   const matches = files.filter((file) => file.replace(/^\d+-/, "") === expected);
   return matches.length === 1 && matches[0] ? join(moduleDir, matches[0]) : null;
+}
+
+/** Resolve the primary video and numbered additional videos without re-extracting a lesson. */
+export async function findLessonVideoPaths(
+  moduleDir: string,
+  lessonIndex: number,
+  lessonName: string
+): Promise<string[]> {
+  const primary = await findLessonVideoPath(moduleDir, lessonIndex, lessonName);
+  const paths = primary ? [primary] : [];
+  const stem = primary ? basename(primary, ".mp4") : getLessonBasename(lessonIndex, lessonName);
+  const prefix = `${stem}-video-`;
+  try {
+    const files = await readdir(moduleDir, { withFileTypes: true });
+    const additional = files
+      .filter(
+        (file) =>
+          file.isFile() &&
+          file.name.startsWith(prefix) &&
+          /^\d+\.mp4$/.test(file.name.slice(prefix.length))
+      )
+      .map((file) => join(moduleDir, file.name))
+      .sort();
+    return [...paths, ...additional];
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT")
+      return paths;
+    throw error;
+  }
 }
 
 /**
