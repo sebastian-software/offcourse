@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   downloadFile,
   findLessonVideoPath,
+  findLessonVideoPaths,
   getLessonBasename,
   getVideoPath,
   getMarkdownPath,
@@ -127,6 +128,25 @@ describe("fileSystem", () => {
     it("handles nested paths", () => {
       const path = getVideoPath("/home/user/Downloads/courses/test", 5, "Lesson Six");
       expect(toPosix(path)).toBe("/home/user/Downloads/courses/test/06-lesson-six.mp4");
+    });
+  });
+
+  describe("findLessonVideoPaths", () => {
+    it("finds all retained lesson videos after reordering without including other lessons or notes", async () => {
+      const directory = await mkdtemp(join(tmpdir(), "offcourse-multi-video-"));
+      tempDirectories.push(directory);
+      const videos = ["01-welcome.mp4", "01-welcome-video-02.mp4", "01-welcome-video-03.mp4"];
+      for (const name of [
+        ...videos,
+        "01-welcome.transcript.md",
+        "02-other-video-02.mp4",
+        "01-welcome-video-notes.mp4",
+      ]) {
+        await writeFile(join(directory, name), "content");
+      }
+      await expect(findLessonVideoPaths(directory, 4, "Welcome")).resolves.toEqual(
+        videos.map((name) => join(directory, name))
+      );
     });
   });
 

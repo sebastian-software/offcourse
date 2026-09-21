@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -170,6 +170,79 @@ describe("course transcription pipeline", () => {
       attemptCount: 2,
     });
     expect(process).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips complete transcript files even without a transcription record", async () => {
+    const video = addDownloadedVideo();
+    const paths = transcriptOutputPaths(video.path);
+    await writeFile(paths.jsonPath, transcriptionOutput.stdout);
+    await writeFile(paths.markdownPath, "My edited transcript");
+    const runner = vi.fn<CuttledocProcessRunner>();
+    const summary = await transcribeCourseVideos(database, configSchema.parse({}), { runner });
+    expect(summary).toMatchObject({ attempted: 0, skipped: 1, failures: [] });
+    expect(runner).not.toHaveBeenCalled();
+    expect(await readFile(paths.markdownPath, "utf8")).toBe("My edited transcript");
+  });
+
+  it("preserves edited markdown when missing JSON needs transcription", async () => {
+    const video = addDownloadedVideo();
+    const paths = transcriptOutputPaths(video.path);
+    await writeFile(paths.jsonPath, "{broken");
+    await writeFile(paths.markdownPath, "My edited transcript");
+    const runner = vi
+      .fn<CuttledocProcessRunner>()
+      .mockResolvedValueOnce(versionOutput)
+      .mockResolvedValueOnce(transcriptionOutput);
+    expect(
+      await transcribeCourseVideos(database, configSchema.parse({}), { runner })
+    ).toMatchObject({ completed: 1, failures: [] });
+    expect(await readFile(paths.markdownPath, "utf8")).toBe("My edited transcript");
+    expect(JSON.parse(await readFile(paths.jsonPath, "utf8"))).toHaveProperty(
+      "text",
+      "Corrected transcript."
+    );
+  });
+
+  it("retries missing transcripts on the next sync even after the old attempt limit", async () => {
+    const video = addDownloadedVideo();
+    for (let attempt = 0; attempt < 5; attempt++) {
+      database.markTranscriptionStarted(video.id, {
+        language: "de",
+        backend: "auto",
+        enhancement: "off",
+        cuttledocVersion: "3.0.0",
+      });
+      database.markTranscriptionError(video.id, "BACKEND_UNAVAILABLE", "No model");
+    }
+    const runner = vi
+      .fn<CuttledocProcessRunner>()
+      .mockResolvedValueOnce(versionOutput)
+      .mockResolvedValueOnce(transcriptionOutput);
+    expect(
+      await transcribeCourseVideos(database, configSchema.parse({}), { runner })
+    ).toMatchObject({ completed: 1, failures: [] });
+    expect(database.getTranscription(video.id)).toMatchObject({
+      status: "completed",
+      attemptCount: 6,
+    });
+  });
+
+  it("recovers an interrupted job from existing JSON without another recognition attempt", async () => {
+    const video = addDownloadedVideo();
+    database.markTranscriptionStarted(video.id, {
+      language: "de",
+      backend: "auto",
+      enhancement: "off",
+      cuttledocVersion: "3.0.0",
+    });
+    await writeFile(transcriptOutputPaths(video.path).jsonPath, transcriptionOutput.stdout);
+    const runner = vi.fn<CuttledocProcessRunner>();
+    await transcribeCourseVideos(database, configSchema.parse({}), { runner });
+    expect(database.getTranscription(video.id)).toMatchObject({
+      status: "completed",
+      attemptCount: 1,
+    });
+    expect(runner).not.toHaveBeenCalled();
   });
 
   it("does not inspect Cuttledoc when there is no pending work", async () => {

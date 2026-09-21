@@ -174,7 +174,7 @@ export async function runRequestedTranscription(
   }
   if (summary.failures.length > 0) {
     throw new Error(
-      `${summary.failures.length} transcription(s) failed; rerun sync or use offcourse enrich <directory> to retry`
+      `${summary.failures.length} transcription(s) failed; rerun sync to retry missing transcripts`
     );
   }
 

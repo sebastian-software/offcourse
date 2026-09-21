@@ -51,7 +51,6 @@ offcourse sync <url> --dry-run          # Preview
 offcourse sync <url> --limit 5          # Test with 5 lessons
 offcourse sync <url>                    # Download, then transcribe with Cuttledoc
 offcourse sync <url> --no-transcribe    # Download without transcription
-offcourse enrich ~/Courses            # Add missing transcripts to existing downloads
 
 # Skool login with community access verification
 offcourse login https://www.skool.com/<community>/classroom
@@ -104,39 +103,18 @@ Use `--no-transcribe` to disable it for a sync; `--dry-run` never transcribes.
 `--skip-videos` only skips downloads: existing local videos can still be transcribed. For every video,
 Offcourse writes `<video-stem>.transcript.json` with Cuttledoc's complete machine-readable result
 and `<video-stem>.transcript.md` for reading. SQLite stores the Cuttledoc version, selected settings,
-durations, attempts, and errors. Repeating `sync` skips videos with complete transcript files and retries unfinished work up to the
-configured attempt limit. Missing Markdown is restored from valid JSON without running Cuttledoc.
-`sync --force` also regenerates transcripts; use `enrich --force` to regenerate only transcripts.
+durations, attempts, and errors.
 
-### Enrich existing downloads
+Repeat the same `offcourse sync <course-url>` command to fill in missing transcripts for existing
+downloads. Downloaded videos are reused. Complete transcript files are skipped, even when there
+is no transcription record in SQLite. Missing Markdown is restored from valid JSON without
+running Cuttledoc. Missing or invalid JSON triggers transcription while preserving any existing
+nonempty Markdown, including manual edits. The files are checked even when SQLite marks the
+transcription as completed.
 
-```bash
-# Recursively add missing transcripts without a browser, login, or course database
-offcourse enrich ~/Courses
-
-# Use the configured outputDir (current directory by default)
-offcourse enrich
-
-# Preview missing transcripts without writing files or requiring Cuttledoc
-offcourse enrich ~/Courses --dry-run
-
-# Use a known course language
-offcourse enrich ~/Courses --transcription-language de
-
-# Explicitly replace existing transcripts
-offcourse enrich ~/Courses --force
-```
-
-Enrichment discovers MP4, M4V, MOV, MKV, WebM, AVI, MPEG, and MPG files in nested directories.
-Hidden entries and symbolic links are skipped. Existing valid JSON and nonempty Markdown files
-are left alone. Missing Markdown is rebuilt from JSON; missing or invalid JSON triggers
-transcription while preserving any existing nonempty Markdown, including manual edits.
-Video files and course notes are not changed. Files with the same stem in one directory are
-reported as a conflict before any output is written.
-
-Each video failure is reported while the remaining videos continue. Run the command again to
-retry missing transcripts, including jobs that exhausted the sync attempt limit. Completed files
-are skipped, so interruption does not require restarting the whole archive.
+Each sync attempts every unfinished video once and continues after individual transcription
+failures. A subsequent sync retries missing transcripts regardless of previous attempt counts.
+`sync --force` explicitly regenerates transcripts as well as refreshing course content.
 
 ## Performance
 
@@ -160,7 +138,8 @@ offcourse config set cuttledocPath /absolute/path/to/cuttledoc
 ```
 
 If Cuttledoc is missing, downloaded videos remain on disk. Use `sync --no-transcribe` to
-continue downloading and `enrich <directory>` after setting up Cuttledoc to fill in transcripts.
+continue downloading, then repeat `sync <course-url>` after setting up Cuttledoc to fill in
+missing transcripts.
 Local recognition currently requires Apple Silicon with macOS 26+, FFmpeg, and the selected
 backend’s speech assets or model. The default backend selection stays local; no hosted backend
 is enabled automatically.

@@ -176,7 +176,7 @@ async function runCuttledocProcess(
     const diagnostic = boundedDiagnostic(stderr);
     const executableMissing = record?.code === "ENOENT";
     const message = executableMissing
-      ? `Cuttledoc executable not found: ${executable}. Install the native Cuttledoc CLI or set cuttledocPath. Use sync --no-transcribe to download only, then offcourse enrich <directory> to add transcripts.`
+      ? `Cuttledoc executable not found: ${executable}. Install the native Cuttledoc CLI or set cuttledocPath. Use sync --no-transcribe to download only, then rerun sync to add missing transcripts.`
       : diagnostic
         ? `Cuttledoc failed: ${diagnostic}`
         : "Cuttledoc process failed";

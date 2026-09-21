@@ -57,8 +57,9 @@ export async function transcribeCourseVideos(
   cli: CourseTranscriptionOptions
 ): Promise<CourseTranscriptionSummary> {
   const processOptions = resolveCuttledocProcessOptions(config, cli);
-  const maxAttempts = config.retryAttempts + 1;
-  const candidates = database.getTranscriptionCandidates(maxAttempts, true);
+  // Files determine what is missing. Each explicit sync retries unfinished videos once,
+  // including jobs whose historical attempt count exceeded the old retry limit.
+  const candidates = database.getTranscriptionCandidates(config.retryAttempts + 1, true);
   const summary: CourseTranscriptionSummary = {
     attempted: 0,
     completed: 0,
@@ -103,12 +104,6 @@ export async function transcribeCourseVideos(
           });
         }
         continue;
-      }
-      if (!cli.force && candidate.status !== "completed" && candidate.attemptCount >= maxAttempts) {
-        throw new CuttledocCliError(
-          "Transcription retry limit reached; use offcourse enrich <directory> to retry missing transcripts",
-          "TRANSCRIPTION_RETRY_LIMIT"
-        );
       }
       pending.push({ candidate, replaceMarkdown: Boolean(cli.force) || !existing.hasMarkdown });
     } catch (error) {

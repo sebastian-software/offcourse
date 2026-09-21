@@ -11,9 +11,11 @@ const mocks = vi.hoisted(() => ({
   downloadVideoTasks: vi.fn(),
   extractLesson: vi.fn(),
   formatMarkdown: vi.fn(),
+  findLessonVideoPaths: vi.fn(),
   getAuthenticatedSession: vi.fn(),
   getDownloadFilePath: vi.fn(),
   getMarkdownPath: vi.fn(),
+  getLessonByUrl: vi.fn(),
   getVideoPath: vi.fn(),
   initializeCourseState: vi.fn(),
   isCourseUrl: vi.fn(),
@@ -115,6 +117,7 @@ vi.mock("../../scraper/joshcomeau/index.js", () => ({
 vi.mock("../../storage/fileSystem.js", () => ({
   createCourseDirectory: mocks.createCourseDirectory,
   createModuleDirectory: mocks.createModuleDirectory,
+  findLessonVideoPaths: mocks.findLessonVideoPaths,
   getDownloadFilePath: mocks.getDownloadFilePath,
   getMarkdownPath: mocks.getMarkdownPath,
   getVideoPath: mocks.getVideoPath,
@@ -209,16 +212,18 @@ beforeEach(() => {
       `/courses/css-for-js/01-rendering-logic/${filename}`
   );
   mocks.pathExists.mockResolvedValue(false);
+  mocks.findLessonVideoPaths.mockResolvedValue([]);
   const stateLesson = {
     id: 1,
     status: "pending",
     retryCount: 0,
   };
+  mocks.getLessonByUrl.mockReturnValue(stateLesson);
   mocks.initializeCourseState.mockReturnValue({
     key: "joshcomeau-css-for-js",
     database: {
       close: vi.fn(),
-      getLessonByUrl: vi.fn(() => stateLesson),
+      getLessonByUrl: mocks.getLessonByUrl,
       markLessonDownloaded: vi.fn(),
       markLessonSkipped: vi.fn(),
       recordDownloadedVideo: mocks.recordDownloadedVideo,
@@ -325,6 +330,21 @@ describe("syncJoshComeauCommand", () => {
     expect(mocks.saveMarkdown).not.toHaveBeenCalled();
     expect(mocks.downloadVideoTasks).not.toHaveBeenCalled();
     expect(mocks.browserClose).toHaveBeenCalledOnce();
+  });
+
+  it("registers cached multi-video lessons for transcription without extracting or downloading again", async () => {
+    mocks.isLessonSynced.mockResolvedValue({ content: true, video: true });
+    mocks.getLessonByUrl.mockReturnValue({ id: 1, status: "downloaded", retryCount: 0 });
+    const paths = ["/courses/module/01-flow.mp4", "/courses/module/01-flow-video-02.mp4"];
+    mocks.findLessonVideoPaths.mockResolvedValue(paths);
+
+    await syncJoshComeauCommand(courseUrl, {});
+
+    expect(mocks.extractLesson).not.toHaveBeenCalled();
+    expect(mocks.downloadVideoTasks).not.toHaveBeenCalled();
+    expect(mocks.recordDownloadedVideo).toHaveBeenCalledWith(1, paths[0]);
+    expect(mocks.recordDownloadedVideo).toHaveBeenCalledWith(1, paths[1]);
+    expect(mocks.runRequestedTranscription).toHaveBeenCalledOnce();
   });
 
   it("re-downloads existing video files when retrying a failed lesson", async () => {

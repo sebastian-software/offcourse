@@ -224,13 +224,16 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
     !options.dryRun &&
     !options.retryFailed
   ) {
-    if (options.transcribe !== false && !options.dryRun) {
-      await runRequestedTranscription(db, config, options, shutdown.shouldContinue);
+    try {
+      if (options.transcribe !== false) {
+        await runRequestedTranscription(db, config, options, shutdown.shouldContinue);
+      }
+      console.log(chalk.green("\n✅ Sync complete!\n"));
+      printStatusSummary(db);
+      console.log(chalk.gray(`   Output: ${courseDir}\n`));
+    } finally {
+      db.close();
     }
-    console.log(chalk.green("\n✅ Already complete! Nothing to do.\n"));
-    printStatusSummary(db);
-    console.log(chalk.gray(`   Output: ${courseDir}\n`));
-    db.close();
     return;
   }
 
@@ -275,6 +278,7 @@ export async function syncCommand(url: string, options: SyncOptions): Promise<vo
     // Retry-failed mode: only process lessons that previously failed
     if (options.retryFailed) {
       await retryFailedLessons(session.page, db, courseDir, config, options);
+      await runRequestedTranscription(db, config, options, shutdown.shouldContinue);
       await browser.close();
       db.close();
       return;

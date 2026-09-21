@@ -113,7 +113,7 @@ describe("runRequestedTranscription", () => {
     });
 
     await expect(runRequestedTranscription(database, config, { transcribe: true })).rejects.toThrow(
-      "offcourse enrich <directory> to retry"
+      "rerun sync to retry missing transcripts"
     );
   });
 });

@@ -4,7 +4,6 @@ import { Command } from "commander";
 import chalk from "chalk";
 import packageJson from "../../package.json" with { type: "json" };
 import { configGetCommand, configSetCommand, configShowCommand } from "./commands/config.js";
-import { enrichCommand, type EnrichOptions } from "./commands/enrich.js";
 import { inspectCommand } from "./commands/inspect.js";
 import { loginCommand, logoutCommand } from "./commands/login.js";
 import { statusCommand, statusListCommand, type StatusOptions } from "./commands/status.js";
@@ -132,22 +131,6 @@ program
           }
         }
       }
-    )
-  );
-
-// Enrich local archives without connecting to a learning platform.
-program
-  .command("enrich [directory]")
-  .description("Add missing video transcripts recursively (default: configured output directory)")
-  .option("--dry-run", "List videos with missing transcripts without writing files")
-  .option("-f, --force", "Regenerate existing transcripts")
-  .option("--cuttledoc-path <path>", "Cuttledoc executable (default: config or PATH)")
-  .option("--transcription-language <tag>", "Transcription language tag (default: auto)")
-  .option("--transcription-backend <id>", "Cuttledoc backend (default: auto)")
-  .option("--transcription-enhancement <mode>", "Transcript enhancement: off, local, or gemini")
-  .action(
-    wrapAction((directory: string | undefined, options: EnrichOptions) =>
-      enrichCommand(directory, options)
     )
   );
 
