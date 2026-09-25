@@ -1,5 +1,7 @@
 import type { BrowserContext, Locator, Page } from "playwright";
 import { parallelProcess } from "../../shared/parallelWorker.js";
+import { installLearningSuiteDialogHandler } from "./dialogs.js";
+export { installLearningSuiteDialogHandler } from "./dialogs.js";
 
 const MODULE_LESSON_WORDS =
   "LEKTION(?:EN)?|LESSONS?|LEÇON(?:S)?|LECCIÓN(?:ES)?|LEZION(?:E|I)?|LESSEN|LIÇ(?:ÃO|ÕES)|AULAS?";
@@ -184,43 +186,6 @@ export function parseLearningSuiteLessonText(text: string): ParsedLearningSuiteL
 // Browser/API Automation
 // ============================================================================
 
-const pagesWithDialogHandler = new WeakSet<Page>();
-
-/** Close optional welcome dialogs, including ones that appear after navigation. */
-export async function installLearningSuiteDialogHandler(page: Page): Promise<void> {
-  if (pagesWithDialogHandler.has(page)) return;
-  const dialog = page.locator(".MuiDialog-root:visible, .MuiModal-root:visible").first();
-  await page.addLocatorHandler(
-    dialog,
-    async (visibleDialog) => {
-      const closeButton = visibleDialog
-        .getByRole("button", {
-          name: /^(schließen|schliessen|close|dismiss)$/i,
-        })
-        .first();
-      const closeIcon = visibleDialog
-        .locator('button:has(svg[data-icon="xmark"]), button:has(svg[data-testid="CloseIcon"])')
-        .first();
-      // The footer button can leave an embedded welcome form open. Prefer its X.
-      await closeIcon
-        .or(closeButton)
-        .first()
-        .waitFor({ state: "visible", timeout: 5000 })
-        .catch(() => {});
-      if (await closeIcon.isVisible()) {
-        await closeIcon.click();
-      } else if (await closeButton.isVisible()) {
-        await closeButton.click();
-      } else {
-        // Never click arbitrary icon buttons or submit embedded forms.
-        await page.keyboard.press("Escape");
-      }
-    },
-    { noWaitAfter: true }
-  );
-  pagesWithDialogHandler.add(page);
-}
-
 /**
  * Extracts the tenant ID from the page by inspecting network requests or localStorage.
  */
@@ -340,13 +305,12 @@ async function scanModuleLessons(
   courseId: string,
   titleOccurrence: number
 ): Promise<LearningSuiteCourseStructure["modules"][0]> {
+  await installLearningSuiteDialogHandler(page);
+
   // Navigate to course page first (each worker starts fresh)
   await page.goto(courseUrl, { timeout: 30000 });
   await page.waitForLoadState("domcontentloaded").catch(() => {});
   await waitForLearningSuiteModules(page);
-
-  // Dismiss any modal dialogs
-  await installLearningSuiteDialogHandler(page);
 
   // Navigate to the module by clicking its title inside the module-card container.
   const moduleTitle = await findLearningSuiteModuleTitle(page, module.title, titleOccurrence);
@@ -474,13 +438,12 @@ export async function buildLearningSuiteCourseStructure(
 
   onProgress?.({ phase: "init" });
 
+  await installLearningSuiteDialogHandler(page);
+
   // Navigate to course page
   onProgress?.({ phase: "navigating", status: "Loading course page..." });
   await page.goto(courseUrl, { timeout: 30000, waitUntil: "domcontentloaded" });
   await waitForLearningSuiteModules(page);
-
-  // Dismiss any modal dialogs (e.g., welcome/notification modals)
-  await installLearningSuiteDialogHandler(page);
 
   // Extract tenant ID from page
   onProgress?.({ phase: "extracting", status: "Extracting tenant info..." });

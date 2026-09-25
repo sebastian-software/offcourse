@@ -4,6 +4,53 @@ import { expect, it } from "vitest";
 import { installLearningSuiteDialogHandler } from "./navigator.js";
 import { extractLearningSuitePostContent } from "./extractor.js";
 
+it("extracts a tenant lesson with multiple generic media URLs without a welcome dialog or playback", async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.route("https://academy.example.test/lesson", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `<main><h3>Training lesson</h3><p data-slate-node="element">Lesson text</p><hls-video></hls-video><hls-video></hls-video></main>
+        <script>
+          window.playbackAttempts = 0;
+          document.querySelectorAll('hls-video').forEach((player, index) => {
+            Object.assign(player, {
+              src: 'https://media.example.test/assets/' + index + '/master.m3u8',
+              api: { levels: [{ height: 720, details: {
+                live: false, totalduration: 8,
+                fragments: [{url: 'https://cdn.example.test/assets/' + index + '/part.ts', duration: 8}]
+              } }] },
+              play() { window.playbackAttempts++; throw new Error('Playback forbidden'); }
+            });
+            Object.defineProperty(player, 'currentTime', { set() { window.playbackAttempts++; } });
+            player.append(document.createElement('track'));
+          });
+        </script>`,
+      })
+    );
+    const result = await extractLearningSuitePostContent(
+      page,
+      "https://academy.example.test/lesson",
+      "tenant",
+      "course",
+      "lesson"
+    );
+    expect(result?.title).toBe("Training lesson");
+    expect(result?.htmlContent).toContain("Lesson text");
+    expect(result?.videos).toHaveLength(2);
+    expect(result?.videos?.[0]?.id).not.toBe(result?.videos?.[1]?.id);
+    expect(result?.video).toEqual(result?.videos?.[0]);
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { playbackAttempts: number }).playbackAttempts
+      )
+    ).toBe(0);
+  } finally {
+    await browser.close();
+  }
+});
+
 it("removes media listeners after failed navigation on a reused worker page", async () => {
   const browser = await chromium.launch({ headless: true });
   try {

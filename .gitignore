@@ -21,6 +21,7 @@ npm-debug.log*
 
 # Test coverage
 coverage/
+coverage-integration/
 
 # Environment
 .env

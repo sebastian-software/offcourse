@@ -1,5 +1,19 @@
 import { expect, it } from "vitest";
-import { learningSuiteCaptionText } from "./captions.js";
+import { learningSuiteCaptionText, selectLearningSuiteCaption } from "./captions.js";
+
+it("uses provider order or the default track without assuming a German portal", () => {
+  const tracks = [{ language: "fr" }, { language: "de" }, { language: "en", isDefault: true }];
+  expect(selectLearningSuiteCaption(tracks)).toBe(tracks[2]);
+  expect(selectLearningSuiteCaption(tracks.slice(0, 2))).toBe(tracks[0]);
+  expect(selectLearningSuiteCaption<{ language: string }>([])).toBeUndefined();
+});
+
+it("matches explicit language preferences before the provider default", () => {
+  const tracks = [{ language: "fr", isDefault: true }, { language: "en" }, { language: "en-US" }];
+  expect(selectLearningSuiteCaption(tracks, "EN_us")).toBe(tracks[2]);
+  expect(selectLearningSuiteCaption(tracks, "en-GB")).toBe(tracks[1]);
+  expect(selectLearningSuiteCaption(tracks, "de-DE")).toBe(tracks[0]);
+});
 
 it("preserves multiline cue text without IDs, timings, styles, or notes", () => {
   expect(

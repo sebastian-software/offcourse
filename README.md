@@ -129,6 +129,13 @@ subtitles are also saved as `.captions.json`, `.captions.md`, and WebVTT files. 
 `--refresh-media` once to discover additional media in lessons downloaded by older versions;
 existing videos are reused.
 
+LearningSuite dialogs are optional: navigation never waits for a welcome dialog to appear.
+When a dismissible overlay blocks an action, Offcourse recognizes native/ARIA dialogs and
+common modal containers and uses explicit close controls. Required decisions and form
+submissions are left untouched. Caption Markdown follows `transcriptionLanguage` when a
+matching track exists; otherwise it uses the provider's default track or track order.
+All available subtitle tracks are retained.
+
 ## Performance
 
 Course scanning and content extraction use `extractionConcurrency` browser tabs (default: 4). All tabs share the same authenticated session. Video downloads use a separate `concurrency` queue (default: 2), so browser work and network/download load can be tuned independently.

@@ -23,3 +23,20 @@ export function learningSuiteCaptionText(vtt: string): string {
     })
     .join("\n\n");
 }
+/** Prefer an explicit language, otherwise preserve the provider's default track/order. */
+export function selectLearningSuiteCaption<T extends { language: string; isDefault?: boolean }>(
+  captions: T[],
+  preferredLanguage = "auto"
+): T | undefined {
+  const normalize = (language: string) => language.toLowerCase().replaceAll("_", "-");
+  const language = normalize(preferredLanguage);
+  if (language !== "auto") {
+    const preferred =
+      captions.find((caption) => normalize(caption.language) === language) ??
+      captions.find(
+        (caption) => normalize(caption.language).split("-")[0] === language.split("-")[0]
+      );
+    if (preferred) return preferred;
+  }
+  return captions.find((caption) => caption.isDefault) ?? captions[0];
+}

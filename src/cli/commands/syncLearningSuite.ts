@@ -1,5 +1,8 @@
 import chalk from "chalk";
-import { learningSuiteCaptionText } from "../../scraper/learningsuite/captions.js";
+import {
+  learningSuiteCaptionText,
+  selectLearningSuiteCaption,
+} from "../../scraper/learningsuite/captions.js";
 import { pathExists, outputJson, outputFile } from "../../shared/fs.js";
 import ora from "ora";
 import { loadConfig } from "../../config/configManager.js";
@@ -469,13 +472,14 @@ export async function syncLearningSuiteCommand(
             const stem = outputPath.replace(/\.mp4$/, "");
             if (video.captions?.length) {
               await outputJson(`${stem}.captions.json`, video.captions);
-              const preferred =
-                video.captions.find((caption) => /^de(?:-|$)/i.test(caption.language)) ??
-                video.captions[0];
+              const preferred = selectLearningSuiteCaption(
+                video.captions,
+                options.transcriptionLanguage ?? config.transcriptionLanguage
+              );
               if (preferred) {
                 await outputFile(
                   `${stem}.captions.md`,
-                  `# ${lesson.title}\n\nUntertitel von LearningSuite (${preferred.language || "Original"})\n\n${learningSuiteCaptionText(preferred.vtt)}\n`
+                  `# ${lesson.title}\n\nLearningSuite captions (${preferred.language || "original"})\n\n${learningSuiteCaptionText(preferred.vtt)}\n`
                 );
               }
               for (const [captionIndex, caption] of video.captions.entries()) {
