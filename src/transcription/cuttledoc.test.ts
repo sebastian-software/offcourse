@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { withTrailingSilence } from "./audioPadding.js";
 import { configSchema } from "../config/schema.js";
 import {
   inspectCuttledocVersion,
@@ -6,6 +7,8 @@ import {
   transcribeWithCuttledoc,
   type CuttledocProcessRunner,
 } from "./cuttledoc.js";
+
+vi.mock("./audioPadding.js", () => ({ withTrailingSilence: vi.fn() }));
 
 const resultJson = JSON.stringify({
   schema_version: "1.0.0",
@@ -21,6 +24,80 @@ const resultJson = JSON.stringify({
 });
 
 describe("Cuttledoc process integration", () => {
+  beforeEach(() => {
+    vi.mocked(withTrailingSilence).mockReset();
+    vi.mocked(withTrailingSilence).mockImplementation(async (_input, _seconds, run) =>
+      run("/tmp/padded.wav")
+    );
+  });
+
+  it("retries an Apple Speech zero-length segment with temporary trailing silence", async () => {
+    const runner = vi
+      .fn<CuttledocProcessRunner>()
+      .mockRejectedValueOnce({
+        exitCode: 1,
+        stderr: `${"progress\ttranscribing\t1\t100\t-\n".repeat(100)}error[BACKEND_CONTRACT_VIOLATION]: segment 349 has invalid range 90667..90667`,
+      })
+      .mockResolvedValueOnce({ stdout: resultJson, stderr: "" });
+    const run = await transcribeWithCuttledoc(
+      "lesson.mp4",
+      {
+        executable: "cuttledoc",
+        language: "de-DE",
+        backend: "apple-speech",
+        enhancement: "off",
+      },
+      runner
+    );
+    expect(withTrailingSilence).toHaveBeenCalledWith("lesson.mp4", 2, expect.any(Function));
+    expect(runner.mock.calls[1]?.[1][1]).toBe("/tmp/padded.wav");
+    expect(run.result.text).toBe("Corrected transcript.");
+    expect(run.result.media_duration_ms).toBe(10_500);
+    expect(run.result.preprocessing).toEqual({ trailing_silence_ms: 2000 });
+  });
+
+  it("preserves useful diagnostics and does not retry other contract failures", async () => {
+    const runner = vi.fn<CuttledocProcessRunner>().mockRejectedValue({
+      stderr: `${"progress\ttranscribing\t1\t100\t-\n".repeat(100)}error[BACKEND_CONTRACT_VIOLATION]: segment 4 has invalid range 12..10`,
+    });
+    await expect(
+      transcribeWithCuttledoc(
+        "lesson.mp4",
+        {
+          executable: "cuttledoc",
+          language: "de-DE",
+          backend: "apple-speech",
+          enhancement: "off",
+        },
+        runner
+      )
+    ).rejects.toMatchObject({
+      message:
+        "Cuttledoc failed: error[BACKEND_CONTRACT_VIOLATION]: segment 4 has invalid range 12..10",
+    });
+    expect(withTrailingSilence).not.toHaveBeenCalled();
+    expect(runner).toHaveBeenCalledTimes(1);
+  });
+
+  it("propagates a failed padded retry without an unbounded retry loop", async () => {
+    const runner = vi.fn<CuttledocProcessRunner>().mockRejectedValue({
+      stderr: "error[BACKEND_CONTRACT_VIOLATION]: segment 349 has invalid range 90667..90667",
+    });
+    await expect(
+      transcribeWithCuttledoc(
+        "lesson.mp4",
+        {
+          executable: "cuttledoc",
+          language: "de-DE",
+          backend: "apple-speech",
+          enhancement: "off",
+        },
+        runner
+      )
+    ).rejects.toMatchObject({ code: "BACKEND_CONTRACT_VIOLATION" });
+    expect(runner).toHaveBeenCalledTimes(2);
+  });
+
   it("resolves explicit CLI values over safe config defaults", () => {
     const config = configSchema.parse({});
     expect(

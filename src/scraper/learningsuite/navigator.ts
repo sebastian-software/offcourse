@@ -184,55 +184,41 @@ export function parseLearningSuiteLessonText(text: string): ParsedLearningSuiteL
 // Browser/API Automation
 // ============================================================================
 
-/**
- * Dismisses any open MUI modal dialogs that might block interactions.
- * These are notification/welcome modals that appear dynamically.
- */
-async function dismissMuiDialogs(page: Page): Promise<void> {
-  try {
-    // Check if there's an open MUI dialog
-    const dialog = page.locator('[role="presentation"].MuiDialog-root, .MuiModal-root');
-    if (await dialog.isVisible({ timeout: 500 }).catch(() => false)) {
-      // Try different ways to close the dialog:
+const pagesWithDialogHandler = new WeakSet<Page>();
 
-      // 1. Press Escape key (most reliable)
-      await page.keyboard.press("Escape");
-      await dialog.waitFor({ state: "hidden", timeout: 500 }).catch(() => {});
-
-      // Check if still visible
-      if (await dialog.isVisible({ timeout: 200 }).catch(() => false)) {
-        // 2. Try clicking the backdrop/overlay
-        const backdrop = page.locator(".MuiBackdrop-root, .MuiDialog-container");
-        if (await backdrop.isVisible({ timeout: 200 }).catch(() => false)) {
-          // Click outside the dialog content
-          await page.mouse.click(10, 10);
-          await dialog.waitFor({ state: "hidden", timeout: 500 }).catch(() => {});
-        }
+/** Close optional welcome dialogs, including ones that appear after navigation. */
+export async function installLearningSuiteDialogHandler(page: Page): Promise<void> {
+  if (pagesWithDialogHandler.has(page)) return;
+  const dialog = page.locator(".MuiDialog-root:visible, .MuiModal-root:visible").first();
+  await page.addLocatorHandler(
+    dialog,
+    async (visibleDialog) => {
+      const closeButton = visibleDialog
+        .getByRole("button", {
+          name: /^(schließen|schliessen|close|dismiss)$/i,
+        })
+        .first();
+      const closeIcon = visibleDialog
+        .locator('button:has(svg[data-icon="xmark"]), button:has(svg[data-testid="CloseIcon"])')
+        .first();
+      // The footer button can leave an embedded welcome form open. Prefer its X.
+      await closeIcon
+        .or(closeButton)
+        .first()
+        .waitFor({ state: "visible", timeout: 5000 })
+        .catch(() => {});
+      if (await closeIcon.isVisible()) {
+        await closeIcon.click();
+      } else if (await closeButton.isVisible()) {
+        await closeButton.click();
+      } else {
+        // Never click arbitrary icon buttons or submit embedded forms.
+        await page.keyboard.press("Escape");
       }
-
-      // Check again and try close button
-      if (await dialog.isVisible({ timeout: 200 }).catch(() => false)) {
-        // 3. Try clicking a close button if present
-        const closeBtn = page.locator(
-          '[aria-label="close"], [aria-label="Close"], .MuiDialogTitle-root button, .MuiIconButton-root'
-        );
-        if (
-          await closeBtn
-            .first()
-            .isVisible({ timeout: 200 })
-            .catch(() => false)
-        ) {
-          await closeBtn
-            .first()
-            .click({ timeout: 1000 })
-            .catch(() => {});
-          await dialog.waitFor({ state: "hidden", timeout: 500 }).catch(() => {});
-        }
-      }
-    }
-  } catch {
-    // Ignore errors - dialog might have closed naturally
-  }
+    },
+    { noWaitAfter: true }
+  );
+  pagesWithDialogHandler.add(page);
 }
 
 /**
@@ -360,7 +346,7 @@ async function scanModuleLessons(
   await waitForLearningSuiteModules(page);
 
   // Dismiss any modal dialogs
-  await dismissMuiDialogs(page);
+  await installLearningSuiteDialogHandler(page);
 
   // Navigate to the module by clicking its title inside the module-card container.
   const moduleTitle = await findLearningSuiteModuleTitle(page, module.title, titleOccurrence);
@@ -371,8 +357,6 @@ async function scanModuleLessons(
     return { ...module, scanStatus: "failed" };
   }
 
-  // Dismiss any modal dialogs that might block the click
-  await dismissMuiDialogs(page);
   await moduleTitle.click();
   await page.waitForURL(/\/t\/[^/]+/, { timeout: 5000 }).catch(() => {});
   await waitForLearningSuiteLessons(page, courseId);
@@ -492,12 +476,11 @@ export async function buildLearningSuiteCourseStructure(
 
   // Navigate to course page
   onProgress?.({ phase: "navigating", status: "Loading course page..." });
-  await page.goto(courseUrl, { timeout: 30000 });
-  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.goto(courseUrl, { timeout: 30000, waitUntil: "domcontentloaded" });
   await waitForLearningSuiteModules(page);
 
   // Dismiss any modal dialogs (e.g., welcome/notification modals)
-  await dismissMuiDialogs(page);
+  await installLearningSuiteDialogHandler(page);
 
   // Extract tenant ID from page
   onProgress?.({ phase: "extracting", status: "Extracting tenant info..." });
@@ -717,7 +700,12 @@ export async function buildLearningSuiteCourseStructure(
   // Combine locked and scanned modules (maintain original order)
   const allModules = initialModules.map((m) => {
     if (m.isLocked) return m;
-    return scannedModules.find((s) => s.position === m.position) ?? m;
+    return (
+      scannedModules.find((s) => s.position === m.position) ?? {
+        ...m,
+        scanStatus: "failed" as const,
+      }
+    );
   });
 
   onProgress?.({ phase: "done" });
@@ -728,7 +716,7 @@ export async function buildLearningSuiteCourseStructure(
   const emptyModuleTitles = scannedModules
     .filter((module) => module.scanStatus === "empty")
     .map((module) => module.title);
-  const failedModuleTitles = scannedModules
+  const failedModuleTitles = allModules
     .filter((module) => module.scanStatus === "failed")
     .map((module) => module.title);
 

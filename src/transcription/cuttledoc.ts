@@ -2,6 +2,7 @@ import { execa } from "execa";
 import { performance } from "node:perf_hooks";
 import { z } from "zod";
 import type { Config } from "../config/schema.js";
+import { withTrailingSilence } from "./audioPadding.js";
 
 const enhancementSchema = z.looseObject({
   backend: z.string(),
@@ -136,7 +137,27 @@ export async function transcribeWithCuttledoc(
     "--progress",
   ];
   const startedAt = performance.now();
-  const output = await runCuttledocProcess(options.executable, arguments_, runner);
+  let paddingMs = 0;
+  let output: CuttledocProcessOutput;
+  try {
+    output = await runCuttledocProcess(options.executable, arguments_, runner);
+  } catch (error) {
+    // Apple Speech can emit a zero-duration final word when speech reaches EOF.
+    // Give it audio context beyond EOF, while keeping the original media intact.
+    const range =
+      error instanceof CuttledocCliError && error.code === "BACKEND_CONTRACT_VIOLATION"
+        ? /segment \d+ has invalid range (\d+)\.\.(\d+)/u.exec(error.message)
+        : null;
+    if (options.backend !== "apple-speech" || !range || range[1] !== range[2]) throw error;
+    paddingMs = 2000;
+    output = await withTrailingSilence(inputPath, paddingMs / 1000, (paddedPath) =>
+      runCuttledocProcess(
+        options.executable,
+        ["transcribe", paddedPath, ...arguments_.slice(2)],
+        runner
+      )
+    );
+  }
   const wallDurationMs = performance.now() - startedAt;
 
   let decoded: unknown;
@@ -155,7 +176,14 @@ export async function transcribeWithCuttledoc(
   }
 
   return {
-    result: result.data,
+    result:
+      paddingMs === 0
+        ? result.data
+        : {
+            ...result.data,
+            media_duration_ms: Math.max(0, result.data.media_duration_ms - paddingMs),
+            preprocessing: { trailing_silence_ms: paddingMs },
+          },
     wallDurationMs,
     progressOutput: output.stderr,
   };
@@ -191,7 +219,10 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 function boundedDiagnostic(value: string): string {
-  const normalized = value.trim().replaceAll(/\s+/gu, " ");
+  // Progress can fill stderr before the useful error at the end of the stream.
+  const errorOffset = value.search(/error\[[A-Z0-9_]+\]/u);
+  const diagnostic = errorOffset >= 0 ? value.slice(errorOffset) : value;
+  const normalized = diagnostic.trim().replaceAll(/\s+/gu, " ");
   return normalized.length <= 500 ? normalized : `${normalized.slice(0, 497)}...`;
 }
 

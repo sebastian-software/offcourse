@@ -1,4 +1,6 @@
 import chalk from "chalk";
+import { learningSuiteCaptionText } from "../../scraper/learningsuite/captions.js";
+import { pathExists, outputJson, outputFile } from "../../shared/fs.js";
 import ora from "ora";
 import { loadConfig } from "../../config/configManager.js";
 import type { VideoDownloadTask } from "../../downloader/index.js";
@@ -59,6 +61,7 @@ export interface SyncLearningSuiteOptions extends TranscriptionCliOptions {
   courseName?: string;
   force?: boolean;
   retryFailed?: boolean;
+  refreshMedia?: boolean;
 }
 
 export interface CompleteLearningSuiteOptions {
@@ -257,6 +260,10 @@ export async function syncLearningSuiteCommand(
       return;
     }
 
+    if (courseStructure.failedModuleTitles?.length || courseStructure.emptyModuleTitles?.length) {
+      throw new Error("Incomplete LearningSuite module scan; refusing to save a partial course");
+    }
+
     const canonicalCourseUrl = `https://${courseStructure.domain}/student/course/${courseStructure.courseSlug ?? courseStructure.course.id}/${courseStructure.course.id}`;
     const state = initializeCourseState(
       "learningsuite",
@@ -287,6 +294,7 @@ export async function syncLearningSuiteCommand(
       options
     );
     database = state.database;
+    const existingDownloads = database.getDownloadedVideos();
     shutdown.registerCleanup(closeDatabase);
     console.log(chalk.gray(`   State: ~/.offcourse/cache/${state.key}.db`));
 
@@ -300,6 +308,8 @@ export async function syncLearningSuiteCommand(
     let contentExtracted = 0;
     let skipped = 0;
     let skippedLocked = 0;
+    let extractionErrors = 0;
+    let downloadErrors = 0;
 
     // Build list of lessons to process with their metadata
     interface LessonTask {
@@ -384,6 +394,7 @@ export async function syncLearningSuiteCommand(
         const needsVideo =
           !options.skipVideos &&
           (options.force === true ||
+            options.refreshMedia === true ||
             retryFailed ||
             (stateLesson?.status !== LessonStatus.DOWNLOADED && !syncStatus.video));
 
@@ -435,23 +446,69 @@ export async function syncLearningSuiteCommand(
           resultsLock.skipped++;
         }
 
-        // Queue video download
-        if (needsVideo && content.video?.url) {
-          const videoUrl = content.video.hlsUrl ?? content.video.url;
-          const videoTask: VideoDownloadTask = {
-            lessonId: stateId,
-            lessonName: lesson.title,
-            videoUrl,
-            videoType: mapVideoType(content.video.type, videoUrl),
-            outputPath: getVideoPath(moduleDir, lessonIndex, lesson.title),
-            preferredQuality: options.quality,
-          };
-          resultsLock.videoTasks.push(videoTask);
-          if (database) markLessonScanReady(database, stateId, videoTask);
+        // Keep every player in the lesson separate, including secondary demos.
+        const videos = content.videos ?? (content.video ? [content.video] : []);
+        if (needsVideo && videos.length > 0) {
+          const recordedPath = existingDownloads.find(
+            (video) => video.lessonId === stateId && !video.path.includes(".video-")
+          )?.path;
+          const basePath =
+            (await findLessonVideoPath(moduleDir, lessonIndex, lesson.title)) ??
+            (recordedPath && (await pathExists(recordedPath))
+              ? recordedPath
+              : getVideoPath(moduleDir, lessonIndex, lesson.title));
+          let queued = false;
+          for (const [videoIndex, video] of videos.entries()) {
+            const outputPath =
+              videoIndex === 0
+                ? basePath
+                : basePath.replace(
+                    /\.mp4$/,
+                    `.video-${slugify(video.id ?? String(videoIndex + 1))}.mp4`
+                  );
+            const stem = outputPath.replace(/\.mp4$/, "");
+            if (video.captions?.length) {
+              await outputJson(`${stem}.captions.json`, video.captions);
+              const preferred =
+                video.captions.find((caption) => /^de(?:-|$)/i.test(caption.language)) ??
+                video.captions[0];
+              if (preferred) {
+                await outputFile(
+                  `${stem}.captions.md`,
+                  `# ${lesson.title}\n\nUntertitel von LearningSuite (${preferred.language || "Original"})\n\n${learningSuiteCaptionText(preferred.vtt)}\n`
+                );
+              }
+              for (const [captionIndex, caption] of video.captions.entries()) {
+                await outputFile(
+                  `${stem}.captions-${captionIndex + 1}-${slugify(caption.language || "und")}.vtt`,
+                  caption.vtt
+                );
+              }
+            }
+            if (!options.force && !retryFailed && (await pathExists(outputPath))) {
+              database?.recordDownloadedVideo(stateId, outputPath);
+              continue;
+            }
+            const videoUrl = video.hlsUrl ?? video.url;
+            const videoTask: VideoDownloadTask = {
+              lessonId: stateId,
+              lessonName:
+                videoIndex === 0 ? lesson.title : `${lesson.title} (video ${videoIndex + 1})`,
+              videoUrl,
+              videoType: mapVideoType(video.type, videoUrl),
+              outputPath,
+              preferredQuality: options.quality,
+            };
+            resultsLock.videoTasks.push(videoTask);
+            if (database) markLessonScanReady(database, stateId, videoTask);
+            queued = true;
+          }
+          if (!queued) database?.markLessonDownloaded(stateId);
         } else if (needsVideo) {
           database?.markLessonSkipped(stateId, "No video found");
         }
       } catch (error) {
+        extractionErrors++;
         if (database) markLessonFailure(database, stateId, error, "EXTRACTION_ERROR");
         // Log error but continue processing
         const shortName =
@@ -503,11 +560,22 @@ export async function syncLearningSuiteCommand(
         concurrency: config.concurrency,
         shouldContinue: shutdown.shouldContinue,
       });
+      downloadErrors = downloads.failures.length;
       if (database) {
-        for (const outcome of downloads.outcomes) {
+        // Record failures last so a successful sibling video cannot hide them.
+        const outcomes = [...downloads.outcomes].sort(
+          (a, b) => Number(Boolean(b.result?.success)) - Number(Boolean(a.result?.success))
+        );
+        for (const outcome of outcomes) {
           recordVideoDownloadResult(database, outcome.task, outcome.result, outcome.error);
         }
       }
+    }
+
+    if (extractionErrors > 0 || downloadErrors > 0) {
+      throw new Error(
+        `Incomplete LearningSuite sync: ${extractionErrors} extraction errors, ${downloadErrors} video download errors`
+      );
     }
 
     if (options.transcribe !== false && !options.dryRun && database) {

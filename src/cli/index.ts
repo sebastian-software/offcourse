@@ -85,6 +85,7 @@ program
   .option("--limit <n>", "Limit to first N lessons (for testing)", parseInt)
   .option("-f, --force", "Re-extract cached course data")
   .option("--retry-failed", "Retry failed lessons")
+  .option("--refresh-media", "Recheck cached LearningSuite lessons for additional videos")
   .option("--visible", "Show browser window (default: headless)")
   .option("-q, --quality <quality>", "Preferred video quality (e.g., 720p, 1080p)")
   .option("--course-name <name>", "Override detected course name")
