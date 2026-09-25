@@ -64,6 +64,9 @@ offcourse login https://courses.joshwcomeau.com/<course>
 # LearningSuite login (session is saved per tenant)
 offcourse login https://<tenant>.learningsuite.io/student/course/<course>/<id>
 
+# Recheck cached LearningSuite lessons for additional videos and provided subtitles
+offcourse sync <url> --refresh-media
+
 # Unlock sequential content (LearningSuite)
 offcourse complete <url>
 
@@ -115,6 +118,23 @@ transcription as completed.
 Each sync attempts every unfinished video once and continues after individual transcription
 failures. A subsequent sync retries missing transcripts regardless of previous attempt counts.
 `sync --force` explicitly regenerates transcripts as well as refreshing course content.
+
+If Apple Speech rejects a zero-duration word at the end of a clip, Offcourse retries once
+using a temporary audio copy with two seconds of trailing silence. Original videos stay intact;
+the transcript JSON records this preprocessing and excludes the padding from the media duration.
+
+LearningSuite lessons can contain multiple videos. Offcourse saves the first video under the
+lesson filename and additional videos with a stable `.video-<id>.mp4` suffix. Available platform
+subtitles are also saved as `.captions.json`, `.captions.md`, and WebVTT files. Use
+`--refresh-media` once to discover additional media in lessons downloaded by older versions;
+existing videos are reused.
+
+LearningSuite dialogs are optional: navigation never waits for a welcome dialog to appear.
+When a dismissible overlay blocks an action, Offcourse recognizes native/ARIA dialogs and
+common modal containers and uses explicit close controls. Required decisions and form
+submissions are left untouched. Caption Markdown follows `transcriptionLanguage` when a
+matching track exists; otherwise it uses the provider's default track or track order.
+All available subtitle tracks are retained.
 
 ## Performance
 
