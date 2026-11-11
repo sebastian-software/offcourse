@@ -40,16 +40,42 @@ describe("LearningSuite readiness waits", () => {
         { href: "https://academy.learningsuite.io/student/course/example/course-1/t/module-1" },
       ],
     });
-    const waitForFunction = vi.fn(async (predicate: (id: string) => boolean, id: string) => {
-      expect(predicate(id)).toBe(true);
-    });
+    const waitForFunction = vi.fn(
+      async (
+        predicate: (args: { id: string; minimum: number }) => boolean,
+        args: { id: string; minimum: number }
+      ) => {
+        expect(predicate(args)).toBe(true);
+      }
+    );
     const page = { waitForFunction } as unknown as Page;
 
     await waitForLearningSuiteLessons(page, "course-1");
 
-    expect(waitForFunction).toHaveBeenCalledWith(expect.any(Function), "course-1", {
-      timeout: 5000,
-    });
+    expect(waitForFunction).toHaveBeenCalledWith(
+      expect.any(Function),
+      { id: "course-1", minimum: 1 },
+      { timeout: 10000 }
+    );
+  });
+
+  it("waits beyond export and continue links until the advertised lessons are present", async () => {
+    const base = "https://academy.learningsuite.io/student/course/example/course-1/";
+    const links = ["markdown", "json", "lesson-1", "lesson-1"].map((slug) => ({
+      href: base + slug,
+    }));
+    vi.stubGlobal("document", { querySelectorAll: () => links });
+    const waitForFunction = vi.fn(
+      async (
+        predicate: (args: { id: string; minimum: number }) => boolean,
+        args: { id: string; minimum: number }
+      ) => {
+        expect(predicate(args)).toBe(false);
+        links.push({ href: base + "lesson-2" });
+        expect(predicate(args)).toBe(true);
+      }
+    );
+    await waitForLearningSuiteLessons({ waitForFunction } as unknown as Page, "course-1", 2);
   });
 
   it("preserves best-effort behavior when readiness times out", async () => {
@@ -134,6 +160,7 @@ describe("getLearningSuiteModuleSlug", () => {
 describe("parseLearningSuiteLessonText", () => {
   it.each([
     ["Willkommen 2 Minuten", "Willkommen", "2 Minuten"],
+    ["Willkommen2 Minuten1 Seite", "Willkommen", "2 Minuten"],
     ["Kurz erklärt 30 Sekunden", "Kurz erklärt", "30 Sekunden"],
     ["Welcome 2 minutes", "Welcome", "2 minutes"],
     ["Quick tour 30 seconds", "Quick tour", "30 seconds"],

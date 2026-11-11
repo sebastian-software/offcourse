@@ -70,6 +70,8 @@ describe("LearningSuite Extractor", () => {
     it("rejects sequences with gaps or implausibly little coverage", () => {
       expect(getCompleteLearningSuiteSegments([segment(0), segment(2)], 12)).toBeNull();
       expect(getCompleteLearningSuiteSegments([segment(0)], 196)).toBeNull();
+      expect(getCompleteLearningSuiteSegments([segment(0)], null)).toBeNull();
+      expect(getCompleteLearningSuiteSegments([segment(0)])).toBeNull();
     });
 
     it("selects the most complete rendition without mixing equal segment indexes", () => {

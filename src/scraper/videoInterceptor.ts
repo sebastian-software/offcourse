@@ -583,6 +583,8 @@ export async function captureEncryptedHLSSegments(
 
     // Playwright locators pierce open Shadow DOM, unlike document.querySelector.
     const videoLocator = page.locator("video").first();
+    // The player shell can mount before its media element during SPA navigation.
+    await videoLocator.waitFor({ state: "attached", timeout: durationTimeout }).catch(() => {});
 
     // Get video duration after the browser has loaded metadata.
     let videoDuration = 0;
@@ -594,13 +596,18 @@ export async function captureEncryptedHLSSegments(
         return new Promise<number>((resolve) => {
           const timer = window.setTimeout(() => {
             media.removeEventListener("loadedmetadata", onMetadata);
+            media.removeEventListener("durationchange", onMetadata);
             resolve(0);
           }, timeout);
           const onMetadata = () => {
+            if (!Number.isFinite(media.duration) || media.duration <= 0) return;
             window.clearTimeout(timer);
-            resolve(Number.isFinite(media.duration) ? media.duration : 0);
+            media.removeEventListener("loadedmetadata", onMetadata);
+            media.removeEventListener("durationchange", onMetadata);
+            resolve(media.duration);
           };
-          media.addEventListener("loadedmetadata", onMetadata, { once: true });
+          media.addEventListener("loadedmetadata", onMetadata);
+          media.addEventListener("durationchange", onMetadata);
         });
       }, durationTimeout);
     }
@@ -612,6 +619,12 @@ export async function captureEncryptedHLSSegments(
         error: "Could not determine video duration",
       };
     }
+
+    await videoLocator.evaluate((video) => {
+      const media = video as HTMLVideoElement;
+      media.muted = true;
+      return media.play().catch(() => {});
+    });
 
     // Generate seek positions throughout the video
     const seekPositions: number[] = [];
@@ -627,7 +640,18 @@ export async function captureEncryptedHLSSegments(
       const segmentRequest = waitForMatchingRequest(page, cdnPattern, seekDelay);
       try {
         await videoLocator.evaluate((video, time) => {
-          (video as HTMLVideoElement).currentTime = time;
+          const media = video as HTMLVideoElement;
+          return new Promise<void>((resolve) => {
+            const finish = () => {
+              window.clearTimeout(timer);
+              media.removeEventListener("seeked", finish);
+              resolve();
+            };
+            const timer = window.setTimeout(finish, 3000);
+            media.addEventListener("seeked", finish, { once: true });
+            media.currentTime = time;
+            if (!media.seeking) finish();
+          });
         }, seekTime);
         await segmentRequest;
       } catch {
