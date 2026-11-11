@@ -112,6 +112,7 @@ describe("captureEncryptedHLSSegments", () => {
         });
       }),
       count: vi.fn().mockResolvedValue(1),
+      waitFor: vi.fn().mockResolvedValue(undefined),
       evaluate: vi.fn().mockResolvedValueOnce(7).mockResolvedValue(undefined),
     };
     videoLocator.first.mockReturnValue(videoLocator);
@@ -140,6 +141,7 @@ describe("captureEncryptedHLSSegments", () => {
       videoDuration: 7,
     });
     expect(locator).toHaveBeenCalledWith("video");
+    expect(videoLocator.waitFor).toHaveBeenCalledWith({ state: "attached", timeout: 10000 });
     expect(waitForRequest).toHaveBeenCalledWith(expect.any(Function), { timeout: 250 });
     expect(requests.listenerCount("request")).toBe(0);
   });

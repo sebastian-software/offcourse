@@ -31,6 +31,16 @@ export interface LearningSuitePostContent {
   }[];
 }
 
+interface LearningSuiteHlsPlayer extends Element {
+  api?: {
+    currentLevel: number;
+    levels: {
+      height: number;
+      details?: { totalduration: number; fragments: { url: string }[] };
+    }[];
+  };
+}
+
 // ============================================================================
 // Pure Utility Functions (Testable)
 // ============================================================================
@@ -95,6 +105,7 @@ export function getCompleteLearningSuiteSegments(
   urls: string[],
   videoDuration?: number | null
 ): string[] | null {
+  if (!videoDuration || !Number.isFinite(videoDuration)) return null;
   const renditions = new Map<string, Map<number, string>>();
   let lastObservedIndex = -1;
 
@@ -512,6 +523,8 @@ export async function extractLearningSuitePostContent(
   _courseId: string,
   lessonId: string
 ): Promise<LearningSuitePostContent | null> {
+  // Stop the previous lesson before intercepting requests for this one.
+  await page.goto("about:blank");
   // Set up request interception to capture HLS video URLs
   const hlsUrls: string[] = [];
 
@@ -599,18 +612,68 @@ export async function extractLearningSuitePostContent(
 
   // If video player exists, use the shared active seeker to capture all segments.
   if (hasVideoPlayer) {
-    // Hand request capture over to the shared seeker after navigation so each
-    // phase has exactly one listener while early segments remain preserved.
-    page.off("request", requestHandler);
+    // Keep one rendition throughout capture; adaptive switches can leave gaps in each quality.
+    await page
+      .waitForFunction(
+        () => {
+          const player: LearningSuiteHlsPlayer | null = document.querySelector("hls-video");
+          const hls = player?.api;
+          if (!hls?.levels.length) return false;
+          hls.currentLevel = hls.levels.reduce(
+            (best, level, index, levels) =>
+              level.height > (levels[best]?.height ?? -1) ? index : best,
+            0
+          );
+          return true;
+        },
+        undefined,
+        { timeout: 10000 }
+      )
+      .catch(() => {});
+    await page
+      .locator("video")
+      .first()
+      .evaluate((video) => {
+        const media = video as HTMLVideoElement;
+        media.muted = true;
+        return media.play().catch(() => {});
+      })
+      .catch(() => {});
+    // The authenticated player's parsed playlist contains every signed fragment URL.
+    const manifest = await page
+      .waitForFunction(
+        () => {
+          const player: LearningSuiteHlsPlayer | null = document.querySelector("hls-video");
+          const hls = player?.api;
+          const details = hls?.levels[hls.currentLevel]?.details;
+          if (!details?.fragments.length || !details.totalduration) return null;
+          return {
+            videoDuration: details.totalduration,
+            segmentUrls: details.fragments.map((fragment) => fragment.url),
+          };
+        },
+        undefined,
+        { timeout: 10000 }
+      )
+      .then((handle) => handle.jsonValue())
+      .catch(() => null);
+    if (manifest) {
+      videoDuration = manifest.videoDuration;
+      segmentUrls.push(...manifest.segmentUrls);
+    } else {
+      // Hand request capture over to the shared seeker after navigation so each
+      // phase has exactly one listener while early segments remain preserved.
+      page.off("request", requestHandler);
 
-    const captured = await captureEncryptedHLSSegments(page, {
-      cdnPattern: /b-cdn\.net.*\.ts/i,
-      seekInterval: 3,
-      seekDelay: 250,
-    });
-    videoDuration = captured.videoDuration;
-    for (const segmentUrl of captured.segmentUrls) {
-      if (!segmentUrls.includes(segmentUrl)) segmentUrls.push(segmentUrl);
+      const captured = await captureEncryptedHLSSegments(page, {
+        cdnPattern: /b-cdn\.net.*\.ts/i,
+        seekInterval: 3,
+        seekDelay: 250,
+      });
+      videoDuration = captured.videoDuration;
+      for (const segmentUrl of captured.segmentUrls) {
+        if (!segmentUrls.includes(segmentUrl)) segmentUrls.push(segmentUrl);
+      }
     }
   }
 
@@ -647,6 +710,9 @@ export async function extractLearningSuitePostContent(
 
   // Fallback to DOM extraction if no HLS found
   video ??= await extractVideoFromPage(page);
+  if (!video && segmentUrls.length > 0) {
+    throw new Error("Could not capture the complete LearningSuite video; retry this lesson");
+  }
 
   const htmlContent = await extractHtmlContent(page);
   const attachments = await extractAttachmentsFromPage(page);

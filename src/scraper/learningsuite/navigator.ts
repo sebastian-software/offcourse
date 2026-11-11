@@ -32,15 +32,28 @@ export async function waitForLearningSuiteModules(page: Page): Promise<void> {
     .catch(() => {});
 }
 
-export async function waitForLearningSuiteLessons(page: Page, courseId: string): Promise<void> {
+export async function waitForLearningSuiteLessons(
+  page: Page,
+  courseId: string,
+  expectedLessonCount = 1
+): Promise<void> {
   await page
     .waitForFunction(
-      (id) =>
-        Array.from(document.querySelectorAll("a")).some(
-          (link) => link.href.includes(`/${id}/`) && !link.href.includes("/t/")
-        ),
-      courseId,
-      { timeout: 5000 }
+      ({ id, minimum }) =>
+        new Set(
+          Array.from(document.querySelectorAll("a"))
+            .filter(
+              (link) =>
+                link.href.includes(`/${id}/`) &&
+                !link.href.includes("/t/") &&
+                !["markdown", "json", "info", "bookmarks"].includes(
+                  new URL(link.href).pathname.split("/").at(-1) ?? ""
+                )
+            )
+            .map((link) => link.href)
+        ).size >= minimum,
+      { id: courseId, minimum: Math.max(1, expectedLessonCount) },
+      { timeout: 10000 }
     )
     .catch(() => {});
 }
@@ -167,7 +180,9 @@ export function parseLearningSuiteLessonText(text: string): ParsedLearningSuiteL
   const normalizedText = text.replace(/\s+/g, " ").trim();
   if (normalizedText.length < 5) return null;
 
-  const durationMatch = /(\d+\s*(?:Minuten?|Sekunden?|Minutes?|Seconds?))\b/i.exec(normalizedText);
+  const durationMatch = /(\d+\s*(?:Minuten?|Sekunden?|Minutes?|Seconds?))(?![a-z])/i.exec(
+    normalizedText
+  );
   const title = durationMatch
     ? normalizedText.substring(0, durationMatch.index).trim()
     : normalizedText;
@@ -375,7 +390,12 @@ async function scanModuleLessons(
   await dismissMuiDialogs(page);
   await moduleTitle.click();
   await page.waitForURL(/\/t\/[^/]+/, { timeout: 5000 }).catch(() => {});
-  await waitForLearningSuiteLessons(page, courseId);
+  const expectedLessonCount = Number.parseInt(module.description ?? "", 10);
+  await waitForLearningSuiteLessons(
+    page,
+    courseId,
+    Number.isFinite(expectedLessonCount) ? expectedLessonCount : 1
+  );
 
   // Extract module ID from URL (format: /t/{moduleId})
   const currentUrl = page.url();
@@ -406,6 +426,7 @@ async function scanModuleLessons(
       const parts = href.split("/");
       const lessonId = parts[parts.length - 1];
       if (!lessonId || seenIds.has(lessonId)) continue;
+      if (["markdown", "json", "info", "bookmarks"].includes(lessonId)) continue;
       seenIds.add(lessonId);
 
       // Preserve visible text for localized parsing outside the browser context.
@@ -448,7 +469,16 @@ async function findLearningSuiteModuleTitle(
   title: string,
   occurrence: number
 ): Promise<Locator> {
-  const exactTitle = page.getByText(title, { exact: true });
+  const exactTitle = page.getByText(title, { exact: true }).filter({ visible: true });
+  await exactTitle
+    .first()
+    .waitFor({ state: "visible", timeout: 10000 })
+    .catch(() => {});
+  // Module cards use h4 headings; the course hero can repeat the same title in h3.
+  const moduleHeadings = page.locator("h4").and(exactTitle);
+  if ((await moduleHeadings.count()) > occurrence) {
+    return moduleHeadings.nth(occurrence);
+  }
   const cardSelectors = [
     'a[href*="/t/"]',
     '[data-testid*="module" i]:not(:has([data-testid*="module" i]))',
@@ -711,6 +741,28 @@ export async function buildLearningSuiteCourseStructure(
       });
 
       scannedModules.push(scannedModule);
+    }
+  }
+
+  // Retry incomplete parallel scans on the main page after the workers have closed.
+  if (useParallel) {
+    for (const module of accessibleModules) {
+      if (!shouldContinue()) break;
+      if (
+        scannedModules.some(
+          (scanned) => scanned.position === module.position && scanned.scanStatus === "ok"
+        )
+      )
+        continue;
+      onProgress?.({ phase: "extracting", status: `Retrying module: ${module.title}` });
+      const occurrence = initialModules
+        .slice(0, module.position)
+        .filter((candidate) => candidate.title === module.title).length;
+      const retried = await scanModuleLessons(page, module, courseUrl, courseId, occurrence).catch(
+        () => ({ ...module, scanStatus: "failed" as const })
+      );
+      scannedModules = scannedModules.filter((scanned) => scanned.position !== module.position);
+      scannedModules.push(retried);
     }
   }
 
