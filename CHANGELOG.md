@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/sebastian-software/offcourse/compare/v1.6.0...v1.6.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* recover LearningSuite media across portal layouts ([#135](https://github.com/sebastian-software/offcourse/issues/135)) ([f82eb9f](https://github.com/sebastian-software/offcourse/commit/f82eb9f1e2692af8db8ae605a32a3d602aa75278))
+
 ## [1.6.0](https://github.com/sebastian-software/offcourse/compare/v1.5.1...v1.6.0) (2026-09-21)
 
 ### Features
