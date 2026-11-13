@@ -1,5 +1,7 @@
 import type { BrowserContext, Locator, Page } from "playwright";
 import { parallelProcess } from "../../shared/parallelWorker.js";
+import { installLearningSuiteDialogHandler } from "./dialogs.js";
+export { installLearningSuiteDialogHandler } from "./dialogs.js";
 
 const MODULE_LESSON_WORDS =
   "LEKTION(?:EN)?|LESSONS?|LEÇON(?:S)?|LECCIÓN(?:ES)?|LEZION(?:E|I)?|LESSEN|LIÇ(?:ÃO|ÕES)|AULAS?";
@@ -185,57 +187,6 @@ export function parseLearningSuiteLessonText(text: string): ParsedLearningSuiteL
 // ============================================================================
 
 /**
- * Dismisses any open MUI modal dialogs that might block interactions.
- * These are notification/welcome modals that appear dynamically.
- */
-async function dismissMuiDialogs(page: Page): Promise<void> {
-  try {
-    // Check if there's an open MUI dialog
-    const dialog = page.locator('[role="presentation"].MuiDialog-root, .MuiModal-root');
-    if (await dialog.isVisible({ timeout: 500 }).catch(() => false)) {
-      // Try different ways to close the dialog:
-
-      // 1. Press Escape key (most reliable)
-      await page.keyboard.press("Escape");
-      await dialog.waitFor({ state: "hidden", timeout: 500 }).catch(() => {});
-
-      // Check if still visible
-      if (await dialog.isVisible({ timeout: 200 }).catch(() => false)) {
-        // 2. Try clicking the backdrop/overlay
-        const backdrop = page.locator(".MuiBackdrop-root, .MuiDialog-container");
-        if (await backdrop.isVisible({ timeout: 200 }).catch(() => false)) {
-          // Click outside the dialog content
-          await page.mouse.click(10, 10);
-          await dialog.waitFor({ state: "hidden", timeout: 500 }).catch(() => {});
-        }
-      }
-
-      // Check again and try close button
-      if (await dialog.isVisible({ timeout: 200 }).catch(() => false)) {
-        // 3. Try clicking a close button if present
-        const closeBtn = page.locator(
-          '[aria-label="close"], [aria-label="Close"], .MuiDialogTitle-root button, .MuiIconButton-root'
-        );
-        if (
-          await closeBtn
-            .first()
-            .isVisible({ timeout: 200 })
-            .catch(() => false)
-        ) {
-          await closeBtn
-            .first()
-            .click({ timeout: 1000 })
-            .catch(() => {});
-          await dialog.waitFor({ state: "hidden", timeout: 500 }).catch(() => {});
-        }
-      }
-    }
-  } catch {
-    // Ignore errors - dialog might have closed naturally
-  }
-}
-
-/**
  * Extracts the tenant ID from the page by inspecting network requests or localStorage.
  */
 export async function extractTenantId(page: Page): Promise<string | null> {
@@ -354,13 +305,12 @@ async function scanModuleLessons(
   courseId: string,
   titleOccurrence: number
 ): Promise<LearningSuiteCourseStructure["modules"][0]> {
+  await installLearningSuiteDialogHandler(page);
+
   // Navigate to course page first (each worker starts fresh)
   await page.goto(courseUrl, { timeout: 30000 });
   await page.waitForLoadState("domcontentloaded").catch(() => {});
   await waitForLearningSuiteModules(page);
-
-  // Dismiss any modal dialogs
-  await dismissMuiDialogs(page);
 
   // Navigate to the module by clicking its title inside the module-card container.
   const moduleTitle = await findLearningSuiteModuleTitle(page, module.title, titleOccurrence);
@@ -371,8 +321,6 @@ async function scanModuleLessons(
     return { ...module, scanStatus: "failed" };
   }
 
-  // Dismiss any modal dialogs that might block the click
-  await dismissMuiDialogs(page);
   await moduleTitle.click();
   await page.waitForURL(/\/t\/[^/]+/, { timeout: 5000 }).catch(() => {});
   await waitForLearningSuiteLessons(page, courseId);
@@ -490,14 +438,12 @@ export async function buildLearningSuiteCourseStructure(
 
   onProgress?.({ phase: "init" });
 
+  await installLearningSuiteDialogHandler(page);
+
   // Navigate to course page
   onProgress?.({ phase: "navigating", status: "Loading course page..." });
-  await page.goto(courseUrl, { timeout: 30000 });
-  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.goto(courseUrl, { timeout: 30000, waitUntil: "domcontentloaded" });
   await waitForLearningSuiteModules(page);
-
-  // Dismiss any modal dialogs (e.g., welcome/notification modals)
-  await dismissMuiDialogs(page);
 
   // Extract tenant ID from page
   onProgress?.({ phase: "extracting", status: "Extracting tenant info..." });
@@ -717,7 +663,12 @@ export async function buildLearningSuiteCourseStructure(
   // Combine locked and scanned modules (maintain original order)
   const allModules = initialModules.map((m) => {
     if (m.isLocked) return m;
-    return scannedModules.find((s) => s.position === m.position) ?? m;
+    return (
+      scannedModules.find((s) => s.position === m.position) ?? {
+        ...m,
+        scanStatus: "failed" as const,
+      }
+    );
   });
 
   onProgress?.({ phase: "done" });
@@ -728,7 +679,7 @@ export async function buildLearningSuiteCourseStructure(
   const emptyModuleTitles = scannedModules
     .filter((module) => module.scanStatus === "empty")
     .map((module) => module.title);
-  const failedModuleTitles = scannedModules
+  const failedModuleTitles = allModules
     .filter((module) => module.scanStatus === "failed")
     .map((module) => module.title);
 

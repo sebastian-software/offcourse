@@ -1,4 +1,6 @@
 import type { Page } from "playwright";
+import { installLearningSuiteDialogHandler } from "./navigator.js";
+import { readLearningSuitePlayerVideos, type LearningSuiteCaption } from "./playerMedia.js";
 import { createSegmentsUrl } from "../../downloader/shared/index.js";
 import {
   detectVimeoEmbed,
@@ -9,6 +11,8 @@ import {
 import { captureEncryptedHLSSegments } from "../videoInterceptor.js";
 
 export interface LearningSuiteVideoInfo {
+  id?: string;
+  captions?: LearningSuiteCaption[];
   type: "hls" | "vimeo" | "loom" | "youtube" | "wistia" | "native" | "unknown";
   url: string;
   hlsUrl?: string;
@@ -22,6 +26,7 @@ export interface LearningSuitePostContent {
   description: string | null;
   htmlContent: string | null;
   video: LearningSuiteVideoInfo | null;
+  videos?: LearningSuiteVideoInfo[];
   attachments: {
     id: string;
     name: string;
@@ -512,6 +517,8 @@ export async function extractLearningSuitePostContent(
   _courseId: string,
   lessonId: string
 ): Promise<LearningSuitePostContent | null> {
+  await installLearningSuiteDialogHandler(page);
+
   // Set up request interception to capture HLS video URLs
   const hlsUrls: string[] = [];
 
@@ -583,48 +590,54 @@ export async function extractLearningSuitePostContent(
   page.on("request", requestHandler);
   page.on("response", responseHandler);
 
-  // Navigate to lesson page
-  await page.goto(lessonUrl, { timeout: 30000 });
-  await page.waitForLoadState("domcontentloaded");
-
-  // Wait for video player to appear (if any)
-  const hasVideoPlayer = await page
-    .locator("video, [class*='video'], [class*='Video'], [class*='player'], [class*='Player']")
-    .first()
-    .waitFor({ state: "attached", timeout: 5000 })
-    .then(() => true)
-    .catch(() => false);
-
+  let playerVideos: Awaited<ReturnType<typeof readLearningSuitePlayerVideos>>;
   let videoDuration: number | null = null;
+  try {
+    // Navigate to lesson page
+    await page.goto(lessonUrl, { timeout: 30000 });
+    await page.waitForLoadState("domcontentloaded");
 
-  // If video player exists, use the shared active seeker to capture all segments.
-  if (hasVideoPlayer) {
-    // Hand request capture over to the shared seeker after navigation so each
-    // phase has exactly one listener while early segments remain preserved.
-    page.off("request", requestHandler);
+    // Wait for video player to appear (if any)
+    const hasVideoPlayer = await page
+      .locator(
+        'hls-video, video, iframe[src*="vimeo"], iframe[src*="loom"], iframe[src*="youtube"]'
+      )
+      .first()
+      .waitFor({ state: "attached", timeout: 10000 })
+      .then(() => true)
+      .catch(() => false);
 
-    const captured = await captureEncryptedHLSSegments(page, {
-      cdnPattern: /b-cdn\.net.*\.ts/i,
-      seekInterval: 3,
-      seekDelay: 250,
-    });
-    videoDuration = captured.videoDuration;
-    for (const segmentUrl of captured.segmentUrls) {
-      if (!segmentUrls.includes(segmentUrl)) segmentUrls.push(segmentUrl);
+    playerVideos = await readLearningSuitePlayerVideos(page);
+
+    // If video player exists, use the shared active seeker to capture all segments.
+    if (hasVideoPlayer && playerVideos.length === 0) {
+      // Hand request capture over to the shared seeker after navigation so each
+      // phase has exactly one listener while early segments remain preserved.
+      page.off("request", requestHandler);
+
+      const captured = await captureEncryptedHLSSegments(page, {
+        cdnPattern: /b-cdn\.net.*\.ts/i,
+        seekInterval: 3,
+        seekDelay: 250,
+      });
+      videoDuration = captured.videoDuration;
+      for (const segmentUrl of captured.segmentUrls) {
+        if (!segmentUrls.includes(segmentUrl)) segmentUrls.push(segmentUrl);
+      }
     }
+  } finally {
+    // Worker pages are reused; failed navigation or metadata must not leak listeners.
+    page.off("request", requestHandler);
+    page.off("response", responseHandler);
   }
-
-  // Remove handlers
-  page.off("request", requestHandler);
-  page.off("response", responseHandler);
 
   const completeSegments = getCompleteLearningSuiteSegments(segmentUrls, videoDuration);
 
   // Try to get video from intercepted requests first
-  let video: LearningSuiteVideoInfo | null = null;
+  let video: LearningSuiteVideoInfo | null = playerVideos[0] ?? null;
 
   // Use captured segment URLs if we have them (LearningSuite's encrypted HLS)
-  if (completeSegments) {
+  if (!video && completeSegments) {
     const segmentUrl = createSegmentsUrl(completeSegments);
     video = {
       type: "hls", // We'll handle this in the downloader
@@ -647,6 +660,9 @@ export async function extractLearningSuitePostContent(
 
   // Fallback to DOM extraction if no HLS found
   video ??= await extractVideoFromPage(page);
+  if (!video && (await page.locator("video, hls-video").count()) > 0) {
+    throw new Error("Video player found, but no complete downloadable video could be extracted");
+  }
 
   const htmlContent = await extractHtmlContent(page);
   const attachments = await extractAttachmentsFromPage(page);
@@ -694,6 +710,7 @@ export async function extractLearningSuitePostContent(
     description: null,
     htmlContent,
     video,
+    videos: playerVideos.length > 0 ? playerVideos : video ? [video] : [],
     attachments,
   };
 }

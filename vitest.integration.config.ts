@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import unitConfig from "./vitest.config.js";
 
 export default defineConfig({
   test: {
@@ -7,5 +8,9 @@ export default defineConfig({
     include: ["src/**/*.integration.test.ts"],
     testTimeout: 60000,
     hookTimeout: 30000,
+    coverage: {
+      ...unitConfig.test?.coverage,
+      reportsDirectory: "./coverage-integration",
+    },
   },
 });

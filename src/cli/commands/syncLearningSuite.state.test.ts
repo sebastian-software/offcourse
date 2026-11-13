@@ -17,6 +17,9 @@ const mocks = vi.hoisted(() => ({
   markLessonScanReady: vi.fn(),
   registerCleanup: vi.fn(),
   recordVideoDownloadResult: vi.fn(),
+  outputJson: vi.fn(),
+  outputFile: vi.fn(),
+  transcriptionLanguage: "auto",
   runParallelSyncStage: vi.fn(),
   saveMarkdown: vi.fn(),
 }));
@@ -32,7 +35,13 @@ vi.mock("../../config/configManager.js", () => ({
     headless: true,
     extractionConcurrency: 2,
     concurrency: 2,
+    transcriptionLanguage: mocks.transcriptionLanguage,
   }),
+}));
+vi.mock("../../shared/fs.js", () => ({
+  pathExists: vi.fn(async () => false),
+  outputJson: mocks.outputJson,
+  outputFile: mocks.outputFile,
 }));
 vi.mock("../../shared/auth.js", () => ({
   getAuthenticatedSession: mocks.getAuthenticatedSession,
@@ -105,6 +114,7 @@ type InitializedCourseState = ReturnType<
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.transcriptionLanguage = "auto";
   vi.spyOn(console, "log").mockImplementation(() => undefined);
   mocks.getAuthenticatedSession.mockResolvedValue({
     browser,
@@ -162,6 +172,7 @@ beforeEach(() => {
   const database = {
     close: vi.fn(),
     getLessonByUrl: vi.fn(() => stateLesson),
+    getDownloadedVideos: vi.fn(() => []),
     markLessonDownloaded: vi.fn(),
     markLessonSkipped: vi.fn(),
   };
@@ -188,6 +199,111 @@ beforeEach(() => {
 });
 
 describe("syncLearningSuiteCommand state tracking", () => {
+  it.each([
+    { language: "auto", options: {}, selected: "en", text: "Hello" },
+    { language: "fr-FR", options: {}, selected: "fr", text: "Bonjour" },
+    { language: "de", options: { transcriptionLanguage: "fr" }, selected: "fr", text: "Bonjour" },
+  ])(
+    "saves every caption track and honors language preferences: $language / $options",
+    async ({ language, options, selected, text }) => {
+      mocks.transcriptionLanguage = language;
+      const content = await mocks.extractPostContent();
+      const captions = [
+        { language: "de", label: "Deutsch", vtt: "WEBVTT\n\n00:00.000 --> 00:02.000\nHallo\n" },
+        { language: "fr", label: "Français", vtt: "WEBVTT\n\n00:00.000 --> 00:02.000\nBonjour\n" },
+        {
+          language: "en",
+          label: "English",
+          isDefault: true,
+          vtt: "WEBVTT\n\n00:00.000 --> 00:02.000\nHello\n",
+        },
+      ];
+      mocks.extractPostContent.mockResolvedValue({
+        ...content,
+        videos: [
+          { ...content.video, captions },
+          { ...content.video, id: "demo", captions: [captions[2]] },
+        ],
+      });
+      await syncLearningSuiteCommand(courseUrl, { refreshMedia: true, ...options });
+
+      const stem = "/courses/course/01-module/01-lesson";
+      expect(mocks.outputJson).toHaveBeenCalledWith(`${stem}.captions.json`, captions);
+      expect(mocks.outputJson).toHaveBeenCalledWith(`${stem}.video-demo.captions.json`, [
+        captions[2],
+      ]);
+      expect(mocks.outputFile).toHaveBeenCalledWith(
+        `${stem}.captions.md`,
+        `# Lesson\n\nLearningSuite captions (${selected})\n\n${text}\n`
+      );
+      for (const [index, caption] of captions.entries()) {
+        expect(mocks.outputFile).toHaveBeenCalledWith(
+          `${stem}.captions-${index + 1}-${caption.language}.vtt`,
+          caption.vtt
+        );
+      }
+      expect(mocks.outputFile).toHaveBeenCalledWith(
+        `${stem}.video-demo.captions-1-en.vtt`,
+        captions[2]!.vtt
+      );
+    }
+  );
+
+  it("queues every video in a lesson under distinct paths", async () => {
+    const content = await mocks.extractPostContent();
+    mocks.extractPostContent.mockResolvedValue({
+      ...content,
+      videos: [content.video, { ...content.video, id: "extra-video" }],
+    });
+
+    await syncLearningSuiteCommand(courseUrl, { refreshMedia: true });
+
+    const tasks = mocks.downloadVideoTasks.mock.calls[0]?.[0] as { outputPath: string }[];
+    expect(tasks.map((task) => task.outputPath)).toEqual([
+      "/courses/course/01-module/01-lesson.mp4",
+      "/courses/course/01-module/01-lesson.video-extra-video.mp4",
+    ]);
+    expect(mocks.recordVideoDownloadResult).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not hide a failed primary download when another video succeeds", async () => {
+    const content = await mocks.extractPostContent();
+    mocks.extractPostContent.mockResolvedValue({
+      ...content,
+      videos: [content.video, { ...content.video, id: "extra-video" }],
+    });
+    mocks.downloadVideoTasks.mockImplementation(async (tasks: unknown[]) => ({
+      completed: 1,
+      failures: [{ error: "Connection failed" }],
+      outcomes: [
+        { task: tasks[0], result: { success: false, error: "Connection failed" } },
+        { task: tasks[1], result: { success: true } },
+      ],
+    }));
+
+    await expect(syncLearningSuiteCommand(courseUrl, {})).rejects.toThrow(
+      "Incomplete LearningSuite sync"
+    );
+    expect(mocks.recordVideoDownloadResult.mock.calls.at(-1)?.[2]).toMatchObject({
+      success: false,
+    });
+  });
+
+  it.each(["failedModuleTitles", "emptyModuleTitles"])(
+    "rejects incomplete scans reported in %s before updating cached course state",
+    async (field) => {
+      const structure = await mocks.buildCourseStructure();
+      mocks.buildCourseStructure.mockResolvedValue({ ...structure, [field]: ["Module"] });
+
+      await expect(syncLearningSuiteCommand(courseUrl, {})).rejects.toThrow(
+        "Incomplete LearningSuite module scan"
+      );
+      expect(mocks.initializeCourseState).not.toHaveBeenCalled();
+      expect(mocks.createCourseDirectory).not.toHaveBeenCalled();
+      expect(mocks.browserClose).toHaveBeenCalledOnce();
+    }
+  );
+
   it("persists structure, tracks scan readiness, and records download outcomes", async () => {
     await syncLearningSuiteCommand(courseUrl, {});
 

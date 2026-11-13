@@ -54,6 +54,7 @@ export default tseslint.config(
       ".claude/**",
       ".pnpm-store/**",
       "coverage/**",
+      "coverage-integration/**",
       "dist/**",
       "docs/test-stream/**",
       "node_modules/**",
