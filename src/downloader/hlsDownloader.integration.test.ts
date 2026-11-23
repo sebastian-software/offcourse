@@ -3,23 +3,23 @@
  *
  * These tests require:
  * - ffmpeg installed and in PATH
- * - Network access (for HLS streams)
+ * - Network access (for the public master playlist check)
  * - Temp directory for output files
  *
  * Run with: pnpm test:integration
  */
 
-import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { createReadStream, existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { downloadHLSVideo, fetchHLSQualities } from "./hlsDownloader.js";
 import { checkFfmpeg } from "./shared/index.js";
 
 // Test fixtures - HLS streams for testing
 const TEST_STREAMS = {
-  // Our own tiny test stream hosted on GitHub Pages (~40KB, 4 seconds)
-  local: "https://sebastian-software.github.io/offcourse/test-stream/playlist.m3u8",
   // Apple's bipbop master playlist (for quality detection, has multiple qualities)
   bipbopMaster:
     "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8",
@@ -27,16 +27,51 @@ const TEST_STREAMS = {
 
 describe("HLS Downloader Integration", () => {
   let tempDir: string;
+  let server: Server;
+  let streamUrl: string;
 
-  beforeAll(() => {
-    // Create temp directory for test outputs
-    tempDir = join(tmpdir(), `offcourse-hls-test-${Date.now()}`);
-    mkdirSync(tempDir, { recursive: true });
+  beforeAll(async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "offcourse-hls-test-"));
+    const fixtures = fileURLToPath(new URL("../../docs/test-stream/", import.meta.url));
+    server = createServer((request, response) => {
+      const path = request.url ?? "";
+      if (!/^\/(playlist\.m3u8|seg[0-3]\.ts)$/.test(path)) {
+        response.writeHead(404).end();
+        return;
+      }
+
+      response.setHeader(
+        "Content-Type",
+        path.endsWith(".m3u8") ? "application/vnd.apple.mpegurl" : "video/mp2t"
+      );
+      createReadStream(join(fixtures, path.slice(1)))
+        .on("error", (error) => response.destroy(error))
+        .pipe(response);
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("HLS fixture did not bind to a TCP port");
+    }
+    streamUrl = `http://127.0.0.1:${address.port}/playlist.m3u8`;
   });
 
-  afterAll(() => {
-    // Clean up temp directory
-    if (existsSync(tempDir)) {
+  afterAll(async () => {
+    if (server?.listening) {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+    }
+    if (tempDir) {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
@@ -84,16 +119,15 @@ describe("HLS Downloader Integration", () => {
       expect(result.errorCode).toBeDefined();
     }, 15000);
 
-    // Download test using our tiny hosted test stream (~40KB, 4 seconds)
     it("should download our test HLS stream", async () => {
       const outputPath = join(tempDir, "test-video.mp4");
 
       const progressUpdates: number[] = [];
-      const result = await downloadHLSVideo(TEST_STREAMS.local, outputPath, (progress) => {
+      const result = await downloadHLSVideo(streamUrl, outputPath, (progress) => {
         progressUpdates.push(progress.percent);
       });
 
-      expect(result.success).toBe(true);
+      expect(result.success, result.error).toBe(true);
       expect(result.outputPath).toBe(outputPath);
       expect(existsSync(outputPath)).toBe(true);
 
